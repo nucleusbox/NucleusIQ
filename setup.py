@@ -10,7 +10,7 @@ setuptools.setup(
     version="0.1.0",
     author="Nucleusbox",
     author_email="info@nucleusbox.com",
-    description="An open-source framework for building and managing autonomous AI agents.",
+    description="NucleusIQ is an open-source framework for building and managing autonomous AI agents. It offers diverse strategies and architectures to create intelligent chatbots, financial tools, and multi-agent systems. With NucleusIQ, developers have the core components and flexibility needed to develop advanced AI applications effortlessly.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/nucleusbox/NucleusIQ",
