@@ -14,7 +14,7 @@
 
 ### Prerequisites
 
-- **Python 3.8+**
+- **Python 3.6+**
 - **Git**
 
 ### Steps
