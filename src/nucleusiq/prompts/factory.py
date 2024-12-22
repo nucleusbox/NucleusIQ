@@ -1,97 +1,71 @@
-# src/nucleusiq/prompts/factory.py
-
-from typing import Type, Dict, Any, Optional, List
+from typing import Type, Dict, TypeVar, cast
+from enum import Enum
 from nucleusiq.prompts.base import BasePrompt
 from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.prompts.few_shot import FewShotPrompt
 from nucleusiq.prompts.chain_of_thought import ChainOfThoughtPrompt
 from nucleusiq.prompts.auto_chain_of_thought import AutoChainOfThoughtPrompt
 from nucleusiq.prompts.retrieval_augmented_generation import RetrievalAugmentedGenerationPrompt
-from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.prompts.prompt_composer import PromptComposer
 
+# Define a TypeVar for BasePrompt
+T = TypeVar('T', bound=BasePrompt)
+
+# Define an Enum for prompt techniques
+class PromptTechnique(Enum):
+    ZERO_SHOT = "zero_shot"
+    FEW_SHOT = "few_shot"
+    CHAIN_OF_THOUGHT = "chain_of_thought"
+    AUTO_CHAIN_OF_THOUGHT = "auto_chain_of_thought"
+    RETRIEVAL_AUGMENTED_GENERATION = "retrieval_augmented_generation"
+    PROMPT_COMPOSER = "prompt_composer"
 
 class PromptFactory:
     """
     Factory class to instantiate different prompting techniques.
     """
 
-    prompt_classes: Dict[str, Type[BasePrompt]] = {
-        "zero_shot": ZeroShotPrompt,
-        "few_shot": FewShotPrompt,
-        "chain_of_thought": ChainOfThoughtPrompt,
-        "auto_chain_of_thought": AutoChainOfThoughtPrompt,
-        "retrieval_augmented_generation": RetrievalAugmentedGenerationPrompt,
+    prompt_classes: Dict[PromptTechnique, Type[BasePrompt]] = {
+        PromptTechnique.ZERO_SHOT: ZeroShotPrompt,
+        PromptTechnique.FEW_SHOT: FewShotPrompt,
+        PromptTechnique.CHAIN_OF_THOUGHT: ChainOfThoughtPrompt,
+        PromptTechnique.AUTO_CHAIN_OF_THOUGHT: AutoChainOfThoughtPrompt,
+        PromptTechnique.RETRIEVAL_AUGMENTED_GENERATION: RetrievalAugmentedGenerationPrompt,
+        PromptTechnique.PROMPT_COMPOSER: PromptComposer,
     }
 
     @classmethod
-    def register_prompt(cls, technique: str, prompt_class: Type[BasePrompt]) -> None:
+    def register_prompt(cls, technique: PromptTechnique, prompt_class: Type[BasePrompt]) -> None:
         """
         Register a new prompting technique.
 
         Args:
-            technique (str): The name of the prompting technique.
+            technique (PromptTechnique): The name of the prompting technique.
             prompt_class (Type[BasePrompt]): The class implementing the technique.
         """
-        technique = technique.lower()
         if technique in cls.prompt_classes:
-            raise ValueError(f"Prompting technique '{technique}' is already registered.")
+            raise ValueError(f"Prompting technique '{technique.value}' is already registered.")
         cls.prompt_classes[technique] = prompt_class
 
     @classmethod
-    def create_prompt(
-        cls,
-        technique: str,
-        llm: Optional[BaseLLM] = None,
-        template: Optional[str] = None,
-        input_variables: Optional[List[str]] = None,
-        optional_variables: Optional[List[str]] = None,
-        partial_variables: Optional[Dict[str, Any]] = None,
-        output_parser: Optional[Any] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        tags: Optional[List[str]] = None,
-        **kwargs: Any,  # Includes 'examples' and other params
-    ) -> BasePrompt:
+    def create_prompt(cls, technique: PromptTechnique) -> T:
         """
         Creates an instance of the specified prompting technique.
 
         Args:
-            technique (str): The prompting technique to use.
-            llm (Optional[BaseLLM]): Language Model adapter to use.
-            template (Optional[str]): The prompt template string.
-            input_variables (Optional[List[str]]): Required variables.
-            optional_variables (Optional[List[str]]): Optional variables.
-            partial_variables (Optional[Dict[str, Any]]): Pre-filled variables.
-            output_parser (Optional[Any]): Output parser.
-            metadata (Optional[Dict[str, Any]]): Metadata for the prompt.
-            tags (Optional[List[str]]): Tags for the prompt.
-            **kwargs (Any): Additional variables required by the prompt.
+            technique (PromptTechnique): The prompting technique to use.
 
         Returns:
-            BasePrompt: An instance of the specified prompt.
+            T: An instance of the specified prompt (specific subclass of BasePrompt).
 
         Raises:
             ValueError: If the technique is not supported.
         """
-        technique = technique.lower()
         prompt_class = cls.prompt_classes.get(technique)
         if not prompt_class:
-            available = ", ".join(cls.prompt_classes.keys())
+            available = ", ".join(t.value for t in cls.prompt_classes.keys())
             raise ValueError(
-                f"Prompting technique '{technique}' is not supported. "
+                f"Prompting technique '{technique.value}' is not supported. "
                 f"Available techniques: {available}."
             )
-        try:
-            prompt = prompt_class(
-                template=template or prompt_class.default_template(),
-                input_variables=input_variables or prompt_class.default_input_variables(),
-                optional_variables=optional_variables or prompt_class.default_optional_variables(),
-                partial_variables=partial_variables or {},
-                output_parser=output_parser,
-                metadata=metadata,
-                tags=tags,
-                llm=llm,  # Pass the LLM adapter
-                **kwargs,  # Pass additional kwargs like 'examples'
-            )
-            return prompt
-        except TypeError as e:
-            raise ValueError(f"Error initializing prompt: {e}")
+        return cast(T, prompt_class())

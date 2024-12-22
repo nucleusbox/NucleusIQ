@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union, Self, Callable
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 # Define a TypeVar for format output type
 FormatOutputType = TypeVar("FormatOutputType")
+
 
 class BasePrompt(BaseModel, ABC):
     """
@@ -33,13 +34,13 @@ class BasePrompt(BaseModel, ABC):
     partial_variables: Dict[str, Union[Any, Callable[[], Any]]] = Field(default_factory=dict)
     """A dictionary of partial variables that pre-fill parts of the prompt."""
 
-    output_parser: Optional[Any] = None
+    output_parser: Optional[Any] = Field(default=None, description="Parser to process the output from the LLM.")
     """An optional parser to process the output from the LLM."""
 
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Metadata for tracing and logging purposes.")
     """Metadata for tracing and logging purposes."""
 
-    tags: Optional[List[str]] = Field(default_factory=list)
+    tags: Optional[List[str]] = Field(default_factory=list, description="Tags for categorizing and filtering prompts.")
     """Tags for categorizing and filtering prompts."""
 
     class Config:
@@ -55,58 +56,47 @@ class BasePrompt(BaseModel, ABC):
         """
         pass
 
-    @model_validator(mode="before")
-    def _check_variable_conflicts(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Ensure that variable names do not conflict with reserved keywords
-        and that there are no overlapping input and partial variables.
-        """
-        reserved = {"stop", "metadata", "tags"}
-        input_vars = set(values.get("input_variables", []))
-        optional_vars = set(values.get("optional_variables", []))
-        partial_vars = set(values.get("partial_variables", {}).keys())
+    @field_validator('template')
+    def validate_template_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError("Template cannot be empty.")
+        return v
 
-        # Check for reserved keywords
-        conflicts = (input_vars | optional_vars | partial_vars) & reserved
-        if conflicts:
-            raise ValueError(
-                f"Variable names {conflicts} are reserved and cannot be used."
-            )
+    @field_validator('input_variables', mode='before')
+    def validate_input_variables(cls, v):
+        if not isinstance(v, list):
+            raise ValueError("input_variables must be a list of strings.")
+        for var in v:
+            if not isinstance(var, str) or not var.isidentifier():
+                raise ValueError(f"Invalid input variable name: '{var}'. Must be a valid identifier.")
+        return v
 
-        # Check for overlapping input and partial variables
-        overlap = input_vars & partial_vars
-        if overlap:
-            raise ValueError(
-                f"Overlapping variables between input and partial variables: {overlap}"
-            )
+    @field_validator('optional_variables', mode='before')
+    def validate_optional_variables(cls, v):
+        if not isinstance(v, list):
+            raise ValueError("optional_variables must be a list of strings.")
+        for var in v:
+            if not isinstance(var, str) or not var.isidentifier():
+                raise ValueError(f"Invalid optional variable name: '{var}'. Must be a valid identifier.")
+        return v
 
-        return values
+    @field_validator('tags', mode='before')
+    def validate_tags(cls, v):
+        if not isinstance(v, list):
+            raise ValueError("tags must be a list of strings.")
+        for tag in v:
+            if not isinstance(tag, str):
+                raise ValueError("Each tag must be a string.")
+        return v
 
-    @model_validator(mode="after")
-    def _validate_template_variables(self) -> Self:
-        """
-        Validate that all variables in the template are defined in input_variables,
-        optional_variables, or partial_variables.
-        """
-        # Extract variables from the template using regex
-        pattern = re.compile(r"\{(\w+)\}")
-        variables_in_template = set(pattern.findall(self.template))
-
-        allowed_vars = set(self.input_variables) | set(
-            self.optional_variables
-        ) | set(self.partial_variables.keys())
-
-        missing_vars = variables_in_template - allowed_vars
-        if missing_vars:
-            raise ValueError(
-                f"Variables {missing_vars} found in template are not defined in "
-                f"input_variables, optional_variables, or partial_variables."
-            )
-
-        return self
+    @field_validator('output_parser')
+    def validate_output_parser(cls, v):
+        if v is not None and not callable(v):
+            raise ValueError("output_parser must be a callable.")
+        return v
 
     @abstractmethod
-    def construct_prompt(self, **kwargs) -> str:
+    def _construct_prompt(self, **kwargs) -> str:
         """
         Construct the prompt string by replacing placeholders with actual values.
 
@@ -133,6 +123,11 @@ class BasePrompt(BaseModel, ABC):
         """
         combined_vars = self._merge_partial_variables(**kwargs)
 
+        # Include all input_variables and optional_variables from the instance's attributes
+        for var in self.input_variables + self.optional_variables:
+            if hasattr(self, var):
+                combined_vars[var] = getattr(self, var)
+
         missing_vars = set(self.input_variables) - set(combined_vars.keys())
         if missing_vars:
             raise ValueError(
@@ -140,7 +135,7 @@ class BasePrompt(BaseModel, ABC):
                 f"Received variables: {list(combined_vars.keys())}"
             )
 
-        return self.construct_prompt(**combined_vars)
+        return self._construct_prompt(**combined_vars)
 
     def save(self, file_path: Union[Path, str]) -> None:
         """
@@ -152,7 +147,7 @@ class BasePrompt(BaseModel, ABC):
         Raises:
             ValueError: If the file extension is not supported.
         """
-        prompt_dict = self.dict()
+        prompt_dict = self.model_dump()
         prompt_dict["_type"] = self.technique_name  # Use technique_name instead of class name
 
         save_path = Path(file_path)
@@ -200,14 +195,54 @@ class BasePrompt(BaseModel, ABC):
         if not prompt_class:
             available = ", ".join(PromptFactory.prompt_classes.keys())
             raise ValueError(
-                f"Unsupported prompt type '{prompt_type}'. Available types: {available}."
+                f"Unsupported prompt type '{prompt_type}'. Available techniques: {available}."
             )
 
         return prompt_class(**prompt_dict)
 
+    def set_metadata(self, metadata: Dict[str, Any]) -> BasePrompt:
+        """
+        Set metadata for the prompt.
+
+        Args:
+            metadata (Dict[str, Any]): Metadata information.
+
+        Returns:
+            BasePrompt: The updated prompt instance.
+        """
+        self.metadata = metadata
+        return self
+
+    def add_tags(self, tags: List[str]) -> BasePrompt:
+        """
+        Add tags to the prompt.
+
+        Args:
+            tags (List[str]): List of tags to add.
+
+        Returns:
+            BasePrompt: The updated prompt instance.
+        """
+        self.tags.extend(tags)
+        return self
+
+    def set_output_parser(self, parser: Any) -> BasePrompt:
+        """
+        Set the output parser for the prompt.
+
+        Args:
+            parser (Any): A parser object or function.
+
+        Returns:
+            BasePrompt: The updated prompt instance.
+        """
+        self.output_parser = parser
+        return self
+
     def partial(self, **kwargs: Union[str, Callable[[], str]]) -> BasePrompt:
         """
-        Return a partial of the prompt template with some variables pre-filled.
+        (Deprecated) Return a partial of the prompt template with some variables pre-filled.
+        Use specific methods like `set_parameters`, `add_example`, etc.
 
         Args:
             **kwargs: Partial variables to set.
@@ -215,32 +250,24 @@ class BasePrompt(BaseModel, ABC):
         Returns:
             BasePrompt: A new prompt template instance with partial variables.
         """
+        # Deprecated method; inform the user
+        import warnings
+        warnings.warn(
+            ".partial() is deprecated. Use specific methods like set_parameters(), add_example(), etc.",
+            DeprecationWarning
+        )
         new_partial_vars = {k: v for k, v in kwargs.items()}
         combined_partial_vars = {**self.partial_variables, **new_partial_vars}
 
         # Remove input variables that have been pre-filled
         new_input_vars = [var for var in self.input_variables if var not in new_partial_vars]
 
-        return self.copy(
+        return self.model_copy(
             update={
                 "input_variables": new_input_vars,
                 "partial_variables": combined_partial_vars
             }
         )
-    
-    def dict(self, **kwargs: Any) -> dict:
-        """
-        Return a dictionary representation of the prompt template.
-
-        Args:
-            **kwargs: Additional arguments for serialization.
-
-        Returns:
-            dict: Dictionary representation of the prompt template.
-        """
-        prompt_dict = super().dict(**kwargs)
-        prompt_dict["_type"] = self.technique_name  # Ensure consistency
-        return prompt_dict
 
     def _merge_partial_variables(self, **kwargs: Any) -> Dict[str, Any]:
         """

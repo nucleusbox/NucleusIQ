@@ -1,40 +1,84 @@
 # src/nucleusiq/prompts/retrieval_augmented_generation.py
 
 from typing import List, Dict, Optional
-from nucleusiq.prompts.base import BasePrompt
 from pydantic import Field
+from nucleusiq.prompts.base import BasePrompt
 
 class RetrievalAugmentedGenerationPrompt(BasePrompt):
     """
-    Implements Retrieval Augmented Generation Prompting.
+    Implements Retrieval-Augmented Generation Prompting.
+    Incorporates external info from a knowledge base to enhance responses.
     """
 
-    system: Optional[str] = Field(default=None, description="System prompt including instructions.")
-    context: Optional[str] = Field(default=None, description="Context retrieved from the knowledge base.")
+    template: str = Field(
+        default_factory=lambda: RetrievalAugmentedGenerationPrompt.default_template()
+    )
+    input_variables: List[str] = Field(
+        default_factory=lambda: RetrievalAugmentedGenerationPrompt.default_input_variables()
+    )
+    optional_variables: List[str] = Field(
+        default_factory=lambda: RetrievalAugmentedGenerationPrompt.default_optional_variables()
+    )
+
+    system: Optional[str] = Field(default=None, description="System prompt or instructions.")
+    context: Optional[str] = Field(default=None, description="Knowledge base context.")
     user: Optional[str] = Field(default=None, description="User prompt or query.")
 
     @property
     def technique_name(self) -> str:
         return "retrieval_augmented_generation"
 
-    @classmethod
-    def default_template(cls) -> str:
+    @staticmethod
+    def default_template() -> str:
+        """Default template for RAG."""
         return "{system}\n\n{context}\n\n{user}"
 
-    @classmethod
-    def default_input_variables(cls) -> List[str]:
-        return ["system", "user"]  # Removed 'context' from input_variables
+    @staticmethod
+    def default_input_variables() -> List[str]:
+        """'system' and 'user' are required by default."""
+        return ["system", "user"]
 
-    @classmethod
-    def default_optional_variables(cls) -> List[str]:
-        return ["context"]  # Added 'context' to optional_variables
+    @staticmethod
+    def default_optional_variables() -> List[str]:
+        """Context is optional (could be empty if no retrieval data)."""
+        return ["context"]
 
-    def construct_prompt(self, **kwargs) -> str:
+    def set_parameters(
+        self,
+        system: Optional[str] = None,
+        context: Optional[str] = None,
+        user: Optional[str] = None
+    ) -> "RetrievalAugmentedGenerationPrompt":
         """
-        Constructs the prompt string by combining system instructions, context, and user query.
+        Sets multiple RAG parameters in one go.
+
+        Args:
+            system: System instructions or role.
+            context: Retrieved knowledge base info.
+            user: The user query.
+
+        Returns:
+            RetrievalAugmentedGenerationPrompt: This instance with updated fields.
         """
+        if system is not None:
+            self.system = system
+        if context is not None:
+            self.context = context
+        if user is not None:
+            self.user = user
+        return self
+
+    def _construct_prompt(self, **kwargs) -> str:
         system_prompt = kwargs.get("system", "")
-        context = kwargs.get("context", "")
+        ctx = kwargs.get("context", "")
         user_prompt = kwargs.get("user", "")
 
-        return f"{system_prompt}\n\n{context}\n\n{user_prompt}"
+        parts = []
+        if system_prompt:
+            parts.append(system_prompt)
+        if ctx:
+            parts.append(ctx)
+        if user_prompt:
+            parts.append(user_prompt)
+
+        return "\n\n".join(parts)
