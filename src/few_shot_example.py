@@ -1,68 +1,91 @@
-# src/few_shot_example.py
+# examples/few_shot_combined_example.py
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
-from nucleusiq.prompts.few_shot import FewShotPrompt
 
-# Create a Few-Shot Prompt instance
-few_shot_prompt: FewShotPrompt = PromptFactory.create_prompt(
-    technique=PromptTechnique.FEW_SHOT,
-)
 
-# Set parameters
-few_shot_prompt.set_parameters(
-    system="You are a helpful assistant.",
-    user="Translate the following English text to French: 'Good morning.'"
-)
+def few_shot_combined_example():
+    # Create a FewShotPrompt instance using the factory
+    few_shot = PromptFactory.create_prompt(PromptTechnique.FEW_SHOT)
 
-# Add a single example
-few_shot_prompt.add_example(
-    input_text="Translate 'Good evening.' to French.",
-    output_text="'Bonsoir.'"
-)
+    # Configure the prompt and add initial examples
+    few_shot.configure(
+        system="You are a multilingual translation assistant.",
+        user="Translate 'Good morning' to Japanese.",
+        use_cot=False,
+        examples=[
+            {"input": "Translate 'Hello' to Spanish.", "output": "Hola"},
+            {"input": "Translate 'Goodbye' to French.", "output": "Au revoir"}
+        ]
+    )
 
-# Add multiple examples at once
-additional_examples = [
-    {"input": "Translate 'Thank you.' to French.", "output": "'Merci.'"},
-    {"input": "Translate 'How are you?' to French.", "output": "'Comment ça va?'"}
-]
-few_shot_prompt.add_examples(additional_examples)
+    # Add more examples incrementally
+    few_shot.add_example(
+        input_text="Translate 'Please' to German.",
+        output_text="Bitte"
+    )
+    few_shot.add_example(
+        input_text="Translate 'Thank you' to Italian.",
+        output_text="Grazie"
+    )
 
-# Optionally, enable CoT
-few_shot_prompt.set_parameters(
-    use_cot=True,
-    cot_instruction="Let's think step by step."
-)
+    # Format the prompt
+    final_prompt = few_shot.format_prompt()
+    print("Few-Shot Prompt with Combined Methods:\n")
+    print(final_prompt)
 
-# Set metadata and tags
-few_shot_prompt.set_metadata(
-    metadata={"author": "Jane Smith", "date_created": "2024-04-01"}
-).add_tags(
-    tags=["translation", "French", "greeting", "CoT"]
-)
+def few_shot_configure_example():
+    # Create a FewShotPrompt instance using the factory
+    few_shot = PromptFactory.create_prompt(PromptTechnique.FEW_SHOT)
 
-# Optionally, set an output parser
-def extract_translation(raw_output: str) -> str:
-    """
-    Extracts the translated text from the LLM's raw output.
-    """
-    # Example: Remove surrounding quotes and whitespace
-    return raw_output.strip().strip("'\"")
+    # Configure the prompt and add examples simultaneously
+    few_shot.configure(
+        system="You are a multilingual translation assistant.",
+        user="Translate 'Good night' to Italian.",
+        use_cot=False,
+        examples=[
+            {"input": "Translate 'Hello' to Spanish.", "output": "Hola"},
+            {"input": "Translate 'Goodbye' to French.", "output": "Au revoir"}
+        ]
+    )
 
-few_shot_prompt.set_output_parser(
-    parser=extract_translation
-)
+    # Format the prompt
+    final_prompt = few_shot.format_prompt()
+    print("Few-Shot Prompt with Configured Examples:\n")
+    print(final_prompt)
 
-# Format the prompt
-formatted_few_shot_prompt = few_shot_prompt.format_prompt()
-print("Formatted Few-Shot Prompt:")
-print(formatted_few_shot_prompt)
-print("\nMetadata:")
-print(few_shot_prompt.metadata)
-print("\nTags:")
-print(few_shot_prompt.tags)
+def few_shot_combined__with_cot_example():
+    # Create a FewShotPrompt instance using the factory
+    few_shot = PromptFactory.create_prompt(PromptTechnique.FEW_SHOT)
 
-# Simulate LLM response and parse it
-raw_llm_response = "'Bonjour, comment ça va?'"
-parsed_translation = few_shot_prompt.output_parser(raw_llm_response)
-print("\nParsed Translation:")
-print(parsed_translation)
+    # Configure the prompt and add initial examples
+    few_shot.configure(
+        system="You are a multilingual translation assistant.",
+        user="Translate 'Good morning' to Japanese.",
+        use_cot=True,  # Enabling CoT
+        # cot_instruction=None,  # Not providing cot_instruction; should default
+        examples=[
+            {"input": "Translate 'Hello' to Spanish.", "output": "Hola"},
+            {"input": "Translate 'Goodbye' to French.", "output": "Au revoir"}
+        ]
+    )
+
+    # Add more examples incrementally
+    few_shot.add_example(
+        input_text="Translate 'Please' to German.",
+        output_text="Bitte"
+    )
+    few_shot.add_example(
+        input_text="Translate 'Thank you' to Italian.",
+        output_text="Grazie"
+    )
+
+    # Format the prompt
+    final_prompt = few_shot.format_prompt()
+    print("Few-Shot Prompt with Combined Methods:\n")
+    print(final_prompt)
+
+
+if __name__ == "__main__":
+    few_shot_combined_example()
+    few_shot_configure_example()
+    few_shot_combined__with_cot_example()

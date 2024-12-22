@@ -1,8 +1,9 @@
 # src/nucleusiq/prompts/retrieval_augmented_generation.py
 
-from typing import List, Dict, Optional
+from typing import List, Optional
 from pydantic import Field
 from nucleusiq.prompts.base import BasePrompt
+
 
 class RetrievalAugmentedGenerationPrompt(BasePrompt):
     """
@@ -10,75 +11,61 @@ class RetrievalAugmentedGenerationPrompt(BasePrompt):
     Incorporates external info from a knowledge base to enhance responses.
     """
 
-    template: str = Field(
-        default_factory=lambda: RetrievalAugmentedGenerationPrompt.default_template()
-    )
-    input_variables: List[str] = Field(
-        default_factory=lambda: RetrievalAugmentedGenerationPrompt.default_input_variables()
-    )
-    optional_variables: List[str] = Field(
-        default_factory=lambda: RetrievalAugmentedGenerationPrompt.default_optional_variables()
-    )
-
-    system: Optional[str] = Field(default=None, description="System prompt or instructions.")
-    context: Optional[str] = Field(default=None, description="Knowledge base context.")
-    user: Optional[str] = Field(default=None, description="User prompt or query.")
-
     @property
     def technique_name(self) -> str:
         return "retrieval_augmented_generation"
 
-    @staticmethod
-    def default_template() -> str:
-        """Default template for RAG."""
-        return "{system}\n\n{context}\n\n{user}"
+    # Override default template, input_variables, and optional_variables
+    template: str = Field(
+        default="{system}\n\n{context}\n\n{user}",
+        description="Default template for Retrieval-Augmented Generation Prompting."
+    )
+    input_variables: List[str] = Field(
+        default_factory=lambda: ["system", "user"],
+        description="Required input variables for Retrieval-Augmented Generation."
+    )
+    optional_variables: List[str] = Field(
+        default_factory=lambda: ["context"],
+        description="Optional variables for Retrieval-Augmented Generation."
+    )
 
-    @staticmethod
-    def default_input_variables() -> List[str]:
-        """'system' and 'user' are required by default."""
-        return ["system", "user"]
-
-    @staticmethod
-    def default_optional_variables() -> List[str]:
-        """Context is optional (could be empty if no retrieval data)."""
-        return ["context"]
-
-    def set_parameters(
+    def configure(
         self,
         system: Optional[str] = None,
         context: Optional[str] = None,
         user: Optional[str] = None
     ) -> "RetrievalAugmentedGenerationPrompt":
         """
-        Sets multiple RAG parameters in one go.
+        Configure multiple parameters at once.
 
         Args:
-            system: System instructions or role.
+            system: System instructions.
             context: Retrieved knowledge base info.
-            user: The user query.
+            user: User query.
 
         Returns:
-            RetrievalAugmentedGenerationPrompt: This instance with updated fields.
+            Self: The updated prompt instance.
         """
-        if system is not None:
-            self.system = system
-        if context is not None:
-            self.context = context
-        if user is not None:
-            self.user = user
-        return self
+        return super().configure(
+            system=system,
+            context=context,
+            user=user
+        )
 
     def _construct_prompt(self, **kwargs) -> str:
-        system_prompt = kwargs.get("system", "")
-        ctx = kwargs.get("context", "")
-        user_prompt = kwargs.get("user", "")
+        """
+        Constructs the prompt by appending system, context, and user prompts.
+        """
+        system_prompt = kwargs.get("system", "") or ""
+        context = kwargs.get("context", "") or ""
+        user_prompt = kwargs.get("user", "") or ""
 
         parts = []
-        if system_prompt:
+        if system_prompt.strip():
             parts.append(system_prompt)
-        if ctx:
-            parts.append(ctx)
-        if user_prompt:
+        if context.strip():
+            parts.append(context)
+        if user_prompt.strip():
             parts.append(user_prompt)
 
         return "\n\n".join(parts)

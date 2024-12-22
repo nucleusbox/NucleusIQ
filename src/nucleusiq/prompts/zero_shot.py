@@ -1,8 +1,8 @@
 # src/nucleusiq/prompts/zero_shot.py
 
-from typing import List, Optional, Dict
-from nucleusiq.prompts.base import BasePrompt
+from typing import List, Optional
 from pydantic import Field
+from nucleusiq.prompts.base import BasePrompt
 
 
 class ZeroShotPrompt(BasePrompt):
@@ -11,66 +11,62 @@ class ZeroShotPrompt(BasePrompt):
     Can be enhanced with Chain-of-Thought (CoT) instructions.
     """
 
-    system: Optional[str] = Field(default=None, description="System prompt including instructions.")
-    context: Optional[str] = Field(default=None, description="Additional context or background information.")
-    user: Optional[str] = Field(default=None, description="User prompt or query.")
-
-    use_cot: bool = Field(default=False, description="Whether to append a CoT instruction to the system prompt.")
-    cot_instruction: str = Field(default="", description="The Chain-of-Thought instruction to append.")
+    # Specific fields for Zero-Shot Prompting
+    use_cot: bool = Field(
+        default=False,
+        description="Whether to append a CoT instruction to the system prompt."
+    )
+    cot_instruction: str = Field(
+        default="",
+        description="The Chain-of-Thought instruction to append."
+    )
 
     @property
     def technique_name(self) -> str:
         return "zero_shot"
 
-    @staticmethod
-    def default_template() -> str:
-        return "{system}\n\n{context}\n\n{user}\n\n{cot_instruction}"
+    # Override default template, input_variables, and optional_variables
+    template: str = Field(
+        default="{system}\n\n{context}\n\n{user}\n\n{cot_instruction}",
+        description="Default template for Zero-Shot Prompting."
+    )
+    input_variables: List[str] = Field(
+        default_factory=lambda: ["system", "user"],
+        description="Required input variables for Zero-Shot Prompting."
+    )
+    optional_variables: List[str] = Field(
+        default_factory=lambda: ["context", "use_cot", "cot_instruction"],
+        description="Optional variables for Zero-Shot Prompting."
+    )
 
-    @staticmethod
-    def default_input_variables() -> List[str]:
-        return ["system", "user"]
-
-    @staticmethod
-    def default_optional_variables() -> List[str]:
-        return ["context", "use_cot", "cot_instruction"]
-
-    # Provide default values for required fields using default_factory
-    template: str = Field(default_factory=default_template)
-    input_variables: List[str] = Field(default_factory=default_input_variables)
-    optional_variables: List[str] = Field(default_factory=default_optional_variables)
-
-    def set_parameters(
+    def configure(
         self,
         system: Optional[str] = None,
         context: Optional[str] = None,
         user: Optional[str] = None,
         use_cot: Optional[bool] = None,
         cot_instruction: Optional[str] = None
-    ) -> 'ZeroShotPrompt':
+    ) -> "ZeroShotPrompt":
         """
-        Sets the parameters for the ZeroShotPrompt.
+        Configure multiple parameters at once.
 
         Args:
-            system (Optional[str]): System prompt.
-            context (Optional[str]): Additional context.
-            user (Optional[str]): User prompt.
-            use_cot (Optional[bool]): Enable Chain-of-Thought.
-            cot_instruction (Optional[str]): CoT instruction.
+            system: System prompt.
+            context: Additional context.
+            user: User prompt.
+            use_cot: Enable Chain-of-Thought.
+            cot_instruction: CoT instruction.
 
         Returns:
-            ZeroShotPrompt: The updated prompt instance.
+            Self: The updated prompt instance.
         """
-        if system is not None:
-            self.system = system
-        if context is not None:
-            self.context = context
-        if user is not None:
-            self.user = user
-        if use_cot is not None:
-            self.use_cot = use_cot
-        if cot_instruction is not None:
-            self.cot_instruction = cot_instruction
-        return self
+        return super().configure(
+            system=system,
+            context=context,
+            user=user,
+            use_cot=use_cot,
+            cot_instruction=cot_instruction
+        )
 
     def _construct_prompt(self, **kwargs) -> str:
         """
@@ -81,14 +77,14 @@ class ZeroShotPrompt(BasePrompt):
         user_prompt = kwargs.get("user", "")
         cot_instruction = kwargs.get("cot_instruction", "") if kwargs.get("use_cot", False) else ""
 
-        prompt_parts = []
+        parts = []
         if system_prompt:
-            prompt_parts.append(system_prompt)
+            parts.append(system_prompt)
         if context:
-            prompt_parts.append(context)
+            parts.append(context)
         if user_prompt:
-            prompt_parts.append(user_prompt)
+            parts.append(user_prompt)
         if cot_instruction:
-            prompt_parts.append(cot_instruction)
+            parts.append(cot_instruction)
 
-        return "\n\n".join(prompt_parts)
+        return "\n\n".join(parts)

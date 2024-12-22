@@ -34,7 +34,7 @@ User Query:
 
 def prompt_composer_example1():
     composer = PromptFactory.create_prompt(PromptTechnique.PROMPT_COMPOSER)
-    composer.set_parameters(
+    composer.configure(
         system="You are a multi-purpose AI assistant.",
         examples="Example 1: ...\nExample 2: ...",
         chain_of_thought="Let's reason carefully.",

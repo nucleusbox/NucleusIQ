@@ -1,3 +1,5 @@
+# src/nucleusiq/prompts/factory.py
+
 from typing import Type, Dict, TypeVar, cast
 from enum import Enum
 from nucleusiq.prompts.base import BasePrompt
@@ -25,13 +27,13 @@ class PromptFactory:
     Factory class to instantiate different prompting techniques.
     """
 
-    prompt_classes: Dict[PromptTechnique, Type[BasePrompt]] = {
-        PromptTechnique.ZERO_SHOT: ZeroShotPrompt,
-        PromptTechnique.FEW_SHOT: FewShotPrompt,
-        PromptTechnique.CHAIN_OF_THOUGHT: ChainOfThoughtPrompt,
-        PromptTechnique.AUTO_CHAIN_OF_THOUGHT: AutoChainOfThoughtPrompt,
-        PromptTechnique.RETRIEVAL_AUGMENTED_GENERATION: RetrievalAugmentedGenerationPrompt,
-        PromptTechnique.PROMPT_COMPOSER: PromptComposer,
+    prompt_classes: Dict[str, Type[BasePrompt]] = {
+        PromptTechnique.ZERO_SHOT.value: ZeroShotPrompt,
+        PromptTechnique.FEW_SHOT.value: FewShotPrompt,
+        PromptTechnique.CHAIN_OF_THOUGHT.value: ChainOfThoughtPrompt,
+        PromptTechnique.AUTO_CHAIN_OF_THOUGHT.value: AutoChainOfThoughtPrompt,
+        PromptTechnique.RETRIEVAL_AUGMENTED_GENERATION.value: RetrievalAugmentedGenerationPrompt,
+        PromptTechnique.PROMPT_COMPOSER.value: PromptComposer,
     }
 
     @classmethod
@@ -43,9 +45,9 @@ class PromptFactory:
             technique (PromptTechnique): The name of the prompting technique.
             prompt_class (Type[BasePrompt]): The class implementing the technique.
         """
-        if technique in cls.prompt_classes:
+        if technique.value in cls.prompt_classes:
             raise ValueError(f"Prompting technique '{technique.value}' is already registered.")
-        cls.prompt_classes[technique] = prompt_class
+        cls.prompt_classes[technique.value] = prompt_class
 
     @classmethod
     def create_prompt(cls, technique: PromptTechnique) -> T:
@@ -61,9 +63,9 @@ class PromptFactory:
         Raises:
             ValueError: If the technique is not supported.
         """
-        prompt_class = cls.prompt_classes.get(technique)
+        prompt_class = cls.prompt_classes.get(technique.value)
         if not prompt_class:
-            available = ", ".join(t.value for t in cls.prompt_classes.keys())
+            available = ", ".join(cls.prompt_classes.keys())
             raise ValueError(
                 f"Prompting technique '{technique.value}' is not supported. "
                 f"Available techniques: {available}."

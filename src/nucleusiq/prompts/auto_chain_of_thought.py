@@ -39,10 +39,10 @@ class AutoChainOfThoughtPrompt(BasePrompt):
     )
 
     # Optional placeholders in the template
-    system: Optional[str] = Field(default=None, description="System prompt or instructions.")
-    context: Optional[str] = Field(default=None, description="Additional context or background info.")
+    # system: Optional[str] = Field(default=None, description="System prompt or instructions.")
+    # context: Optional[str] = Field(default=None, description="Additional context or background info.")
     examples: Optional[str] = Field(default="", description="Generated examples after question clustering.")
-    user: Optional[str] = Field(default=None, description="User prompt or query.")
+    # user: Optional[str] = Field(default=None, description="User prompt or query.")
     cot_instruction: Optional[str] = Field(default="", description="Additional CoT instruction appended.")
     task_prompt: Optional[str] = Field(default="", description="Optional field if you want a final task prompt text.")
 
