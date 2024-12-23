@@ -1,9 +1,8 @@
 # src/nucleusiq/prompts/few_shot.py
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pydantic import Field
 from nucleusiq.prompts.base import BasePrompt
-
 
 class FewShotPrompt(BasePrompt):
     """
@@ -11,7 +10,7 @@ class FewShotPrompt(BasePrompt):
     Can incorporate Chain-of-Thought (CoT) reasoning within examples.
     """
 
-    # Specific fields for Few-Shot Prompting
+    # Fields unique to Few-Shot prompting
     examples: List[Dict[str, str]] = Field(
         default_factory=list,
         description="List of examples with input-output pairs."
@@ -34,20 +33,23 @@ class FewShotPrompt(BasePrompt):
     def technique_name(self) -> str:
         return "few_shot"
 
-    # Override default template, input_variables, and optional_variables
+    # Override defaults for template, input_variables, optional_variables
     template: str = Field(
         default="{system}\n\n{examples}\n\n{context}\n\n{user}\n\n{cot_instruction}",
         description="Default template for Few-Shot Prompting."
     )
     input_variables: List[str] = Field(
         default_factory=lambda: ["system", "user", "examples"],
-        description="Required input variables for Few-Shot Prompting."
+        description="These three are mandatory by the time we format the prompt."
     )
     optional_variables: List[str] = Field(
         default_factory=lambda: ["context", "use_cot", "cot_instruction"],
-        description="Optional variables for Few-Shot Prompting."
+        description="Additional optional fields for Few-Shot."
     )
 
+    # -----------------------------
+    # Methods to add or manage examples
+    # -----------------------------
     def add_example(self, input_text: str, output_text: str) -> "FewShotPrompt":
         """
         Adds a single example to the FewShotPrompt.
@@ -72,10 +74,13 @@ class FewShotPrompt(BasePrompt):
         Returns:
             FewShotPrompt: The updated prompt instance.
         """
-        for example in examples:
-            self.add_example(example['input'], example['output'])
+        for ex in examples:
+            self.add_example(ex['input'], ex['output'])
         return self
 
+    # -----------------------------
+    # Configure method
+    # -----------------------------
     def configure(
         self,
         system: Optional[str] = None,
@@ -86,75 +91,97 @@ class FewShotPrompt(BasePrompt):
         examples: Optional[List[Dict[str, str]]] = None
     ) -> "FewShotPrompt":
         """
-        Configure multiple parameters at once, including adding examples.
+        Configure multiple parameters at once, including examples.
 
         Args:
             system (Optional[str]): System prompt.
             context (Optional[str]): Additional context.
             user (Optional[str]): User prompt.
-            use_cot (Optional[bool]): Enable Chain-of-Thought.
-            cot_instruction (Optional[str]): CoT instruction.
-            examples (Optional[List[Dict[str, str]]]): List of examples to add.
+            use_cot (Optional[bool]): Enable Chain-of-Thought reasoning.
+            cot_instruction (Optional[str]): The CoT instruction appended if use_cot is True.
+            examples (Optional[List[Dict[str, str]]]): If provided, add via `.add_examples()`.
 
         Returns:
             FewShotPrompt: The updated prompt instance.
         """
-        # Determine safe cot_instruction based on use_cot
+        # 1) Determine a safe CoT instruction based on use_cot
         if use_cot is not None:
             if use_cot:
+                # If user didn't provide `cot_instruction`, default to "Let's think step by step."
                 cot_instruction_safe = cot_instruction if cot_instruction is not None else "Let's think step by step."
             else:
+                # If user sets CoT to false, clear the instruction
                 cot_instruction_safe = ""
         else:
-            # If use_cot is not being updated, keep existing logic
+            # If `use_cot` is not changed, keep existing logic
             cot_instruction_safe = self.cot_instruction
             if self.use_cot and not self.cot_instruction:
                 cot_instruction_safe = "Let's think step by step."
 
-        # Configure common fields using the base class's configure method
+        # 2) Call base .configure() with these fields
         super().configure(
             system=system,
             context=context,
             user=user,
-            use_cot=use_cot,
-            cot_instruction=cot_instruction_safe
+            use_cot=use_cot if use_cot is not None else self.use_cot,
+            cot_instruction=cot_instruction_safe,
         )
 
-        # If examples are provided, add them using the existing add_examples method
+        # 3) If examples are passed in, add them to self.examples
         if examples:
             self.add_examples(examples)
 
         return self
+    
+    #
+    # Overriding format_prompt() to enforce "examples" must not be empty
+    #
+    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
+        """
+        Hook to enforce that 'examples' is non-empty before final prompt creation.
+        """
+        if not self.examples:  # or combined_vars.get('examples', []) is empty
+            raise ValueError("FewShotPrompt requires at least one example (examples list is empty).")
 
+
+    # -----------------------------
+    # Final construction logic
+    # -----------------------------
     def _construct_prompt(self, **kwargs) -> str:
         """
-        Constructs the prompt string with examples, appending CoT instruction if enabled.
+        Build the final string with the examples + system + user + CoT.
+        By the time we get here, we know 'system', 'user', 'examples' are non-empty
+        (unless user is intentionally empty, which is allowed but can lead to errors).
         """
         system_prompt = kwargs.get("system", "")
-        context = kwargs.get("context", "")
+        context_prompt = kwargs.get("context", "")
         user_prompt = kwargs.get("user", "")
-        cot_instruction = kwargs.get("cot_instruction", "") if kwargs.get("use_cot", False) else ""
+        use_cot_flag = kwargs.get("use_cot", False)
+        # If using CoT, we might have a default or provided instruction
+        c_instruction = kwargs.get("cot_instruction", "").strip() if use_cot_flag else ""
 
-        # Format examples if they exist
+        # Format the examples
         if self.examples:
-            formatted_examples = self.example_separator.join(
-                [f"Input: {example['input']}\nOutput: {example['output']}" for example in self.examples]
-            )
-            if system_prompt.strip():
-                # Prepend examples to the system prompt
-                system_prompt = f"{formatted_examples}\n\n{system_prompt}"
+            # Join them
+            formatted_examples = self.example_separator.join([
+                f"Input: {ex['input']}\nOutput: {ex['output']}"
+                for ex in self.examples
+            ])
+            # If there's a system prompt, we prepend examples to it
+            if system_prompt:
+                system_prompt = f"{system_prompt.strip()}\n\n{formatted_examples}"
             else:
                 system_prompt = formatted_examples
 
-        # Assemble the final prompt parts, skipping empty sections
+        # Build the final parts
         parts = []
         if system_prompt:
-            parts.append(system_prompt)
-        if context:
-            parts.append(context)
+            parts.append(system_prompt.strip())
+        if context_prompt:
+            parts.append(context_prompt.strip())
         if user_prompt:
-            parts.append(user_prompt)
-        if cot_instruction:
-            parts.append(cot_instruction)
+            parts.append(user_prompt.strip())
+        if use_cot_flag:
+            parts.append(c_instruction)
 
         return "\n\n".join(parts)

@@ -84,8 +84,20 @@ def few_shot_combined__with_cot_example():
     print("Few-Shot Prompt with Combined Methods:\n")
     print(final_prompt)
 
+def few_shot_empty_example():
+    few_shot = (
+            PromptFactory
+            .create_prompt(technique=PromptTechnique.FEW_SHOT)
+            .configure(
+                system="You are Helpfull assistence",
+                user="Translate 'Good night' to Italian.",
+                # examples=[]
+            )
+        )
+    print(few_shot.format_prompt())
 
 if __name__ == "__main__":
-    few_shot_combined_example()
-    few_shot_configure_example()
-    few_shot_combined__with_cot_example()
+    # few_shot_combined_example()
+    # few_shot_configure_example()
+    # few_shot_combined__with_cot_example()
+    few_shot_empty_example()
