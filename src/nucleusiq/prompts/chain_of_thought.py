@@ -1,7 +1,7 @@
 # src/nucleusiq/prompts/chain_of_thought.py
 
-from typing import Optional
-from pydantic import Field, model_validator, ValidationInfo
+from typing import Optional, Dict, Any
+from pydantic import Field
 from nucleusiq.prompts.base import BasePrompt
 
 
@@ -18,7 +18,7 @@ class ChainOfThoughtPrompt(BasePrompt):
     )
     cot_instruction: str = Field(
         default="Let's think step by step.",
-        description="The Chain-of-Thought instruction to append."
+        description="The Chain-of-Thought instruction to append if use_cot is True."
     )
 
     @property
@@ -35,10 +35,13 @@ class ChainOfThoughtPrompt(BasePrompt):
         description="Required input variables for Chain-of-Thought Prompting."
     )
     optional_variables: list = Field(
-        default_factory=lambda: ["cot_instruction"],
+        default_factory=lambda: ["cot_instruction", "use_cot"],
         description="Optional variables for Chain-of-Thought Prompting."
     )
 
+    #
+    # Overriding configure to keep 'use_cot' always True
+    #
     def configure(
         self,
         system: Optional[str] = None,
@@ -50,67 +53,53 @@ class ChainOfThoughtPrompt(BasePrompt):
         Configure multiple parameters at once.
 
         Args:
-            system (Optional[str]): System prompt.
-            user (Optional[str]): User prompt.
-            use_cot (Optional[bool]): Enable Chain-of-Thought. Must be True.
-            cot_instruction (Optional[str]): CoT instruction.
-
-        Returns:
-            ChainOfThoughtPrompt: The updated prompt instance.
+            system: System prompt.
+            user: User prompt.
+            use_cot: Must be True for ChainOfThoughtPrompt (cannot be set to False).
+            cot_instruction: The CoT instruction appended if use_cot is True.
 
         Raises:
-            ValueError: If use_cot is set to False.
+            ValueError: If use_cot is explicitly set to False.
         """
-        # Handle use_cot: must be True
+        # Validate use_cot
         if use_cot is not None:
-            if not isinstance(use_cot, bool):
-                raise ValueError(f"use_cot must be a boolean, got {type(use_cot)}")
-            if not use_cot:
+            if use_cot is False:
                 raise ValueError("use_cot cannot be set to False for ChainOfThoughtPrompt.")
-            self.use_cot = use_cot
+            self.use_cot = True  # Force True if user tries to pass True
 
-        # Handle cot_instruction
+        # If user provided a new cot_instruction
         if cot_instruction is not None:
-            if not isinstance(cot_instruction, str):
-                raise ValueError(f"cot_instruction must be a string, got {type(cot_instruction)}")
             self.cot_instruction = cot_instruction
 
-        # Configure other common fields using the base class's configure method
+        # Configure the other fields with the base method
         super().configure(
             system=system,
-            user=user
+            user=user,
         )
-
         return self
 
-    @model_validator(mode='after')
-    def ensure_valid_fields(cls, model: 'ChainOfThoughtPrompt', info: ValidationInfo) -> 'ChainOfThoughtPrompt':
+    #
+    # Hook method to ensure final validation
+    #
+    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
         """
-        Ensures that:
-        - use_cot is always True.
-        - cot_instruction is a non-empty string when use_cot is True.
-
-        Args:
-            model (ChainOfThoughtPrompt): The model instance.
-            info (ValidationInfo): Validation information.
-
-        Returns:
-            ChainOfThoughtPrompt: The validated and possibly modified model.
-
-        Raises:
-            ValueError: If use_cot is False or cot_instruction is invalid.
+        Subclass-specific validation:
+          - use_cot must be True
+          - cot_instruction must be non-empty if use_cot is True
         """
-        if not model.use_cot:
-            raise ValueError("use_cot cannot be set to False for ChainOfThoughtPrompt.")
+        # If the user tries to set it false or we got None, forcibly ensure it's True
+        if not self.use_cot:
+            raise ValueError("ChainOfThoughtPrompt requires use_cot=True (cannot be False).")
 
-        if model.use_cot and (not isinstance(model.cot_instruction, str) or not model.cot_instruction.strip()):
-            model.cot_instruction = "Let's think step by step."
-
-        return model
+        # If CoT is true but cot_instruction is empty, default it
+        c_instr = combined_vars.get("cot_instruction", "").strip()
+        if not c_instr:
+            # auto-fix or raise an error
+            combined_vars["cot_instruction"] = "Let's think step by step."
 
     def _construct_prompt(self, **kwargs) -> str:
         """
-        Constructs the prompt string, appending CoT instruction.
+        Constructs the prompt string, appending the CoT instruction if use_cot is True.
         """
         system_prompt = kwargs.get("system", "")
         user_prompt = kwargs.get("user", "")
@@ -118,10 +107,10 @@ class ChainOfThoughtPrompt(BasePrompt):
 
         parts = []
         if system_prompt.strip():
-            parts.append(system_prompt)
+            parts.append(system_prompt.strip())
         if user_prompt.strip():
-            parts.append(user_prompt)
-        if cot_instruction.strip():
-            parts.append(cot_instruction)
+            parts.append(user_prompt.strip())
+        if cot_instruction.strip():  # If 'use_cot' is True
+            parts.append(cot_instruction.strip())
 
         return "\n\n".join(parts)
