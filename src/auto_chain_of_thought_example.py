@@ -30,5 +30,30 @@ def auto_cot_example():
     )
     print(prompt_text)
 
+def auto_cot_without_system_and_context():
+    auto_cot = (
+            PromptFactory
+            .create_prompt(PromptTechnique.AUTO_CHAIN_OF_THOUGHT)
+            .configure(
+                llm=MockLLM(),
+                num_clusters=2,
+                max_questions_per_cluster=1,
+                instruction="Step by step."
+            )
+        )
+        # Provide a minimal task & questions => should succeed
+    prompt_text = auto_cot.format_prompt(
+        task="Solve the following questions:",
+        questions=["Q1", "Q2"]
+    )
+    print(prompt_text)
+    # Check it includes the final chain for 2 Qs, no system, no context => leading blank lines
+    # The mock LLM returns "This is a mock reasoning chain." => verify
+    assert "Solve the following questions" in prompt_text
+    assert "Q1" in prompt_text
+    assert "Q2" in prompt_text
+    assert "Step by step." in prompt_text
+
 if __name__ == "__main__":
-    auto_cot_example()
+    # auto_cot_example()
+    auto_cot_without_system_and_context

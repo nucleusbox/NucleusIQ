@@ -1,195 +1,169 @@
 # src/nucleusiq/prompts/auto_chain_of_thought.py
 
-from typing import List, Dict, Optional
-from pydantic import Field
+from typing import List, Dict, Optional, Any
+from pydantic import Field, field_validator
 from nucleusiq.prompts.base import BasePrompt
 from nucleusiq.llms.base_llm import BaseLLM
-from nucleusiq.utilities.clustering import cluster_questions
-
 
 class AutoChainOfThoughtPrompt(BasePrompt):
     """
     Implements Automatic Chain-of-Thought (Auto-CoT) Prompting.
-    Automates the generation of reasoning chains by clustering questions and generating diverse examples.
+    Automates question clustering and reasoning chain generation.
     """
 
-    # Main CoT fields
+    # Primary fields controlling clustering / CoT
     num_clusters: int = Field(
         default=5,
-        description="Number of clusters to partition questions into."
+        description="Number of clusters for question grouping (>=1)."
     )
     max_questions_per_cluster: int = Field(
         default=1,
-        description="Number of representative questions to sample from each cluster."
+        description="Number of questions to pick per cluster in each cluster (>=1)."
     )
     instruction: str = Field(
         default="Let's think step by step.",
-        description="Instruction to encourage the model to generate reasoning steps."
+        description="Default CoT instruction if user doesn't supply a custom one."
     )
 
-    # Template + input/optional variables
+    # We'll consider 'task' + 'questions' as required input_variables
     template: str = Field(
-        default_factory=lambda: AutoChainOfThoughtPrompt.default_template()
+        default="{system}\n\n{context}\n\n{task}\n\n{examples}\n\n{user}\n\n{cot_instruction}",
+        description="Default template for Auto-CoT Prompting."
     )
     input_variables: List[str] = Field(
-        default_factory=lambda: AutoChainOfThoughtPrompt.default_input_variables()
+        default_factory=lambda: ["task", "questions"],
+        description="Mandatory fields for Auto-CoT: 'task' (str) and 'questions' (list)."
     )
     optional_variables: List[str] = Field(
-        default_factory=lambda: AutoChainOfThoughtPrompt.default_optional_variables()
+        default_factory=lambda: [
+            "system",
+            "context",
+            "examples",
+            "user",
+            "cot_instruction",
+            "task_prompt",
+            "num_clusters",
+            "max_questions_per_cluster",
+            "instruction",
+            "llm"  # We'll check usage of llm in a hook
+        ],
+        description="Other optional fields recognized by the base class."
     )
 
-    # Optional placeholders in the template
-    # system: Optional[str] = Field(default=None, description="System prompt or instructions.")
-    # context: Optional[str] = Field(default=None, description="Additional context or background info.")
-    examples: Optional[str] = Field(default="", description="Generated examples after question clustering.")
-    # user: Optional[str] = Field(default=None, description="User prompt or query.")
-    cot_instruction: Optional[str] = Field(default="", description="Additional CoT instruction appended.")
-    task_prompt: Optional[str] = Field(default="", description="Optional field if you want a final task prompt text.")
-
-    # LLM is optional at construction but required at usage
+    # Subclass fields (some optional)
+    system: Optional[str] = None
+    context: Optional[str] = None
+    task_prompt: Optional[str] = Field(default="", description="Optional final task text if desired.")
+    user: Optional[str] = None
+    examples: Optional[str] = Field(default="", description="Auto-generated examples text.")
+    cot_instruction: Optional[str] = Field(default="", description="Extra CoT text appended at the end.")
     llm: Optional[BaseLLM] = Field(
         default=None,
-        description="Language Model used to generate reasoning chains. Must be set before usage."
+        description="Language Model used to generate reasoning chains (must be non-None to run)."
     )
 
     @property
     def technique_name(self) -> str:
         return "auto_chain_of_thought"
 
-    @staticmethod
-    def default_template() -> str:
+    #
+    # Numeric validations
+    #
+    @field_validator("num_clusters")
+    def validate_num_clusters(cls, v):
+        if v < 1:
+            raise ValueError("num_clusters must be >= 1.")
+        return v
+
+    @field_validator("max_questions_per_cluster")
+    def validate_max_questions_per_cluster(cls, v):
+        if v < 1:
+            raise ValueError("max_questions_per_cluster must be >= 1.")
+        return v
+
+    #
+    # Subclass-specific checks
+    #
+    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
         """
-        Provides the default template for Auto-CoT Prompting.
-        Note: The template isn't strictly used with the list+join approach,
-        but we keep it for consistency with BasePrompt requirements.
+        Ensures 'llm' is set, 'task' is non-empty, 'questions' is a non-empty list, etc.
         """
-        return "{system}\n\n{context}\n\n{examples}\n\n{user}\n\n{cot_instruction}"
+        if self.llm is None:
+            raise ValueError("AutoChainOfThoughtPrompt requires 'llm' to be set (non-None).")
 
-    @staticmethod
-    def default_input_variables() -> List[str]:
-        """List of required inputs (e.g. 'task' and 'questions')."""
-        return ["task", "questions"]
+        # Check 'task' is a non-empty string
+        task_val = combined_vars.get("task", "")
+        if not isinstance(task_val, str) or not task_val.strip():
+            raise ValueError("AutoChainOfThoughtPrompt requires 'task' be a non-empty string.")
 
-    @staticmethod
-    def default_optional_variables() -> List[str]:
-        """List of optional fields recognized at runtime."""
-        return [
-            "num_clusters",
-            "max_questions_per_cluster",
-            "instruction",
-            "system",
-            "context",
-            "examples",
-            "cot_instruction",
-            "task_prompt",
-            "user",
-        ]
-
-    def set_parameters(
-        self,
-        system: Optional[str] = None,
-        context: Optional[str] = None,
-        user: Optional[str] = None,
-        instruction: Optional[str] = None,
-        num_clusters: Optional[int] = None,
-        max_questions_per_cluster: Optional[int] = None,
-        cot_instruction: Optional[str] = None,
-    ) -> "AutoChainOfThoughtPrompt":
-        """
-        Sets parameters for the AutoCoT prompt in one go.
-
-        Args:
-            system: System instructions or role.
-            context: Additional background info.
-            user: The user question or request.
-            instruction: The default CoT instruction (e.g. "Let's think step by step.").
-            num_clusters: # of clusters for question grouping.
-            max_questions_per_cluster: # of questions to pick per cluster.
-            cot_instruction: Additional CoT text appended at the end.
-
-        Returns:
-            AutoChainOfThoughtPrompt: This instance with updated fields.
-        """
-        if system is not None:
-            self.system = system
-        if context is not None:
-            self.context = context
-        if user is not None:
-            self.user = user
-        if instruction is not None:
-            self.instruction = instruction
-        if num_clusters is not None:
-            self.num_clusters = num_clusters
-        if max_questions_per_cluster is not None:
-            self.max_questions_per_cluster = max_questions_per_cluster
-        if cot_instruction is not None:
-            self.cot_instruction = cot_instruction
-        return self
+        # Check 'questions' is a non-empty list
+        questions_val = combined_vars.get("questions", [])
+        if not isinstance(questions_val, list) or len(questions_val) == 0:
+            raise ValueError("AutoChainOfThoughtPrompt requires a non-empty list of 'questions'.")
 
     def _construct_prompt(self, **kwargs) -> str:
         """
-        Constructs an Auto-CoT prompt by:
-          1) Clustering questions and generating reasoning examples.
-          2) Merging system, context, generated examples, user, and CoT into a list.
-          3) Only appending non-empty parts to avoid extra blank lines.
-        Required: 'task' (str) and 'questions' (List[str]) at runtime.
+        1) Cluster the questions => generate reasoning chain => build final text
+        2) Insert system, context, task, examples, user, CoT text
         """
-        # 1) Required inputs
-        task = kwargs.get("task")
-        questions = kwargs.get("questions")
-        if not task or not questions:
-            raise ValueError("AutoChainOfThoughtPrompt requires 'task' and 'questions' at runtime.")
-        if not isinstance(questions, list):
-            raise ValueError("'questions' must be a list of strings.")
+        task_text = kwargs["task"]
+        questions = kwargs["questions"]
 
-        # 2) Generate the 'examples' text from questions
-        from nucleusiq.utilities.clustering import cluster_questions  # or your logic
+        from nucleusiq.utilities.clustering import cluster_questions
         clusters = cluster_questions(questions, num_clusters=self.num_clusters)
+
+        # Collect representative questions
         rep_questions = []
-        for cluster_id, cluster_list in clusters.items():
+        for cluster_list in clusters.values():
             rep_questions.extend(cluster_list[: self.max_questions_per_cluster])
 
-        # Build example text by calling generate_reasoning_chain
-        example_strs = []
+        # Generate chain text for each question
+        example_lines = []
         for q in rep_questions:
             chain = self.generate_reasoning_chain(q)
-            example_strs.append(f"{q}\nA: {chain}")
-        final_examples = "\n\n".join(example_strs)
+            example_lines.append(f"{q}\nA: {chain}")
 
-        # 3) Gather the final strings for system, context, user, cot
+        final_examples = "\n\n".join(example_lines)
+
+        # Merge other fields
         system_prompt = kwargs.get("system", "") or self.system or ""
         context_str = kwargs.get("context", "") or self.context or ""
         user_prompt = kwargs.get("user", "") or self.user or ""
-        cot_text = kwargs.get("cot_instruction", self.instruction) or self.cot_instruction
+        cot_text = kwargs.get("cot_instruction", "") or self.cot_instruction
+        if not cot_text.strip() and self.instruction.strip():
+            cot_text = self.instruction
 
-        # If final_examples is empty, we skip it; otherwise we use it
         parts = []
         if system_prompt.strip():
-            parts.append(system_prompt)
+            parts.append(system_prompt.strip())
         if context_str.strip():
-            parts.append(context_str)
-        if final_examples.strip():
-            parts.append(final_examples)
-        if user_prompt.strip():
-            parts.append(user_prompt)
-        if cot_text.strip():
-            parts.append(cot_text)
+            parts.append(context_str.strip())
 
-        # 4) Return the joined result with \n\n
+        # Now insert the mandatory 'task' text as well
+        if task_text.strip():
+            parts.append(task_text.strip())
+
+        if final_examples.strip():
+            parts.append(final_examples.strip())
+
+        if user_prompt.strip():
+            parts.append(user_prompt.strip())
+
+        if cot_text.strip():
+            parts.append(cot_text.strip())
+
         return "\n\n".join(parts)
 
     def generate_reasoning_chain(self, question: str) -> str:
         """
-        Uses the assigned LLM to generate a reasoning chain for 'question'.
-        Raises ValueError if llm is not set.
+        Calls self.llm to produce a reasoning chain for the question.
         """
         if not self.llm:
-            raise ValueError("llm is not set. Please assign an LLM instance before usage.")
+            raise ValueError("llm not set. Please assign an LLM instance before usage.")
 
-        # If no system assigned, default to "You are a helpful assistant."
-        sys_text = self.system or "You are a helpful assistant."
+        sys_prompt = self.system or "You are a helpful assistant."
         messages = [
-            {"role": "system", "content": sys_text},
+            {"role": "system", "content": sys_prompt},
             {"role": "user",   "content": f"{question}\n{self.instruction}"}
         ]
         return self.llm.create_completion(
