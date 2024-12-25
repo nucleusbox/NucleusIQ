@@ -7,7 +7,7 @@ from nucleusiq.llms.mock_llm import MockLLM
 def auto_cot_example():
     auto_cot: AutoChainOfThoughtPrompt= PromptFactory.create_prompt(PromptTechnique.AUTO_CHAIN_OF_THOUGHT)
     # Set multiple parameters in one go
-    auto_cot.set_parameters(
+    auto_cot.configure(
         system="You are an intelligent assistant.",
         context="",
         user="Describe the process of photosynthesis.",
@@ -55,5 +55,5 @@ def auto_cot_without_system_and_context():
     assert "Step by step." in prompt_text
 
 if __name__ == "__main__":
-    # auto_cot_example()
-    auto_cot_without_system_and_context
+    auto_cot_example()
+    auto_cot_without_system_and_context()
