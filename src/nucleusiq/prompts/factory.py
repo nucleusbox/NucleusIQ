@@ -9,6 +9,7 @@ from nucleusiq.prompts.chain_of_thought import ChainOfThoughtPrompt
 from nucleusiq.prompts.auto_chain_of_thought import AutoChainOfThoughtPrompt
 from nucleusiq.prompts.retrieval_augmented_generation import RetrievalAugmentedGenerationPrompt
 from nucleusiq.prompts.prompt_composer import PromptComposer
+from nucleusiq.prompts.meta_prompt import MetaPrompt
 
 # Define a TypeVar for BasePrompt
 T = TypeVar('T', bound=BasePrompt)
@@ -21,6 +22,7 @@ class PromptTechnique(Enum):
     AUTO_CHAIN_OF_THOUGHT = "auto_chain_of_thought"
     RETRIEVAL_AUGMENTED_GENERATION = "retrieval_augmented_generation"
     PROMPT_COMPOSER = "prompt_composer"
+    META_PROMPTING = "meta_prompting"
 
 class PromptFactory:
     """
@@ -34,6 +36,7 @@ class PromptFactory:
         PromptTechnique.AUTO_CHAIN_OF_THOUGHT.value: AutoChainOfThoughtPrompt,
         PromptTechnique.RETRIEVAL_AUGMENTED_GENERATION.value: RetrievalAugmentedGenerationPrompt,
         PromptTechnique.PROMPT_COMPOSER.value: PromptComposer,
+        PromptTechnique.META_PROMPTING.value: MetaPrompt
     }
 
     @classmethod
