@@ -25,14 +25,24 @@
     git clone https://github.com/nucleusbox/NucleusIQ.git
     cd NucleusIQ
     ```
+2. **Set Up Virtual Environment**
 
-2. **Install Dependencies**
+    It's recommended to use a virtual environment to manage dependencies.
+
+    ```bash
+    python -m venv nb
+    source nb/bin/activate  # On Windows: nb\Scripts\activate
+    ```
+
+3. **Install Dependencies**
+
+    Install the required Python packages using `pip`.
 
     ```bash
     pip install -r requirements.txt
     ```
 
-3. **Configure Environment Variables**
+4. **Configure Environment Variables**
 
     Create a `.env` file in the root directory and add necessary configurations:
 
@@ -41,10 +51,10 @@
     DATABASE_URL=your_database_url
     ```
 
-4. **Run the Framework**
+5. **Run the Test**
 
     ```bash
-    python main.py
+    python pytest
     ```
 
 ## Contributing
