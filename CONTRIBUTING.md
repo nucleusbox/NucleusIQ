@@ -2,10 +2,13 @@
 
 We welcome contributions from the community! To get started, follow these guidelines:
 
-## How to Contribute
+1. ## How to Contribute
 
-1. **Fork the Repository**
-   - Click the "Fork" button at the top right of the repository page.
+- Fork the repository.
+- Create a new branch for your feature.
+- Add your feature or improvement.
+- Send a pull request.
+- We appreciate your input!
 
 2. **Clone Your Fork**
    ```bash
