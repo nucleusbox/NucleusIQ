@@ -330,7 +330,7 @@ Meta prompting focuses on creating prompts that guide the model in generating or
 - Iteratively refining prompts for improved outputs.
 - Enhancing prompt design efficiency.
 
-Please refer this [Meta Prompt example](src/examples/example_meta_prompt_usage.py)
+Please refer this [Meta Prompt example](../../examples/example_meta_prompt_usage.py)
 
 
 ### Prompt Composer Technique
@@ -352,4 +352,4 @@ Includes predefined placeholders for elements like examples, chains of thought, 
 4. Error Handling and Validation:
 Ensures that required fields are populated and all placeholders in the template are accounted for.
 
-Please refer this [Prompt Composer Example](prompt_composer_test.py)
+Please refer this [Prompt Composer Example](../../examples/prompt_composer_test.py)
