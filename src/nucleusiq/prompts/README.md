@@ -352,4 +352,4 @@ Includes predefined placeholders for elements like examples, chains of thought, 
 4. Error Handling and Validation:
 Ensures that required fields are populated and all placeholders in the template are accounted for.
 
-Please refer this [Prompt Composer Example](src/examples/prompt_composer_test.py)
+Please refer this [Prompt Composer Example](prompt_composer_test.py)
