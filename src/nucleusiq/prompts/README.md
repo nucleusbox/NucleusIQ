@@ -156,3 +156,49 @@ def zero_shot_example():
         user="Translate 'Good night' to Italian."
     )
 ```
+
+### Few-Shot Prompting
+
+**Description:**  
+Few-shot prompting provides the model with a few examples within the prompt to guide its behavior. This technique helps the model understand the desired task by learning from the provided examples.
+
+**Use Case:**
+
+- Mimicking specific writing styles.
+- Learning a pattern quickly.
+- Performing tasks with limited examples.
+
+**Code Example:**
+
+```python
+from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+# Create a FewShotPrompt instance using the factory
+    few_shot = PromptFactory.create_prompt(PromptTechnique.FEW_SHOT)
+
+    # Configure the prompt and add initial examples
+    few_shot.configure(
+        system="You are a multilingual translation assistant.",
+        user="Translate 'Good morning' to Japanese.",
+        use_cot=False,
+        examples=[
+            {"input": "Translate 'Hello' to Spanish.", "output": "Hola"},
+            {"input": "Translate 'Goodbye' to French.", "output": "Au revoir"}
+        ]
+    )
+
+    # Add more examples incrementally
+    few_shot.add_example(
+        input_text="Translate 'Please' to German.",
+        output_text="Bitte"
+    )
+    few_shot.add_example(
+        input_text="Translate 'Thank you' to Italian.",
+        output_text="Grazie"
+    )
+
+    # Format the prompt
+    final_prompt = few_shot.format_prompt()
+    print("Few-Shot Prompt with Combined Methods:\n")
+    print(final_prompt)
+```
+
