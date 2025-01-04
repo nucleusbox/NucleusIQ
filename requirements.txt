@@ -1,0 +1,8 @@
+setuptools
+pathlib
+pydantic
+PyYAML
+scikit-learn
+requests
+pytest
+pytest-html
