@@ -1,3 +1,4 @@
+# src/nucleusiq/agents/builder/base_agent.py
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Union, Literal
 from pydantic import BaseModel, Field, UUID4, validator, PrivateAttr
@@ -34,7 +35,7 @@ class BaseAgent(ABC, BaseModel):
     metrics: AgentMetrics = Field(default_factory=AgentMetrics)
     
     # Components
-    # memory: Optional[BaseMemory] = Field(default=None)
+    memory: Optional[Any] = Field(default=None)
     prompt: Optional[BasePrompt] = Field(default=None)
     # tools: List[BaseTool] = Field(default_factory=list)
     llm: Optional[BaseLLM] = Field(default=None)
@@ -52,15 +53,22 @@ class BaseAgent(ABC, BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
-        # self._initialize_logger()
+        self._initialize_logger()
         self._validate_configuration()
 
-    # def _initialize_logger(self):
-    #     """Initialize the agent's logger."""
-    #     self._logger = setup_logger(
-    #         name=f"agent.{self.name}",
-    #         verbose=self.config.verbose
-    #     )
+    def _initialize_logger(self):
+        """Initialize the agent's logger."""
+        self._logger = logging.getLogger(f"agent.{self.name}")
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(f"[%(levelname)s] {self.name}: %(message)s")
+        handler.setFormatter(formatter)
+        if not self._logger.handlers:
+            self._logger.addHandler(handler)
+        if self.config.verbose:
+            self._logger.setLevel(logging.DEBUG)
+        else:
+            self._logger.setLevel(logging.WARNING)
+
 
     def _validate_configuration(self):
         """Validate the agent's configuration."""

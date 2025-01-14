@@ -1,3 +1,4 @@
+# src/nucleusiq/agents/agent.py
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
@@ -28,13 +29,13 @@ class Agent(BaseAgent):
             
             # Initialize prompt if provided
             if self.prompt:
-                await self.prompt.initialize()
-                self._logger.debug("Prompt system initialized")
+                prompt_text = self.prompt.format_prompt()
+                self._logger.debug(f"Prompt system initialized \n {prompt_text}")
             
             # Initialize tools
-            for tool in self.tools:
-                await tool.initialize()
-            self._logger.debug(f"Initialized {len(self.tools)} tools")
+            # for tool in self.tools:
+            #     await tool.initialize()
+            # self._logger.debug(f"Initialized {len(self.tools)} tools")
             
             # Mark initialization as complete
             self.state = AgentState.COMPLETED
