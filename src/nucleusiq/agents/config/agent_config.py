@@ -1,3 +1,4 @@
+# src/nucleusiq/agents/config/agent_config.py
 from typing import Literal
 from pydantic import BaseModel, Field
 from enum import Enum
