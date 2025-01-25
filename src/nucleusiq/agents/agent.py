@@ -317,7 +317,7 @@ class Agent(BaseAgent):
         target_agent: 'Agent'
     ) -> Any:
         """Delegate a task to another agent."""
-        self._logger.info(f"Delegating task to agent: {target_agent.name}")
+        self._logger.info(f"Delegating task to agent for perfoming the task: {target_agent.name}")
         self.state = AgentState.WAITING_FOR_HUMAN
         
         try:
