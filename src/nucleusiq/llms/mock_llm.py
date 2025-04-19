@@ -13,7 +13,7 @@ class MockLLM(BaseLLM):
     On the second call, returns a final content response.
     """
     model_name: str = "mock-model"
-    
+
     def __init__(self, model_name: str = "mock-model"):
         self.model_name = model_name
         self._call_count = 0
@@ -68,7 +68,7 @@ class MockLLM(BaseLLM):
         last = messages[-1]
         if last.get('role') == 'function':
             body = last.get('content')
-            reply = f"Model final answer incorporating function output: {body}"
+            reply = f"Model final answer incorporating function output is: {body}"
         else:
             reply = f"Echo: {messages[-1].get('content', '')}"
         msg = self.Message(content=reply)
