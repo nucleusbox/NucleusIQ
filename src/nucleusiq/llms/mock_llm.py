@@ -68,7 +68,7 @@ class MockLLM(BaseLLM):
         last = messages[-1]
         if last.get('role') == 'function':
             body = last.get('content')
-            reply = f"Model final answer incorporating function output is: {body}"
+            reply = f"Dummy Model final answer incorporating function output is: {body}"
         else:
             reply = f"Echo: {messages[-1].get('content', '')}"
         msg = self.Message(content=reply)
