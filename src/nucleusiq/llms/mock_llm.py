@@ -1,45 +1,75 @@
-# src/nucleusiq/llms/mock_llm.py
+# File: src/nucleusiq/llms/mock_llm.py
+import re
+import json
+from typing import List, Dict, Any, Optional
 
-import random
-from typing import List, Dict, Optional
 from .base_llm import BaseLLM
-
 
 class MockLLM(BaseLLM):
     """
-    Mock Language Model for testing purposes.
-    Generates predefined reasoning steps.
-    """
+    Mock Language Model for testing function-calling.
 
-    def create_completion(
+    On the first call (with `tools` provided), returns a fake function_call.
+    On the second call, returns a final content response.
+    """
+    model_name: str = "mock-model"
+    
+    def __init__(self, model_name: str = "mock-model"):
+        self.model_name = model_name
+        self._call_count = 0
+    """
+    Mock Language Model for testing function-calling.
+
+    On the first call (with `tools` provided), returns a fake function_call.
+    On the second call, returns a final content response.
+    """
+    def __init__(self):
+        self._call_count = 0
+
+    class Message:
+        def __init__(self, content: Optional[str] = None, function_call: Optional[Dict[str, Any]] = None):
+            self.content = content
+            self.function_call = function_call
+
+    class Choice:
+        def __init__(self, message: 'MockLLM.Message'):
+            self.message = message
+
+    class LLMResponse:
+        def __init__(self, choices: List['MockLLM.Choice']):
+            self.choices = choices
+
+    async def call(
         self,
-        messages: List[Dict[str, str]],
+        *,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 150,
         temperature: float = 0.5,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
         stop: Optional[List[str]] = None
-    ) -> str:
-        """
-        Generates a mock completion by returning a random reasoning step.
+    ) -> 'MockLLM.LLMResponse':
+        self._call_count += 1
+        # First call: simulate a function_call if tools are provided
+        if self._call_count == 1 and tools:
+            user_msg = next((m['content'] for m in messages if m.get('role') == 'user'), '')
+            # Extract integers from the user prompt
+            nums = re.findall(r'-?\d+', user_msg)
+            params = list(tools[0]['parameters']['properties'].keys())
+            args = {params[i]: int(nums[i]) for i in range(min(len(nums), len(params)))}
+            fn_call = {'name': tools[0]['name'], 'arguments': json.dumps(args)}
+            msg = self.Message(content=None, function_call=fn_call)
+            return self.LLMResponse([self.Choice(msg)])
 
-        Args:
-            messages (List[Dict[str, str]]): A list of message dictionaries with 'role' and 'content'.
-            max_tokens (int): Maximum number of tokens in the generated completion.
-            temperature (float): Sampling temperature.
-            top_p (float): Nucleus sampling parameter.
-            frequency_penalty (float): Frequency penalty.
-            presence_penalty (float): Presence penalty.
-            stop (Optional[List[str]]): List of stop sequences.
-
-        Returns:
-            str: The generated reasoning chain.
-        """
-        reasoning_steps = [
-            "First, identify the key components involved.",
-            "Next, analyze the relationships between these components.",
-            "Then, apply the relevant formulas to compute the desired outcome.",
-            "Finally, verify the results for accuracy."
-        ]
-        return random.choice(reasoning_steps)
+        # Subsequent call or no tools: return a normal completion
+        last = messages[-1]
+        if last.get('role') == 'function':
+            body = last.get('content')
+            reply = f"Model final answer incorporating function output: {body}"
+        else:
+            reply = f"Echo: {messages[-1].get('content', '')}"
+        msg = self.Message(content=reply)
+        return self.LLMResponse([self.Choice(msg)])

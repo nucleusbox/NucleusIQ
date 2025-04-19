@@ -1,38 +1,40 @@
-# src/nucleusiq/llms/base_llm.py
-
+# File: src/nucleusiq/llms/base_llm.py
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
-
+from typing import List, Dict, Any, Optional
 
 class BaseLLM(ABC):
     """
     Abstract base class for Language Model adapters.
+
+    Subclasses must implement `call()`, which accepts:
+      - model: the model name or identifier
+      - messages: list of {'role': str, 'content': str} dicts
+      - tools: optional list of function specs
+
+    and returns an object with a `.choices` list, each having a `.message`
+    attribute containing either `.content` or a `.function_call` dict.
     """
 
     @abstractmethod
-    def create_completion(
+    async def call(
         self,
-        messages: List[Dict[str, str]],
+        *,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 150,
         temperature: float = 0.5,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
         stop: Optional[List[str]] = None
-    ) -> str:
+    ) -> Any:
         """
-        Generates a completion based on the provided messages.
-
-        Args:
-            messages (List[Dict[str, str]]): A list of message dictionaries with 'role' and 'content'.
-            max_tokens (int): Maximum number of tokens in the generated completion.
-            temperature (float): Sampling temperature.
-            top_p (float): Nucleus sampling parameter.
-            frequency_penalty (float): Frequency penalty.
-            presence_penalty (float): Presence penalty.
-            stop (Optional[List[str]]): List of stop sequences.
-
-        Returns:
-            str: The generated completion text.
+        Sends messages (and optional function specs) to the model and returns
+        a response object with a `.choices` list. Each choice should have a
+        `.message` attribute with:
+          - `.content` (str) for normal completions,
+          - or `.function_call` (dict) when the model decides to call a function.
         """
-        pass
+        raise NotImplementedError
+
