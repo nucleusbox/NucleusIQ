@@ -37,7 +37,13 @@ class BaseAgent(ABC, BaseModel):
     # Components
     memory: Optional[Any] = Field(default=None)
     prompt: Optional[BasePrompt] = Field(default=None)
-    # tools: List[BaseTool] = Field(default_factory=list)
+
+    # Tooling
+    tools: List[Any] = Field(
+            default_factory=list,
+            description="List of tools (BaseTool instances) available to this agent",
+        )
+    
     llm: Optional[BaseLLM] = Field(default=None)
     
     # Private attributes

@@ -30,6 +30,7 @@ class EchoAgent(Agent):
     async def execute(self, task: Dict[str, Any]) -> Any:
         # 1) Prepare tool specs
         tools_spec = [tool.get_spec() for tool in getattr(self, 'tools', [])]
+        print(tools_spec)
 
         # 2) Build messages
         messages: List[Dict[str, Any]] = []
@@ -37,7 +38,7 @@ class EchoAgent(Agent):
             messages.append({"role": "system", "content": self.prompt.system})
         user_content = self.prompt.user if self.prompt and self.prompt.user else task.get("objective", "")
         messages.append({"role": "user", "content": user_content})
-
+        print(messages)
         # 3) First LLM call with function specs
         response = await self.llm.call(
             model=self.llm.model_name,
@@ -45,9 +46,11 @@ class EchoAgent(Agent):
             tools=tools_spec,
         )
         choice = response.choices[0].message
+        print(choice)
 
         # 4) If function_call requested, execute tool
         fn_call = getattr(choice, "function_call", None)
+        print(fn_call)
         if fn_call:
             args = json.loads(fn_call.arguments)
             self._logger.info(f"Calling tool {fn_call.name} with args {args}")
