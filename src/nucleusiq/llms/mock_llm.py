@@ -55,7 +55,7 @@ class MockLLM(BaseLLM):
         self._call_count += 1
         # First call: simulate a function_call if tools are provided
         if self._call_count == 1 and tools:
-            user_msg = next((m['content'] for m in messages if m.get('role') == 'user'), '')
+            user_msg = next((m['content'] for m in reversed(messages) if m.get('role') == 'user'), '')
             # Extract integers from the user prompt
             nums = re.findall(r'-?\d+', user_msg)
             params = list(tools[0]['parameters']['properties'].keys())

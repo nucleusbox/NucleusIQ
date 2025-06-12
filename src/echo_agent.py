@@ -28,57 +28,68 @@ class EchoAgent(Agent):
         return await super().plan(task)
 
     async def execute(self, task: Dict[str, Any]) -> Any:
-        # 1) Prepare tool specs
-        tools_spec = [tool.get_spec() for tool in getattr(self, 'tools', [])]
-        print(tools_spec)
+        # 1) Collect tool specs for the LLM
+        tools_spec = [t.get_spec() for t in self.tools]
 
-        # 2) Build messages
+        # 2) Build message list  ───────────────────────────────────────────
         messages: List[Dict[str, Any]] = []
+
         if self.prompt and self.prompt.system:
             messages.append({"role": "system", "content": self.prompt.system})
-        user_content = self.prompt.user if self.prompt and self.prompt.user else task.get("objective", "")
-        messages.append({"role": "user", "content": user_content})
+
+        # First user turn from the zero-shot template (optional)
+        if self.prompt and self.prompt.user:
+            messages.append({"role": "user", "content": self.prompt.user})
+
+        # Second user turn with the *actual* task text  
+        messages.append({"role": "user", "content": task.get("objective", "")})
         print(messages)
-        # 3) First LLM call with function specs
+        # 3) First LLM call (may return a function_call)
         response = await self.llm.call(
             model=self.llm.model_name,
             messages=messages,
             tools=tools_spec,
         )
-        choice = response.choices[0].message
-        print(choice)
-
-        # 4) If function_call requested, execute tool
-        fn_call = getattr(choice, "function_call", None)
-        print(fn_call)
+        choice_msg = response.choices[0].message
+        print(choice_msg)
+        fn_call: Dict[str, Any] | None = getattr(choice_msg, "function_call", None)
+        print("fn_call: ", fn_call)
+        # 4) If a function was requested, execute the tool
         if fn_call:
-            args = json.loads(fn_call.arguments)
-            self._logger.info(f"Calling tool {fn_call.name} with args {args}")
-            tool = next((t for t in self.tools if t.name == fn_call.name), None)
-            if not tool:
-                raise ValueError(f"Tool '{fn_call.name}' not found")
+            name = fn_call["name"]
+            arguments_str = fn_call["arguments"]
+            args = json.loads(arguments_str or "{}")
+            print("args: ", args)
+
+            self._logger.info(f"Calling tool {name} with args {args}")
+            tool = next((t for t in self.tools if t.name == name), None)
+            if tool is None:
+                raise ValueError(f"Tool '{name}' not found")
+
             result = await tool.execute(**args)
 
-            # 5) Send function result back
-            messages.append({
-                "role": "assistant",
-                "content": None,
-                "function_call": {"name": fn_call.name, "arguments": fn_call.arguments}
-            })
-            messages.append({
-                "role": "function",
-                "name": fn_call.name,
-                "content": json.dumps(result)
-            })
-            follow_up = await self.llm.call(
-                model=self.llm.model_name,
-                messages=messages,
+            # 5) Feed the result back for a final model answer
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "function_call": {"name": name, "arguments": arguments_str},
+                    },
+                    {
+                        "role": "function",
+                        "name": name,
+                        "content": json.dumps(result),
+                    },
+                ]
             )
+            follow_up = await self.llm.call(model=self.llm.model_name, messages=messages)
             return follow_up.choices[0].message.content
 
-        # 6) Fallback: echo
+        # 6) Fallback to a simple echo
         self._logger.info("No function call returned; echoing objective.")
         return f"Echo: {task.get('objective', '')}"
+
 
 async def main():
     # Configure logging
