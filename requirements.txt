@@ -6,3 +6,7 @@ scikit-learn
 requests
 pytest
 pytest-html
+
+# openai
+openai
+tiktoken
