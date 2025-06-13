@@ -1,6 +1,7 @@
 # src/nucleusiq/agents/agent.py
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+import json
 
 from nucleusiq.agents.builder.base_anget import BaseAgent
 from nucleusiq.agents.config.agent_config import AgentState, AgentMetrics
@@ -33,12 +34,13 @@ class Agent(BaseAgent):
                 self._logger.debug(f"Prompt system initialized \n {prompt_text}")
             
             # Initialize tools
-            # for tool in self.tools:
-            #     await tool.initialize()
-            # self._logger.debug(f"Initialized {len(self.tools)} tools")
+            for tool in self.tools:
+                await tool.initialize()
+            if self.tools:
+                self._logger.debug("Initialised %d tools", len(self.tools))
             
             # Mark initialization as complete
-            self.state = AgentState.COMPLETED
+            self.state = AgentState.INITIALIZING
             self._logger.info("Agent initialization completed successfully")
             
         except Exception as e:
@@ -52,10 +54,26 @@ class Agent(BaseAgent):
             
             return plan
             
-        except Exception as e:
-            self._logger.error(f"Planning failed: {str(e)}")
-            raise
+        # except Exception as e:
+        #     self._logger.error(f"Planning failed: {str(e)}")
+        #     raise
 
+    # --------------------------------------------------------------------- #
+    # PLANNING (very simple by default)                                     #
+    # --------------------------------------------------------------------- #
+    async def plan(self, task: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Default: one-step plan that simply calls `execute`.
+        Override for multi-step or LLM-generated planning.
+        """
+        return [
+            {
+                "step": 1,
+                "action": "execute",
+                "task": task,
+            }
+        ]
+    
     async def _get_context(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """Retrieve relevant context for task execution."""
         context = {
@@ -72,11 +90,7 @@ class Agent(BaseAgent):
             
         return context
 
-    async def _create_llm_plan(
-        self,
-        task: Dict[str, Any],
-        context: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    async def _create_llm_plan(self, task: Dict[str, Any], context: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create an execution plan using the LLM."""
         # Construct planning prompt
         plan_prompt = self._construct_planning_prompt(task, context)
@@ -89,10 +103,7 @@ class Agent(BaseAgent):
             self._logger.error(f"LLM planning failed: {str(e)}")
             return await self._create_basic_plan(task)
 
-    async def _create_basic_plan(
-        self,
-        task: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    async def _create_basic_plan(self, task: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create a basic execution plan without LLM."""
         # Simple single-step plan
         return [{
@@ -101,11 +112,7 @@ class Agent(BaseAgent):
             "task": task
         }]
 
-    def _construct_planning_prompt(
-        self,
-        task: Dict[str, Any],
-        context: Dict[str, Any]
-    ) -> str:
+    def _construct_planning_prompt(self, task: Dict[str, Any], context: Dict[str, Any]) -> str:
         """Construct a prompt for plan generation."""
         if self.prompt:
             return self.prompt.format(
@@ -126,10 +133,7 @@ class Agent(BaseAgent):
         Create a step-by-step plan to accomplish this task.
         """
 
-    def _parse_plan_response(
-        self,
-        response: str
-    ) -> List[Dict[str, Any]]:
+    def _parse_plan_response(self, response: str) -> List[Dict[str, Any]]:
         """Parse the LLM's planning response into structured steps."""
         # This is a simplified version - in practice, you'd want more sophisticated parsing
         steps = []
@@ -261,3 +265,73 @@ class Agent(BaseAgent):
             return await target_agent.execute(task)
         finally:
             self.state = AgentState.EXECUTING
+
+    # --------------------------------------------------------------------- #
+    # EXECUTION WITH FUNCTION-CALLING LOOP                                  #
+    # --------------------------------------------------------------------- #
+    async def execute(self, task: Dict[str, Any]) -> Any:
+        """
+        • Builds the conversation (system → template user → real user)
+        • Sends tools spec on the first call
+        • Executes any requested tool and feeds result back
+        • Returns the model’s final answer or echoes the objective.
+        """
+        self._logger.debug("Starting execution for task %s", task.get("id"))
+
+        # (1) spec for each tool
+        tool_specs = [t.get_spec() for t in self.tools]
+
+        # (2) construct messages
+        messages: List[Dict[str, Any]] = []
+        if self.prompt and self.prompt.system:
+            messages.append({"role": "system", "content": self.prompt.system})
+        if self.prompt and self.prompt.user:
+            messages.append({"role": "user", "content": self.prompt.user})
+        messages.append({"role": "user", "content": task.get("objective", "")})
+
+        # (3) first LLM call
+        resp1 = await self.llm.call(
+            model=self.llm.model_name,
+            messages=messages,
+            tools=tool_specs,
+        )
+        first_msg = resp1.choices[0].message
+        fn_call: Optional[Dict[str, Any]] = getattr(first_msg, "function_call", None)
+
+        # (4) handle function_call
+        if fn_call:
+            fn_name = fn_call["name"]
+            fn_args = json.loads(fn_call["arguments"] or "{}")
+
+            self._logger.info("Tool requested: %s  args=%s", fn_name, fn_args)
+            tool = next((t for t in self.tools if t.name == fn_name), None)
+            if tool is None:
+                raise ValueError(f"Tool '{fn_name}' not found")
+
+            tool_result = await tool.execute(**fn_args)
+
+            # append assistant's function_call & the tool (function) message
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "function_call": fn_call,
+                    },
+                    {
+                        "role": "function",
+                        "name": fn_name,
+                        "content": json.dumps(tool_result),
+                    },
+                ]
+            )
+
+            # (5) final LLM call
+            resp2 = await self.llm.call(model=self.llm.model_name, messages=messages)
+            final = resp2.choices[0].message.content
+            self._logger.debug("Final LLM response: %s", final)
+            return final
+
+        # (6) fallback
+        self._logger.info("LLM did not request a tool; echoing objective.")
+        return f"Echo: {task.get('objective', '')}"
