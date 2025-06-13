@@ -1,8 +1,10 @@
 # File: src/nucleusiq/llms/base_llm.py
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+from typing_extensions import override
+from nucleusiq.llms.base import BaseLanguageModel
 
-class BaseLLM(ABC):
+class BaseLLM(BaseLanguageModel, ABC):
     """
     Abstract base class for Language Model adapters.
 
