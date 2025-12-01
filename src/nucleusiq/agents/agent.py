@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 import json
 
-from nucleusiq.agents.builder.base_anget import BaseAgent
+from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.config.agent_config import AgentState, AgentMetrics
 # from nucleusiq.core.memory import BaseMemory
 from nucleusiq.prompts.base import BasePrompt

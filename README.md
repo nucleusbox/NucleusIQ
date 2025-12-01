@@ -97,15 +97,37 @@ At the heart of NucleusIQ lies a commitment to simplicity, flexibility, and cont
     DATABASE_URL=your_database_url
     ```
 
-5. **Run the Test**
+5. **Run the Tests**
 
     ```bash
-    python pytest
+    pytest
     ```
+
+## Current Status
+
+**Version:** 0.1.0-alpha (Pre-Release)
+
+### ✅ Implemented:
+- Core agent framework
+- 7+ prompt engineering techniques (Zero-shot, Few-shot, CoT, Auto-CoT, RAG, Meta-prompting, Prompt Composer)
+- Function calling loop
+- Tool system
+- MockLLM for testing
+- OpenAI integration (partial)
+- State management and observability
+
+### 🚧 Coming Soon:
+- Memory system (in progress)
+- Additional LLM providers (Ollama, Groq, Gemini)
+- Vector database integrations (Pinecone, Chroma)
+- Multi-agent orchestration
+- Advanced observability dashboard
+
+See [ROADMAP.md](ROADMAP.md) for detailed plans.
 
 ## Contributing
 
-CrewAI is open-source and we welcome contributions. If you're looking to contribute, please:
+NucleusIQ is open-source and we welcome contributions! If you're looking to contribute, please:
 
 Fork the repository.
 Create a new branch for your feature.
