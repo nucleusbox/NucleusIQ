@@ -269,10 +269,12 @@ class Agent(BaseAgent):
         • Returns the model's final answer or echoes the objective.
         """
         self._logger.debug("Starting execution for task %s", task.get("id"))
+        self.state = AgentState.EXECUTING
         
         # Check if LLM is available
         if not self.llm:
             self._logger.warning("No LLM configured, falling back to echo mode")
+            self.state = AgentState.COMPLETED
             return f"Echo: {task.get('objective', '')}"
 
         # (1) spec for each tool
@@ -346,6 +348,7 @@ class Agent(BaseAgent):
                 final_msg = resp2.choices[0].message
                 final = getattr(final_msg, 'content', None) or str(final_msg)
                 self._logger.debug("Final LLM response: %s", final)
+                self.state = AgentState.COMPLETED
                 return final
 
             # (6) no function call - return content or echo
@@ -355,14 +358,17 @@ class Agent(BaseAgent):
                 content = getattr(first_msg, "content", None)
 
             if content:
+                self.state = AgentState.COMPLETED
                 return content
 
             self._logger.info(
                 "LLM did not request a tool and returned no content; echoing objective."
             )
+            self.state = AgentState.COMPLETED
             return f"Echo: {task.get('objective', '')}"
                 
         except Exception as e:
             self._logger.error(f"Error during execution: {str(e)}")
+            self.state = AgentState.ERROR
             # Fallback to echo on error
             return f"Echo: {task.get('objective', '')}"
