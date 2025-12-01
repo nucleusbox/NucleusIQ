@@ -22,7 +22,7 @@ class BaseLLM(BaseLanguageModel, ABC):
         self,
         *,
         model: str,
-        messages: List[Dict[str, Any]],
+        messages: List[Dict[str, Any]], # change to pydentic model
         tools: Optional[List[Dict[str, Any]]] = None,
         max_tokens: int = 150,
         temperature: float = 0.5,

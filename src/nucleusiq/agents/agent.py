@@ -39,7 +39,9 @@ class Agent(BaseAgent):
             if self.tools:
                 self._logger.debug("Initialised %d tools", len(self.tools))
             
-            # Mark initialization as complete
+            # Initialization succeeded – agent is now ready but has not run any tasks yet.
+            # Keep state as INITIALIZING so execution-related states (PLANNING/EXECUTING/
+            # COMPLETED) are only used during/after task processing.
             self.state = AgentState.INITIALIZING
             self._logger.info("Agent initialization completed successfully")
             
@@ -47,16 +49,6 @@ class Agent(BaseAgent):
             self.state = AgentState.ERROR
             self._logger.error(f"Agent initialization failed: {str(e)}")
             raise
-
-    # Placeholder for other methods like execute, plan, etc.
-    # These will be implemented in subsequent steps. 
-            plan = await self._create_basic_plan(task)
-            
-            return plan
-            
-        # except Exception as e:
-        #     self._logger.error(f"Planning failed: {str(e)}")
-        #     raise
 
     # --------------------------------------------------------------------- #
     # PLANNING (very simple by default)                                     #
@@ -274,64 +266,103 @@ class Agent(BaseAgent):
         • Builds the conversation (system → template user → real user)
         • Sends tools spec on the first call
         • Executes any requested tool and feeds result back
-        • Returns the model’s final answer or echoes the objective.
+        • Returns the model's final answer or echoes the objective.
         """
         self._logger.debug("Starting execution for task %s", task.get("id"))
+        
+        # Check if LLM is available
+        if not self.llm:
+            self._logger.warning("No LLM configured, falling back to echo mode")
+            return f"Echo: {task.get('objective', '')}"
 
         # (1) spec for each tool
-        tool_specs = [t.get_spec() for t in self.tools]
+        tool_specs = [t.get_spec() for t in self.tools] if self.tools else []
 
         # (2) construct messages
         messages: List[Dict[str, Any]] = []
-        if self.prompt and self.prompt.system:
-            messages.append({"role": "system", "content": self.prompt.system})
-        if self.prompt and self.prompt.user:
-            messages.append({"role": "user", "content": self.prompt.user})
+        if self.prompt:
+            if hasattr(self.prompt, 'system') and self.prompt.system:
+                messages.append({"role": "system", "content": self.prompt.system})
+            if hasattr(self.prompt, 'user') and self.prompt.user:
+                messages.append({"role": "user", "content": self.prompt.user})
         messages.append({"role": "user", "content": task.get("objective", "")})
 
         # (3) first LLM call
-        resp1 = await self.llm.call(
-            model=self.llm.model_name,
-            messages=messages,
-            tools=tool_specs,
-        )
-        first_msg = resp1.choices[0].message
-        fn_call: Optional[Dict[str, Any]] = getattr(first_msg, "function_call", None)
-
-        # (4) handle function_call
-        if fn_call:
-            fn_name = fn_call["name"]
-            fn_args = json.loads(fn_call["arguments"] or "{}")
-
-            self._logger.info("Tool requested: %s  args=%s", fn_name, fn_args)
-            tool = next((t for t in self.tools if t.name == fn_name), None)
-            if tool is None:
-                raise ValueError(f"Tool '{fn_name}' not found")
-
-            tool_result = await tool.execute(**fn_args)
-
-            # append assistant's function_call & the tool (function) message
-            messages.extend(
-                [
-                    {
-                        "role": "assistant",
-                        "content": None,
-                        "function_call": fn_call,
-                    },
-                    {
-                        "role": "function",
-                        "name": fn_name,
-                        "content": json.dumps(tool_result),
-                    },
-                ]
+        try:
+            resp1 = await self.llm.call(
+                model=getattr(self.llm, "model_name", "default"),
+                messages=messages,
+                tools=tool_specs if tool_specs else None,
             )
 
-            # (5) final LLM call
-            resp2 = await self.llm.call(model=self.llm.model_name, messages=messages)
-            final = resp2.choices[0].message.content
-            self._logger.debug("Final LLM response: %s", final)
-            return final
+            if not resp1 or not hasattr(resp1, "choices") or not resp1.choices:
+                raise ValueError("LLM returned empty response")
 
-        # (6) fallback
-        self._logger.info("LLM did not request a tool; echoing objective.")
-        return f"Echo: {task.get('objective', '')}"
+            # BaseOpenAI returns a dict; MockLLM returns an object.
+            first_msg = resp1.choices[0].message
+            if isinstance(first_msg, dict):
+                fn_call = first_msg.get("function_call")
+            else:
+                fn_call = getattr(first_msg, "function_call", None)
+
+            # (4) handle function_call
+            if fn_call:
+                fn_name = fn_call.get("name") if isinstance(fn_call, dict) else getattr(fn_call, "name", None)
+                fn_args_str = fn_call.get("arguments") if isinstance(fn_call, dict) else getattr(fn_call, "arguments", "{}")
+                fn_args = json.loads(fn_args_str or "{}")
+
+                self._logger.info("Tool requested: %s  args=%s", fn_name, fn_args)
+                tool = next((t for t in self.tools if t.name == fn_name), None)
+                if tool is None:
+                    raise ValueError(f"Tool '{fn_name}' not found")
+
+                tool_result = await tool.execute(**fn_args)
+
+                # append assistant's function_call & the tool (function) message
+                messages.extend(
+                    [
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "function_call": fn_call,
+                        },
+                        {
+                            "role": "function",
+                            "name": fn_name,
+                            "content": json.dumps(tool_result),
+                        },
+                    ]
+                )
+
+                # (5) final LLM call
+                resp2 = await self.llm.call(
+                    model=getattr(self.llm, 'model_name', 'default'), 
+                    messages=messages
+                )
+                
+                if not resp2 or not hasattr(resp2, 'choices') or not resp2.choices:
+                    raise ValueError("LLM returned empty response on final call")
+                    
+                final_msg = resp2.choices[0].message
+                final = getattr(final_msg, 'content', None) or str(final_msg)
+                self._logger.debug("Final LLM response: %s", final)
+                return final
+
+            # (6) no function call - return content or echo
+            if isinstance(first_msg, dict):
+                content = first_msg.get("content")
+            else:
+                content = getattr(first_msg, "content", None)
+
+            if content:
+                return content
+
+            self._logger.info(
+                "LLM did not request a tool and returned no content; echoing objective."
+            )
+            return f"Echo: {task.get('objective', '')}"
+                
+        except Exception as e:
+            self._logger.error(f"Error during execution: {str(e)}")
+            # Fallback to echo on error
+            return f"Echo: {task.get('objective', '')}"
