@@ -1,10 +1,20 @@
-#base.py
+"""
+OpenAI provider for NucleusIQ.
+
+This module provides OpenAI client that supports both async and sync modes.
+The mode is determined by the `async_mode` parameter during initialization.
+"""
+
 from __future__ import annotations
 
-import os, asyncio, json, tiktoken, time, logging, httpx
+import os
+import asyncio
+import time
+import logging
+import httpx
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
-import openai                           # ⬅ requires openai>=1.14
+import openai
 from nucleusiq.llms.base_llm import BaseLLM
 
 logger = logging.getLogger(__name__)
@@ -20,7 +30,12 @@ class _LLMResponse(BaseModel):
 
 
 class BaseOpenAI(BaseLLM):
-    """Slim async client for OpenAI ChatCompletion with tool-calling support."""
+    """
+    OpenAI client for ChatCompletion with tool-calling support.
+    
+    Supports both async and sync modes based on `async_mode` parameter.
+    Default is async mode (True).
+    """
 
     def __init__(
         self,
@@ -32,9 +47,15 @@ class BaseOpenAI(BaseLLM):
         max_retries: int = 3,
         temperature: float = 0.7,
         logit_bias: Optional[Dict[str, float]] = None,
+        async_mode: bool = True,
     ) -> None:
         """
-        Initialize an async OpenAI chat client with sensible defaults.
+        Initialize OpenAI chat client with sensible defaults.
+        
+        Args:
+            async_mode: If True, uses async client. If False, uses sync client.
+                       Default is True (async).
+        
         Values can be overridden via arguments or environment variables:
           - OPENAI_API_KEY
           - OPENAI_API_BASE
@@ -49,21 +70,34 @@ class BaseOpenAI(BaseLLM):
         self.max_retries = max_retries
         self.temperature = temperature
         self.logit_bias = logit_bias
+        self.async_mode = async_mode
         self._logger = logging.getLogger("BaseOpenAI")
 
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY is required")
 
-        self._client = openai.AsyncOpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            organization=self.organization,
-            timeout=self.timeout,
-            max_retries=self.max_retries,
-        )
+        # Create appropriate client based on mode
+        if self.async_mode:
+            self._client = openai.AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                organization=self.organization,
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+            )
+        else:
+            self._client = openai.OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                organization=self.organization,
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+            )
 
     # ---------- public helpers ----------
     def estimate_tokens(self, text: str) -> int:
+        """Estimate the number of tokens in a text string."""
+        import tiktoken
         enc = tiktoken.encoding_for_model(self.model_name)
         return len(enc.encode(text))
 
@@ -82,41 +116,146 @@ class BaseOpenAI(BaseLLM):
         stop: Optional[List[str]] = None,
         stream: bool = False,
     ) -> Any:
+        """
+        Call OpenAI API.
+        
+        If async_mode=True, this is an async method.
+        If async_mode=False, this method runs sync code but is still async-compatible.
+        """
         payload = {
             "model": model,
             "messages": messages,
-            "temperature": temperature or self.temperature,
+            "temperature": temperature if temperature is not None else self.temperature,
             "top_p": top_p,
             "frequency_penalty": frequency_penalty,
             "presence_penalty": presence_penalty,
             "max_tokens": max_tokens,
-            "logit_bias": self.logit_bias,
-            "tools": tools,
             "stream": stream,
-            "stop": stop,
         }
+        
+        # Only include optional parameters if they are provided
+        if self.logit_bias is not None:
+            payload["logit_bias"] = self.logit_bias
+        if tools is not None:
+            payload["tools"] = tools
+        if stop is not None:
+            payload["stop"] = stop
 
         attempt = 0
         while True:
             try:
-                if stream:
-                    # Return first chunk immediately as a faux-stream for simplicity
-                    async for chunk in self._client.chat.completions.create(**payload):
-                        first = chunk.choices[0].delta
+                if self.async_mode:
+                    # Async mode
+                    if stream:
+                        async for chunk in self._client.chat.completions.create(**payload):
+                            first = chunk.choices[0].delta
+                            return _LLMResponse(
+                                choices=[_Choice(message=first.model_dump())]
+                            )
+                    else:
+                        resp = await self._client.chat.completions.create(**payload)
                         return _LLMResponse(
-                            choices=[_Choice(message=first.model_dump())]
+                            choices=[_Choice(message=resp.choices[0].message.model_dump())]
                         )
                 else:
-                    resp = await self._client.chat.completions.create(**payload)
-                    return _LLMResponse(
-                        choices=[_Choice(message=resp.choices[0].message.model_dump())]
-                    )
-            except (openai.RateLimitError, httpx.HTTPError) as e:
+                    # Sync mode - run in executor to make it async-compatible
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if stream:
+                        # For sync streaming, we need to handle it differently
+                        chunks = []
+                        for chunk in self._client.chat.completions.create(**payload):
+                            chunks.append(chunk)
+                        if chunks:
+                            first = chunks[0].choices[0].delta
+                            return _LLMResponse(
+                                choices=[_Choice(message=first.model_dump())]
+                            )
+                    else:
+                        resp = await loop.run_in_executor(
+                            None,
+                            lambda: self._client.chat.completions.create(**payload)
+                        )
+                        return _LLMResponse(
+                            choices=[_Choice(message=resp.choices[0].message.model_dump())]
+                        )
+            except openai.RateLimitError as e:
+                # Rate limit errors - retry with exponential backoff
                 attempt += 1
                 if attempt > self.max_retries:
+                    self._logger.error(
+                        f"Rate limit exceeded after {self.max_retries} retries: {e}"
+                    )
                     raise
                 backoff = 2 ** attempt
                 self._logger.warning(
-                    f"OpenAI call failed ({e}); retry {attempt}/{self.max_retries} in {backoff}s"
+                    f"Rate limit hit ({e}); retry {attempt}/{self.max_retries} in {backoff}s"
                 )
-                await asyncio.sleep(backoff)
+                if self.async_mode:
+                    await asyncio.sleep(backoff)
+                else:
+                    time.sleep(backoff)
+            except openai.APIError as e:
+                # API errors (500, 502, 503, etc.) - retry with exponential backoff
+                attempt += 1
+                if attempt > self.max_retries:
+                    self._logger.error(
+                        f"API error after {self.max_retries} retries: {e}"
+                    )
+                    raise
+                backoff = 2 ** attempt
+                self._logger.warning(
+                    f"API error ({e}); retry {attempt}/{self.max_retries} in {backoff}s"
+                )
+                if self.async_mode:
+                    await asyncio.sleep(backoff)
+                else:
+                    time.sleep(backoff)
+            except openai.APIConnectionError as e:
+                # Connection errors - retry with exponential backoff
+                attempt += 1
+                if attempt > self.max_retries:
+                    self._logger.error(
+                        f"Connection error after {self.max_retries} retries: {e}"
+                    )
+                    raise
+                backoff = 2 ** attempt
+                self._logger.warning(
+                    f"Connection error ({e}); retry {attempt}/{self.max_retries} in {backoff}s"
+                )
+                if self.async_mode:
+                    await asyncio.sleep(backoff)
+                else:
+                    time.sleep(backoff)
+            except httpx.HTTPError as e:
+                # HTTP errors (timeouts, network issues) - retry with exponential backoff
+                attempt += 1
+                if attempt > self.max_retries:
+                    self._logger.error(
+                        f"HTTP error after {self.max_retries} retries: {e}"
+                    )
+                    raise
+                backoff = 2 ** attempt
+                self._logger.warning(
+                    f"HTTP error ({e}); retry {attempt}/{self.max_retries} in {backoff}s"
+                )
+                if self.async_mode:
+                    await asyncio.sleep(backoff)
+                else:
+                    time.sleep(backoff)
+            except openai.AuthenticationError as e:
+                # Authentication errors - don't retry, fail immediately
+                self._logger.error(f"Authentication failed: {e}")
+                raise ValueError(f"Invalid API key or authentication failed: {e}") from e
+            except openai.PermissionError as e:
+                # Permission errors - don't retry, fail immediately
+                self._logger.error(f"Permission denied: {e}")
+                raise ValueError(f"Permission denied: {e}") from e
+            except openai.InvalidRequestError as e:
+                # Invalid request errors - don't retry, fail immediately
+                self._logger.error(f"Invalid request: {e}")
+                raise ValueError(f"Invalid request parameters: {e}") from e
+            except Exception as e:
+                # Unexpected errors - log and re-raise
+                self._logger.error(f"Unexpected error during OpenAI call: {e}", exc_info=True)
+                raise

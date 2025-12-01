@@ -1,4 +1,10 @@
-# examples/auto_chain_of_thought_example.py
+# examples/prompts/auto_chain_of_thought_examples.py
+
+import os
+import sys
+
+# Add src to path so we can import nucleusiq
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src'))
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.auto_chain_of_thought import AutoChainOfThoughtPrompt

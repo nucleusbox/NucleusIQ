@@ -1,4 +1,11 @@
-# src/prompt_composer_test.py
+# src/examples/prompts/usage_example_composer_prompts.py
+
+import os
+import sys
+
+# Add src directory to path so we can import nucleusiq
+_src_dir = os.path.join(os.path.dirname(__file__), '../..')
+sys.path.insert(0, _src_dir)
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 

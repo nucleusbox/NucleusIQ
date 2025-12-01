@@ -1,4 +1,11 @@
-# example_meta_prompt_usage.py
+# src/examples/prompts/example_meta_prompt_usage.py
+
+import os
+import sys
+
+# Add src directory to path so we can import nucleusiq
+_src_dir = os.path.join(os.path.dirname(__file__), '../..')
+sys.path.insert(0, _src_dir)
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.meta_prompt import MetaPrompt

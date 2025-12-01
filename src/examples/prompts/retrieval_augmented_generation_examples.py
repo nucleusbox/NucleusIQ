@@ -1,4 +1,11 @@
-# examples/retrieval_augmented_generation_example.py
+# src/examples/prompts/retrieval_augmented_generation_examples.py
+
+import os
+import sys
+
+# Add src directory to path so we can import nucleusiq
+_src_dir = os.path.join(os.path.dirname(__file__), '../..')
+sys.path.insert(0, _src_dir)
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 
