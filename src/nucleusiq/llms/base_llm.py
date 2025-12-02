@@ -17,6 +17,46 @@ class BaseLLM(BaseLanguageModel, ABC):
     attribute containing either `.content` or a `.function_call` dict.
     """
 
+    def convert_tool_specs(self, tools: List[Any]) -> List[Dict[str, Any]]:
+        """
+        Convert BaseTool instances to LLM-specific tool format.
+        
+        This method should be overridden by LLM providers to convert
+        generic BaseTool specs to their own format.
+        
+        Args:
+            tools: List of BaseTool instances or tool specs
+            
+        Returns:
+            List of tool specs in LLM-specific format
+        """
+        converted = []
+        for tool in tools:
+            if hasattr(tool, 'get_spec'):
+                # BaseTool instance - get generic spec
+                spec = tool.get_spec()
+                # Convert to LLM-specific format
+                converted.append(self._convert_tool_spec(spec))
+            else:
+                # Already a dict spec - assume it's in correct format
+                converted.append(tool)
+        return converted
+    
+    def _convert_tool_spec(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert a generic tool spec to LLM-specific format.
+        
+        Override this in LLM providers to implement conversion.
+        Default implementation returns spec as-is.
+        
+        Args:
+            spec: Generic tool spec from BaseTool.get_spec()
+            
+        Returns:
+            LLM-specific tool spec
+        """
+        return spec
+
     @abstractmethod
     async def call(
         self,

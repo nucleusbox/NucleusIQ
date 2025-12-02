@@ -58,10 +58,21 @@ class MockLLM(BaseLLM):
         if self._call_count == 1 and tools:
             user_msg = next((m['content'] for m in reversed(messages) if m.get('role') == 'user'), '')
             # Extract integers from the user prompt
+            # Handle both OpenAI format {"type": "function", "function": {...}} and generic format
+            tool = tools[0]
+            if "function" in tool:
+                # OpenAI format
+                tool_name = tool["function"]["name"]
+                tool_params = tool["function"].get("parameters", {})
+            else:
+                # Generic format
+                tool_name = tool.get("name", "")
+                tool_params = tool.get("parameters", {})
+            
+            params = list(tool_params.get("properties", {}).keys())
             nums = re.findall(r'-?\d+', user_msg)
-            params = list(tools[0]['parameters']['properties'].keys())
             args = {params[i]: int(nums[i]) for i in range(min(len(nums), len(params)))}
-            fn_call = {'name': tools[0]['name'], 'arguments': json.dumps(args)}
+            fn_call = {'name': tool_name, 'arguments': json.dumps(args)}
             msg = self.Message(content=None, function_call=fn_call)
             return self.LLMResponse([self.Choice(msg)])
 

@@ -36,6 +36,48 @@ class BaseOpenAI(BaseLLM):
     Supports both async and sync modes based on `async_mode` parameter.
     Default is async mode (True).
     """
+    
+    def _convert_tool_spec(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert generic BaseTool spec to OpenAI format.
+        
+        Args:
+            spec: Generic tool spec from BaseTool.get_spec()
+                {
+                    "name": "...",
+                    "description": "...",
+                    "parameters": {...}  # JSON Schema
+                }
+        
+        Returns:
+            OpenAI tool spec:
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "...",
+                        "description": "...",
+                        "parameters": {...}  # OpenAI-compatible JSON Schema
+                    }
+                }
+        """
+        # Check if it's already in OpenAI format (from OpenAITool)
+        if "type" in spec:
+            return spec
+        
+        # Convert generic spec to OpenAI format
+        parameters = spec.get("parameters", {})
+        # Add additionalProperties: False for OpenAI
+        if "additionalProperties" not in parameters:
+            parameters = {**parameters, "additionalProperties": False}
+        
+        return {
+            "type": "function",
+            "function": {
+                "name": spec["name"],
+                "description": spec["description"],
+                "parameters": parameters,
+            }
+        }
 
     def __init__(
         self,

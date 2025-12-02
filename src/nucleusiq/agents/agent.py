@@ -89,8 +89,27 @@ class Agent(BaseAgent):
         
         # Generate plan using LLM
         try:
-            plan_response = await self.llm.generate(plan_prompt)
-            return self._parse_plan_response(plan_response)
+            # Convert string prompt to message format for LLM.call()
+            messages = [{"role": "user", "content": plan_prompt}]
+            plan_response = await self.llm.call(
+                model=getattr(self.llm, "model_name", "default"),
+                messages=messages,
+            )
+            
+            # Extract content from response (handle both dict and object)
+            if not plan_response or not hasattr(plan_response, "choices") or not plan_response.choices:
+                raise ValueError("LLM returned empty response for planning")
+            
+            response_msg = plan_response.choices[0].message
+            if isinstance(response_msg, dict):
+                response_content = response_msg.get("content")
+            else:
+                response_content = getattr(response_msg, "content", None)
+            
+            if not response_content:
+                raise ValueError("LLM returned no content for planning")
+            
+            return self._parse_plan_response(response_content)
         except Exception as e:
             self._logger.error(f"LLM planning failed: {str(e)}")
             return await self._create_basic_plan(task)
@@ -107,7 +126,7 @@ class Agent(BaseAgent):
     def _construct_planning_prompt(self, task: Dict[str, Any], context: Dict[str, Any]) -> str:
         """Construct a prompt for plan generation."""
         if self.prompt:
-            return self.prompt.format(
+            return self.prompt.format_prompt(
                 task=task,
                 context=context,
                 tools=self.tools,
@@ -169,8 +188,8 @@ class Agent(BaseAgent):
                     }
                 )
             
-            # Process through prompt if available
-            if self.prompt:
+            # Process through prompt if available and method exists
+            if self.prompt and hasattr(self.prompt, 'process_result'):
                 result = await self.prompt.process_result(result)
             
             return result
@@ -277,8 +296,11 @@ class Agent(BaseAgent):
             self.state = AgentState.COMPLETED
             return f"Echo: {task.get('objective', '')}"
 
-        # (1) spec for each tool
-        tool_specs = [t.get_spec() for t in self.tools] if self.tools else []
+        # (1) Convert tools to LLM-specific format
+        # The LLM provider handles conversion from BaseTool specs to its own format
+        tool_specs = []
+        if self.tools and self.llm:
+            tool_specs = self.llm.convert_tool_specs(self.tools)
 
         # (2) construct messages
         messages: List[Dict[str, Any]] = []
@@ -307,16 +329,21 @@ class Agent(BaseAgent):
             else:
                 fn_call = getattr(first_msg, "function_call", None)
 
-            # (4) handle function_call
+            # (4) handle function_call (only for BaseTool instances, not native tools)
             if fn_call:
                 fn_name = fn_call.get("name") if isinstance(fn_call, dict) else getattr(fn_call, "name", None)
                 fn_args_str = fn_call.get("arguments") if isinstance(fn_call, dict) else getattr(fn_call, "arguments", "{}")
                 fn_args = json.loads(fn_args_str or "{}")
 
                 self._logger.info("Tool requested: %s  args=%s", fn_name, fn_args)
-                tool = next((t for t in self.tools if t.name == fn_name), None)
+                # Find tool instance (only BaseTool instances have execute() - native tools don't)
+                tool = next((t for t in self.tools if hasattr(t, 'name') and t.name == fn_name), None)
                 if tool is None:
                     raise ValueError(f"Tool '{fn_name}' not found")
+                
+                # Check if it's a native tool (shouldn't have function calls, but just in case)
+                if hasattr(tool, 'is_native') and tool.is_native:
+                    raise ValueError(f"Tool '{fn_name}' is a native tool and doesn't support execute()")
 
                 tool_result = await tool.execute(**fn_args)
 
@@ -346,7 +373,15 @@ class Agent(BaseAgent):
                     raise ValueError("LLM returned empty response on final call")
                     
                 final_msg = resp2.choices[0].message
-                final = getattr(final_msg, 'content', None) or str(final_msg)
+                # Handle both dict and object responses consistently
+                if isinstance(final_msg, dict):
+                    final = final_msg.get("content")
+                else:
+                    final = getattr(final_msg, "content", None)
+                
+                if not final:
+                    final = str(final_msg)
+                
                 self._logger.debug("Final LLM response: %s", final)
                 self.state = AgentState.COMPLETED
                 return final

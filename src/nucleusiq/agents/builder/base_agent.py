@@ -39,9 +39,10 @@ class BaseAgent(ABC, BaseModel):
     prompt: Optional[BasePrompt] = Field(default=None)
 
     # Tooling
+    # Can be BaseTool instances (function calling) or LLM-specific tools (e.g., OpenAITool for native tools)
     tools: List[Any] = Field(
             default_factory=list,
-            description="List of tools (BaseTool instances) available to this agent",
+            description="List of tools: BaseTool instances (function calling) or LLM-specific tools (e.g., OpenAITool)",
         )
     
     llm: Optional[BaseLLM] = Field(default=None)
