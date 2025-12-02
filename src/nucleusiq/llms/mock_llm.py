@@ -17,14 +17,6 @@ class MockLLM(BaseLLM):
     def __init__(self, model_name: str = "mock-model"):
         self.model_name = model_name
         self._call_count = 0
-    """
-    Mock Language Model for testing function-calling.
-
-    On the first call (with `tools` provided), returns a fake function_call.
-    On the second call, returns a final content response.
-    """
-    def __init__(self):
-        self._call_count = 0
 
     class Message:
         def __init__(self, content: Optional[str] = None, function_call: Optional[Dict[str, Any]] = None):
@@ -85,3 +77,54 @@ class MockLLM(BaseLLM):
             reply = f"Echo: {messages[-1].get('content', '')}"
         msg = self.Message(content=reply)
         return self.LLMResponse([self.Choice(msg)])
+    
+    def create_completion(self, messages: List[Dict[str, Any]], **kwargs) -> str:
+        """
+        Synchronous completion method for compatibility with AutoChainOfThought.
+        
+        This method wraps the async call() method for synchronous use.
+        Note: This is a simplified version that returns a string directly.
+        """
+        import asyncio
+        try:
+            # Try to get the current event loop
+            loop = asyncio.get_running_loop()
+            # If we get here, we're in an async context - return mock response
+            return "This is a mock reasoning chain."
+        except RuntimeError:
+            # No running loop, we can use asyncio.run()
+            try:
+                response = asyncio.run(
+                    self.call(
+                        model=self.model_name,
+                        messages=messages,
+                        max_tokens=kwargs.get("max_tokens", 150),
+                        temperature=kwargs.get("temperature", 0.5),
+                        top_p=kwargs.get("top_p", 1.0),
+                        frequency_penalty=kwargs.get("frequency_penalty", 0.0),
+                        presence_penalty=kwargs.get("presence_penalty", 0.0),
+                    )
+                )
+                # Extract content from response
+                if response and response.choices:
+                    message = response.choices[0].message
+                    if isinstance(message, dict):
+                        return message.get("content", "This is a mock reasoning chain.")
+                    else:
+                        return getattr(message, "content", "This is a mock reasoning chain.")
+                return "This is a mock reasoning chain."
+            except RuntimeError:
+                # Fallback if asyncio.run() fails
+                return "This is a mock reasoning chain."
+    
+    def convert_tool_specs(self, tools: List[Any]) -> List[Dict[str, Any]]:
+        """
+        MockLLM doesn't perform any special tool conversion, just returns the specs as-is.
+        """
+        tool_specs = []
+        for tool in tools:
+            if hasattr(tool, 'get_spec'):
+                tool_specs.append(tool.get_spec())
+            else:
+                tool_specs.append(tool)
+        return tool_specs

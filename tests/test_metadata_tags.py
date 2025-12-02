@@ -29,10 +29,10 @@ class TestMetadataTags:
         )
         
         # Serialize to JSON string
-        serialized = composer.json()
+        serialized = composer.model_dump_json()
         
         # Deserialize
-        loaded_composer = PromptComposer.parse_raw(serialized)
+        loaded_composer = PromptComposer.model_validate_json(serialized)
         
         # Assertions
         assert loaded_composer.metadata == composer.metadata
@@ -65,10 +65,10 @@ class TestMetadataTags:
         )
         
         # Serialize to JSON string
-        serialized = composer.json()
+        serialized = composer.model_dump_json()
         
         # Deserialize
-        loaded_composer = PromptComposer.parse_raw(serialized)
+        loaded_composer = PromptComposer.model_validate_json(serialized)
         
         # Assertions
         assert loaded_composer.tags == composer.tags
@@ -104,10 +104,10 @@ class TestMetadataTags:
         )
         
         # Serialize to JSON string
-        serialized = composer.json()
+        serialized = composer.model_dump_json()
         
         # Deserialize
-        loaded_composer = PromptComposer.parse_raw(serialized)
+        loaded_composer = PromptComposer.model_validate_json(serialized)
         
         # Assertions
         assert loaded_composer.metadata == composer.metadata
