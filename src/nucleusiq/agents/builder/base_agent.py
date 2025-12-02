@@ -1,7 +1,7 @@
 # src/nucleusiq/agents/builder/base_agent.py
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Union, Literal
-from pydantic import BaseModel, Field, UUID4, validator, PrivateAttr
+from pydantic import BaseModel, Field, UUID4, validator, PrivateAttr, ConfigDict
 import uuid
 from datetime import datetime
 import logging
@@ -54,9 +54,10 @@ class BaseAgent(ABC, BaseModel):
     _execution_count: int = PrivateAttr(default=0)
     _retry_count: int = PrivateAttr(default=0)
 
-    class Config:
-        arbitrary_types_allowed = True
-        validate_assignment = True
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_assignment=True
+    )
 
     def __init__(self, **data):
         super().__init__(**data)

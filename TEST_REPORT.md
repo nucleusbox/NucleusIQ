@@ -1,7 +1,7 @@
 # Test Report - NucleusIQ Complete Test Suite
 
 **Date:** Generated on test run  
-**Status:** ✅ **178 PASSED** | ⏭️ **7 SKIPPED** | ⚠️ **3 WARNINGS** (Non-Critical)
+**Status:** ✅ **178 PASSED** | ⏭️ **7 SKIPPED** | ✅ **0 WARNINGS**
 
 ---
 
@@ -13,8 +13,8 @@
 | **Passed** | ✅ 178 (96.2%) |
 | **Failed** | ❌ 0 (0%) |
 | **Skipped** | ⏭️ 7 (3.8%) |
-| **Warnings** | ⚠️ 3 (non-critical - Pydantic deprecation) |
-| **Execution Time** | ~9.8 seconds |
+| **Warnings** | ✅ 0 (All fixed!) |
+| **Execution Time** | ~9-10 seconds |
 
 ---
 
@@ -135,7 +135,7 @@
 
 ---
 
-### ✅ 2. Pydantic Deprecation Warnings (FIXED)
+### ✅ 2. Pydantic Deprecation Warnings in Tests (FIXED)
 
 **Problem:** Tests using deprecated Pydantic V1 methods (`.json()`, `.parse_raw()`)
 
@@ -149,7 +149,22 @@
 
 ---
 
-### ✅ 3. pytest-asyncio Configuration Warning (FIXED)
+### ✅ 3. Pydantic Config Deprecation Warnings (FIXED)
+
+**Problem:** Using old Pydantic V1 style `class Config:` instead of `ConfigDict`
+
+**Solution:** Updated all models to use Pydantic V2 `ConfigDict`
+
+**Files Modified:**
+- `src/nucleusiq/agents/builder/base_agent.py` - Changed to `ConfigDict`
+- `src/nucleusiq/prompts/base.py` - Changed to `ConfigDict`
+- `src/nucleusiq/prompts/prompt_composer.py` - Changed to `ConfigDict`
+
+**Result:** ✅ All 3 Pydantic deprecation warnings eliminated
+
+---
+
+### ✅ 4. pytest-asyncio Configuration Warning (FIXED)
 
 **Problem:** `asyncio_default_fixture_loop_scope` configuration warning
 
@@ -159,17 +174,6 @@
 - `pyproject.toml` - Added `[tool.pytest.ini_options]` section with asyncio configuration
 
 **Result:** ✅ Configuration warning resolved
-
----
-
-### ⚠️ Remaining Warnings (Non-Critical)
-
-**Pydantic Internal Deprecation Warnings (3 warnings)**
-- **Source:** Pydantic library internal code (not our code)
-- **Type:** `PydanticDeprecatedSince20`
-- **Message:** Support for class-based `config` is deprecated
-- **Impact:** ⚠️ Low - These are from Pydantic's internal code, not our code
-- **Action:** Will be resolved when Pydantic library is updated or when we migrate to ConfigDict in our models
 
 ---
 
@@ -266,7 +270,7 @@
 **Python Version:** 3.12.3  
 **pytest Version:** 8.3.4  
 **Test Framework:** pytest with pytest-asyncio  
-**Execution Time:** ~9.8 seconds  
+**Execution Time:** ~9-10 seconds  
 **HTML Report:** Generated at `test_report.html`
 
 ---
@@ -279,12 +283,14 @@
 - ✅ **All new tool features work perfectly** (100% pass rate)
 - ✅ **All existing features work correctly** (100% pass rate)
 - ✅ **All previously failing tests fixed**
-- ✅ **All test warnings resolved** (except Pydantic internal warnings)
+- ✅ **All warnings eliminated** (0 warnings)
 - ✅ **Comprehensive test coverage** (185 tests total)
+- ✅ **Code modernized to Pydantic V2** (future-proof)
 
 ### Status:
 - ✅ **All critical issues fixed**
-- ⚠️ **3 non-critical warnings remain** (from Pydantic library, not our code)
+- ✅ **All warnings resolved**
+- ✅ **Code follows Pydantic V2 best practices**
 - 🎉 **PRODUCTION READY**
 
 ---
@@ -302,7 +308,19 @@
    - ✅ Replaced `.json()` with `.model_dump_json()`
    - ✅ Replaced `.parse_raw()` with `.model_validate_json()`
 
-3. **`pyproject.toml`**
+3. **`src/nucleusiq/agents/builder/base_agent.py`**
+   - ✅ Changed `class Config:` to `model_config = ConfigDict(...)`
+   - ✅ Added `ConfigDict` import
+
+4. **`src/nucleusiq/prompts/base.py`**
+   - ✅ Changed `class Config:` to `model_config = ConfigDict(...)`
+   - ✅ Added `ConfigDict` import
+
+5. **`src/nucleusiq/prompts/prompt_composer.py`**
+   - ✅ Changed `class Config:` to `model_config = ConfigDict(...)`
+   - ✅ Added `ConfigDict` import
+
+6. **`pyproject.toml`**
    - ✅ Added pytest-asyncio configuration
    - ✅ Set `asyncio_default_fixture_loop_scope = "function"`
 
@@ -311,8 +329,8 @@
 ## Next Steps
 
 1. ✅ All tests passing - Implementation verified
-2. ✅ All warnings fixed (except Pydantic internal warnings)
-3. ⚠️ Optional: Address Pydantic internal deprecation warnings (requires Pydantic library update)
+2. ✅ All warnings fixed
+3. ✅ Code modernized to Pydantic V2
 4. 📝 Consider adding integration tests with real OpenAI API (optional)
 5. 🚀 **Ready for deployment**
 

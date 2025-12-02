@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union, Self
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 FormatOutputType = TypeVar("FormatOutputType")
 
@@ -51,9 +51,10 @@ class BasePrompt(BaseModel, ABC):
     metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = Field(default_factory=list)
 
-    class Config:
-        arbitrary_types_allowed = True
-        validate_assignment = True
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_assignment=True
+    )
 
     @property
     @abstractmethod

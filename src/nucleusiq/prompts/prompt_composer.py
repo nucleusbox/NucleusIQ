@@ -1,5 +1,5 @@
 from typing import Dict, Callable, Optional, List, Any
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, ConfigDict
 from nucleusiq.prompts.base import BasePrompt
 
 class PromptComposer(BasePrompt):
@@ -12,9 +12,10 @@ class PromptComposer(BasePrompt):
       - Raises an error if a placeholder is missing or a function key is missing
     """
 
-    class Config:
-        validate_assignment = True
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        validate_assignment=True,
+        arbitrary_types_allowed=True
+    )
 
     # Extended placeholders
     examples: Optional[str] = Field(default=None)
