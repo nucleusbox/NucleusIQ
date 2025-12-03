@@ -9,6 +9,8 @@ from enum import Enum
 import asyncio
 
 from nucleusiq.agents.config.agent_config import AgentConfig, AgentMetrics, AgentState
+from nucleusiq.agents.task import Task
+from nucleusiq.agents.plan import Plan
 from nucleusiq.prompts.base import BasePrompt
 from nucleusiq.llms.base_llm import BaseLLM
 
@@ -18,14 +20,37 @@ class BaseAgent(ABC, BaseModel):
     
     This class establishes the fundamental structure and capabilities that every
     agent must implement, ensuring consistency across the framework.
+    
+    Agent Identity (WHO the agent is - set at creation time):
+    - role: Agent's role (e.g., "Calculator", "Assistant")
+            Used as system prompt when `prompt` is not provided.
+    - objective: Agent's general purpose (e.g., "Perform calculations")
+                 Used as system prompt when `prompt` is not provided.
+    - narrative: Agent's description/personality (optional, for documentation)
+    
+    Prompt Precedence:
+    - If `prompt` is provided, it takes precedence over `role`/`objective`
+      for LLM message construction during execution.
+    - If `prompt` is None, `role` and `objective` are used to construct
+      the system message: "You are a {role}. Your objective is to {objective}."
+    - `role` and `objective` are always used for:
+      - Planning context (even when prompt exists)
+      - Logging and identification
+      - Fallback planning prompts
+    
+    Task (WHAT the user wants - passed to execute()):
+    - task.objective: Specific user request (e.g., "What is 5 + 3?")
+    
+    Tasks are created per execution and represent specific user requests.
+    The agent's identity (role, objective, narrative) is separate from the task.
     """
     
-    # Identity and Purpose
+    # Identity and Purpose (WHO the agent is)
     id: UUID4 = Field(default_factory=uuid.uuid4)
     name: str = Field(..., description="Human-readable name for the agent")
-    role: str = Field(..., description="Primary function or responsibility")
-    objective: str = Field(..., description="Core goal or purpose")
-    narrative: str = Field(..., description="Contextual background/personality")
+    role: str = Field(..., description="Agent's role (e.g., 'Calculator', 'Assistant') - used as system prompt when prompt is None")
+    objective: str = Field(..., description="Agent's general purpose (e.g., 'Perform calculations') - used as system prompt when prompt is None")
+    narrative: Optional[str] = Field(default=None, description="Agent's description/personality (optional, for documentation)")
     
     # Configuration
     config: AgentConfig = Field(default_factory=AgentConfig)
@@ -92,13 +117,26 @@ class BaseAgent(ABC, BaseModel):
         pass
 
     @abstractmethod
-    async def execute(self, task: Dict[str, Any]) -> Any:
-        """Execute a given task using the agent's capabilities."""
+    async def execute(self, task: Union[Task, Dict[str, Any]]) -> Any:
+        """
+        Execute a given task using the agent's capabilities.
+        
+        Args:
+            task: Task instance or dictionary with 'id' and 'objective' keys
+        """
         pass
 
     @abstractmethod
-    async def plan(self, task: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Create an execution plan for the given task."""
+    async def plan(self, task: Union[Task, Dict[str, Any]]) -> Plan:
+        """
+        Create an execution plan for the given task.
+        
+        Args:
+            task: Task instance or dictionary with 'id' and 'objective' keys
+            
+        Returns:
+            Plan instance with steps
+        """
         pass
 
     async def _execute_with_retry(self, task: Dict[str, Any]) -> Any:
@@ -129,7 +167,7 @@ class BaseAgent(ABC, BaseModel):
                 
         raise RuntimeError(f"Task execution failed after {self._execution_count} attempts")
 
-    async def _execute_step(self, task: Dict[str, Any]) -> Any:
+    async def _execute_step(self, task: Union[Task, Dict[str, Any]]) -> Any:
         """Execute a single step of the task."""
         if self._check_execution_timeout():
             raise TimeoutError("Maximum execution time exceeded")

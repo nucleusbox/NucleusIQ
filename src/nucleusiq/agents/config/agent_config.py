@@ -29,6 +29,10 @@ class AgentConfig(BaseModel):
         default=False,
         description="Enable detailed logging"
     )
+    use_planning: bool = Field(
+        default=False,
+        description="Enable planning mode. If True, agent will call plan() before execute() to break down complex tasks into steps."
+    )
 
 class AgentMetrics(BaseModel):
     """Tracks agent performance metrics."""

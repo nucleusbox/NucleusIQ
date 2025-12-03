@@ -1,156 +1,237 @@
 # NucleusIQ Test Suite
 
-This directory contains comprehensive tests for all NucleusIQ features.
+## Overview
+
+Comprehensive test suite for NucleusIQ framework, organized by component for better readability and maintainability.
 
 ## Test Structure
 
 ```
 tests/
-├── conftest.py                    # Pytest fixtures and configuration
-├── test_openai_tools.py          # Tests for OpenAITool factory methods
-├── test_tool_conversion.py       # Tests for tool spec conversion
-├── test_custom_mcp_tool.py       # Tests for custom MCP tool (BaseTool)
-├── test_agent_with_tools.py      # Tests for Agent integration with tools
-├── test_base_openai.py           # Tests for BaseOpenAI LLM
-└── ...                           # Other existing tests
+├── agents/          # Agent-related tests
+│   ├── test_agent.py              # Core Agent class tests
+│   └── test_agent_precedence.py   # Prompt precedence tests
+├── prompts/         # Prompt-related tests
+│   ├── test_zero_shot_prompt.py
+│   ├── test_few_shot_prompt.py
+│   ├── test_chain_of_thought_prompt.py
+│   ├── test_auto_chain_of_thought_prompt.py
+│   ├── test_retrieval_augmented_generation_prompt.py
+│   ├── test_meta_prompt.py
+│   ├── test_prompt_composer.py
+│   ├── test_metadata_tags.py
+│   ├── test_output_parser.py
+│   ├── test_partial_variables.py
+│   ├── test_partial_variables_various_types.py
+│   └── test_unrecognized_fields.py
+├── tools/           # Tool-related tests
+│   ├── test_openai_tools.py       # OpenAI tool factory tests
+│   ├── test_tool_conversion.py    # Tool conversion tests
+│   └── test_custom_mcp_tool.py    # Custom MCP tool tests
+├── llms/            # LLM-related tests
+│   └── test_base_openai.py        # BaseOpenAI tests
+├── conftest.py      # Pytest configuration and fixtures
+└── README.md        # This file
 ```
 
 ## Running Tests
 
-### Run all tests:
+### Run All Tests
+
 ```bash
-pytest
+pytest tests/
 ```
 
-### Run specific test file:
+### Run Tests by Category
+
 ```bash
-pytest tests/test_openai_tools.py
+# Agent tests
+pytest tests/agents/
+
+# Prompt tests
+pytest tests/prompts/
+
+# Tool tests
+pytest tests/tools/
+
+# LLM tests
+pytest tests/llms/
 ```
 
-### Run with verbose output:
+### Run Specific Test File
+
 ```bash
-pytest -v
+pytest tests/agents/test_agent.py
 ```
 
-### Run with coverage:
+### Run with Verbose Output
+
 ```bash
-pytest --cov=src/nucleusiq --cov-report=html
+pytest tests/ -v
 ```
 
-### Run specific test class:
-```bash
-pytest tests/test_openai_tools.py::TestOpenAIToolFactory
-```
+### Run with Coverage
 
-### Run specific test:
 ```bash
-pytest tests/test_openai_tools.py::TestOpenAIToolFactory::test_web_search_tool
+pytest tests/ --cov=src/nucleusiq --cov-report=html
 ```
 
 ## Test Categories
 
-### 1. OpenAI Tools (`test_openai_tools.py`)
-- ✅ All OpenAI native tool types (web_search, code_interpreter, file_search, etc.)
-- ✅ MCP tool creation and validation
-- ✅ Connector creation
-- ✅ Tool spec generation
-- ✅ Error handling and validation
+### Agent Tests (`tests/agents/`)
 
-### 2. Tool Conversion (`test_tool_conversion.py`)
-- ✅ BaseTool to OpenAI function calling format
-- ✅ Native tools pass-through
-- ✅ Mixed tool lists
-- ✅ Parameter schema conversion
+**test_agent.py:**
+- Agent initialization
+- Agent execution (with/without planning)
+- Agent planning (basic and LLM-based)
+- State transitions
+- Error handling
+- Task and Plan integration
+- Tool execution
 
-### 3. Custom MCP Tool (`test_custom_mcp_tool.py`)
-- ✅ Custom MCP tool as BaseTool
-- ✅ Tool initialization
-- ✅ Tool execution
-- ✅ Integration with OpenAI LLM
+**test_agent_precedence.py:**
+- Prompt precedence over role/objective
+- Fallback to role/objective when prompt is None
+- Warning messages when override occurs
+- Planning context behavior
+- Narrative field optional
 
-### 4. Agent Integration (`test_agent_with_tools.py`)
-- ✅ Agent with BaseTool instances
-- ✅ Agent with native OpenAI tools
-- ✅ Agent with mixed tools
-- ✅ Tool execution flow
+### Prompt Tests (`tests/prompts/`)
 
-## Environment Variables
+- **Zero-Shot Prompting**: Basic prompt formatting
+- **Few-Shot Prompting**: Example-based prompting
+- **Chain-of-Thought**: Step-by-step reasoning
+- **Auto Chain-of-Thought**: Automatic reasoning chain generation
+- **Retrieval-Augmented Generation**: RAG prompt formatting
+- **Meta-Prompting**: Dynamic prompt generation
+- **Prompt Composer**: Flexible prompt composition
+- **Metadata and Tags**: Prompt metadata handling
+- **Output Parsing**: Result processing
+- **Partial Variables**: Variable substitution
+- **Unrecognized Fields**: Error handling
 
-Some tests require environment variables:
+### Tool Tests (`tests/tools/`)
 
-- `OPENAI_API_KEY`: Required for integration tests with OpenAI API
-  - Tests will skip if not set (using `skip_if_no_openai_key` fixture)
+- **OpenAI Tools**: Factory methods for all OpenAI tool types
+  - Web search
+  - Code interpreter
+  - File search
+  - Image generation
+  - MCP servers and connectors
+  - Computer use
+- **Tool Conversion**: BaseTool to LLM-specific format conversion
+- **Custom MCP Tools**: BaseTool-based MCP implementations
+
+### LLM Tests (`tests/llms/`)
+
+- **BaseOpenAI**: OpenAI client functionality
+  - Async/sync modes
+  - Error handling
+  - Retry logic
+  - Tool conversion
 
 ## Test Coverage
 
-The test suite covers:
+### Current Coverage
 
-1. **Tool Creation**
-   - All OpenAITool factory methods
-   - MCP tool with all parameters
-   - Connector tools
-   - Custom MCP tools (BaseTool)
+- ✅ Agent initialization and execution
+- ✅ Task and Plan classes
+- ✅ Planning integration
+- ✅ Prompt precedence
+- ✅ All prompt types
+- ✅ All OpenAI tool types
+- ✅ Tool conversion
+- ✅ Custom MCP tools
+- ✅ Agent-tool integration
+- ✅ State management
+- ✅ Error handling
 
-2. **Tool Conversion**
-   - BaseTool → OpenAI function calling format
-   - Native tools → Pass-through
-   - Mixed tool lists
+### Test Count
 
-3. **Agent Integration**
-   - Tool registration
-   - Tool spec conversion
-   - Tool execution (with MockLLM)
+- **Agent Tests**: 30+ tests
+- **Prompt Tests**: 50+ tests
+- **Tool Tests**: 30+ tests
+- **LLM Tests**: 10+ tests
+- **Total**: 120+ tests
 
-4. **Error Handling**
-   - Validation errors
-   - Missing parameters
-   - Invalid configurations
+## Fixtures
+
+### Common Fixtures (`conftest.py`)
+
+- `openai_api_key`: OpenAI API key from environment
+- `skip_if_no_openai_key`: Skip tests if API key not available
+- `mock_openai_client`: Mock OpenAI client for unit tests
+
+### Agent Fixtures
+
+- `mock_llm`: MockLLM instance for testing
+- `agent_with_prompt`: Agent with prompt configured
+- `agent_without_prompt`: Agent without prompt (uses role/objective)
 
 ## Writing New Tests
 
-When adding new features, follow these guidelines:
+### Test Naming Convention
 
-1. **Use descriptive test names**: `test_<feature>_<scenario>`
-2. **Group related tests**: Use test classes
-3. **Use fixtures**: For common setup (see `conftest.py`)
-4. **Mock external dependencies**: Use MockLLM for LLM tests
-5. **Test edge cases**: Invalid inputs, missing parameters, etc.
+- Test files: `test_<component>_<feature>.py`
+- Test classes: `Test<Component><Feature>`
+- Test methods: `test_<what_is_being_tested>`
 
-## Example Test
+### Example Test Structure
 
 ```python
-import pytest
-from nucleusiq.providers.llms.openai.tools import OpenAITool
+"""
+Tests for <Component> <Feature>.
 
-class TestMyFeature:
-    def test_my_feature_basic(self):
-        """Test basic functionality."""
-        tool = OpenAITool.web_search()
-        assert tool.name == "web_search_preview"
+Tests verify:
+- Feature 1
+- Feature 2
+- Edge cases
+"""
+
+import pytest
+from nucleusiq.<module> import <Component>
+
+
+class TestComponentFeature:
+    """Test <Component> <Feature>."""
+    
+    @pytest.fixture
+    def component(self):
+        """Create component instance."""
+        return <Component>(...)
     
     @pytest.mark.asyncio
-    async def test_my_feature_async(self):
-        """Test async functionality."""
-        # Test async code
-        pass
+    async def test_feature_behavior(self, component):
+        """Test that feature works correctly."""
+        result = await component.method()
+        assert result == expected
 ```
 
 ## Continuous Integration
 
-Tests are run automatically in CI/CD pipelines. All tests must pass before merging.
+Tests are run automatically on:
+- Pull requests
+- Commits to main branch
+- Scheduled nightly runs
 
-## Troubleshooting
+## Test Reports
 
-### Tests failing with import errors:
-- Make sure you're in the project root directory
-- Check that `src/` is in Python path
-- Verify all dependencies are installed: `pip install -r requirements.txt`
+Test reports are generated in:
+- `test_report.html`: HTML test report
+- `TEST_REPORT.md`: Markdown test report
 
-### Tests requiring API keys:
-- Set environment variables before running tests
-- Or use `pytest -m "not integration"` to skip integration tests
+Generate reports:
+```bash
+pytest tests/ --html=test_report.html --self-contained-html
+```
 
-### MockLLM not working:
-- Check that MockLLM is properly configured
-- Verify function calling responses are set up correctly
+## Notes
 
+- All tests use `pytest-asyncio` for async test support
+- Mock LLM is used for most tests to avoid API calls
+- Integration tests require `OPENAI_API_KEY` environment variable
+- Tests are organized by component for better maintainability
+
+---
+
+*Last Updated: After test reorganization and precedence implementation*
