@@ -2,6 +2,7 @@
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 import json
+import inspect
 from pydantic import PrivateAttr
 
 from nucleusiq.agents.builder.base_agent import BaseAgent
@@ -156,6 +157,9 @@ class Agent(BaseAgent):
 
     async def _create_llm_plan(self, task: Union[Task, Dict[str, Any]], context: Dict[str, Any]) -> Plan:
         """Create an execution plan using the LLM."""
+        if not self.llm:
+            raise ValueError("LLM is required for LLM-based planning")
+        
         # Construct planning prompt
         plan_prompt = self._construct_planning_prompt(task, context)
         
@@ -331,13 +335,19 @@ class Agent(BaseAgent):
         Format plan steps into a readable string.
         
         Args:
-            plan: List of plan step dictionaries
+            plan: Plan instance or list of plan step dictionaries
             
         Returns:
             Formatted plan string
         """
         plan_lines = []
-        for step in plan:
+        # Convert Plan to list of dicts if needed
+        if isinstance(plan, Plan):
+            steps = plan.to_list()
+        else:
+            steps = plan
+        
+        for step in steps:
             step_num = step.get("step", 0)
             action = step.get("action", "")
             details = step.get("details", "")
@@ -442,8 +452,13 @@ class Agent(BaseAgent):
                 )
             
             # Process through prompt if available and method exists
-            if self.prompt and hasattr(self.prompt, 'process_result'):
-                result = await self.prompt.process_result(result)
+            if self.prompt:
+                process_result = getattr(self.prompt, 'process_result', None)
+                if process_result and callable(process_result):
+                    if inspect.iscoroutinefunction(process_result):
+                        result = await process_result(result)
+                    else:
+                        result = process_result(result)
             
             return result
             

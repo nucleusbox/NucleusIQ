@@ -77,7 +77,8 @@ class Executor:
         tool = self.tools[tool_name]
         
         # Check if it's a native tool (handled by LLM, not executed here)
-        if hasattr(tool, 'is_native') and tool.is_native:
+        is_native = getattr(tool, 'is_native', False)
+        if is_native:
             raise ValueError(
                 f"Tool '{tool_name}' is a native tool and is handled directly by the LLM. "
                 f"Native tools should not be executed via Executor."

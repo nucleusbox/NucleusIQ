@@ -209,6 +209,8 @@ class TestAgentPlan:
         assert plan.steps[0].step == 1
         assert plan.steps[0].action == "execute"
         # Check that task is in the plan
+        # plan.task is always a Task object after plan() converts dict to Task
+        assert isinstance(plan.task, Task)
         assert plan.task.id == task["id"]
         assert plan.task.objective == task["objective"]
     
@@ -243,6 +245,8 @@ class TestAgentPlan:
         assert isinstance(plan2, Plan)
         assert len(plan2) == 1
         # Check that task is in the plan
+        # plan.task is always a Task object after plan() converts dict to Task
+        assert isinstance(plan2.task, Task)
         assert plan2.task.id == task2["id"]
         assert plan2.task.objective == task2["objective"]
     
@@ -269,6 +273,8 @@ class TestAgentPlan:
         assert plan.steps[0].step == 1
         assert plan.steps[0].action == "execute"
         # Check that task is in the plan
+        # plan.task is always a Task object after _create_basic_plan converts dict to Task
+        assert isinstance(plan.task, Task)
         assert plan.task.id == task["id"]
         assert plan.task.objective == task["objective"]
     
