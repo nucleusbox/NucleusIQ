@@ -482,9 +482,11 @@ calendar = OpenAITool.connector(
 - For detailed documentation, see:
   - `docs/TASK_PROMPT_PLAN.md` - Task/Prompt/Plan relationship
   - `docs/TOOL_DESIGN.md` - Tool system design
-  - `docs/AGENT_ARCHITECTURE_PLAN.md` - Comprehensive architecture plan (Guardrails, Multiple Agent Types)
+  - **`docs/AGENT_ARCHITECTURE_PLAN_V2.md`** - Comprehensive unified framework design (Gearbox Strategy + Agent Types + Guardrails) - **MAIN ARCHITECTURE DOCUMENT**
   - `TODAY_CHECKLIST.md` - Current tasks and checklist
+  - `TODO.md` - Comprehensive TODO list
   - `docs/strategy/` - Strategy and planning documents
+  - `docs/reference/` - Historical reference documents (consolidated into V2)
 - For test reports, see `TEST_REPORT.md` (if exists)
 - For contributing guidelines, see `CONTRIBUTING.md`
 - For roadmap, see `ROADMAP.md`

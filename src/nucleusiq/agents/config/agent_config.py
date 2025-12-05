@@ -3,6 +3,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from enum import Enum
 
+class ExecutionMode(str, Enum):
+    """Execution modes (Gearbox Strategy) for agent execution."""
+    DIRECT = "direct"           # Gear 1: Fast, simple, no tools
+    STANDARD = "standard"       # Gear 2: Tool-enabled, linear execution (default)
+    AUTONOMOUS = "autonomous"   # Gear 3: Full reasoning loop with planning and self-correction
+
 class AgentConfig(BaseModel):
     """Configuration settings for agent behavior."""
     max_execution_time: int = Field(
@@ -31,7 +37,24 @@ class AgentConfig(BaseModel):
     )
     use_planning: bool = Field(
         default=False,
-        description="Enable planning mode. If True, agent will call plan() before execute() to break down complex tasks into steps."
+        description="[DEPRECATED] Enable planning mode. Use execution_mode='autonomous' instead. If True, agent will call plan() before execute() to break down complex tasks into steps."
+    )
+    # Gearbox Strategy: Execution Modes
+    execution_mode: ExecutionMode = Field(
+        default=ExecutionMode.STANDARD,
+        description="Execution mode (gear): DIRECT (fast, no tools), STANDARD (tool-enabled, linear), AUTONOMOUS (full reasoning loop with planning and self-correction)"
+    )
+    enable_memory: bool = Field(
+        default=True,
+        description="Enable memory for context (standard, autonomous modes). Memory stores conversation history and partial results."
+    )
+    require_quality_check: bool = Field(
+        default=False,
+        description="Require quality check before returning (autonomous mode only). Uses Critic component to review output."
+    )
+    max_iterations: int = Field(
+        default=10,
+        description="Maximum iterations for iterative agents (autonomous mode, ReAct, etc.)"
     )
 
 class AgentMetrics(BaseModel):

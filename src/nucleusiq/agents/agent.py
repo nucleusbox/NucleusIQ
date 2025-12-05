@@ -2,11 +2,13 @@
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 import json
+from pydantic import PrivateAttr
 
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.config.agent_config import AgentState, AgentMetrics
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.plan import Plan, PlanStep
+from nucleusiq.agents.components.executor import Executor
 # from nucleusiq.core.memory import BaseMemory
 from nucleusiq.prompts.base import BasePrompt
 from nucleusiq.llms.base_llm import BaseLLM
@@ -18,6 +20,11 @@ class Agent(BaseAgent):
     
     This class provides the actual implementation of agent behaviors,
     building upon the foundation established in BaseAgent.
+    
+    Execution Modes (Gearbox Strategy):
+    - "direct": Fast, simple, no tools (Gear 1)
+    - "standard": Tool-enabled, linear execution (Gear 2) - default
+    - "autonomous": Full reasoning loop with planning and self-correction (Gear 3)
     
     Prompt Precedence:
     - If `prompt` is provided, it takes precedence over `role`/`objective`
@@ -36,7 +43,8 @@ class Agent(BaseAgent):
                 system="You are a helpful calculator assistant.",
                 user="Answer questions accurately."
             ),
-            llm=llm
+            llm=llm,
+            config=AgentConfig(execution_mode="standard")
         )
         
         # Without prompt (role/objective used)
@@ -45,17 +53,29 @@ class Agent(BaseAgent):
             role="Calculator",              # Used to build system message
             objective="Perform calculations", # Used to build system message
             prompt=None,
-            llm=llm
+            llm=llm,
+            config=AgentConfig(execution_mode="direct")
         )
     """
+    
+    # Private attributes (initialized in initialize())
+    _executor: Optional[Executor] = PrivateAttr(default=None)
 
     async def initialize(self) -> None:
         """Initialize agent components and resources."""
         self._logger.info(f"Initializing agent: {self.name}")
         
         try:
-            # Initialize memory if provided
-            if self.memory:
+            # Initialize Executor component (always needed for tool execution)
+            if self.llm:
+                self._executor = Executor(self.llm, self.tools)
+                self._logger.debug("Executor component initialized")
+            else:
+                self._executor = None
+                self._logger.debug("Executor not initialized (no LLM)")
+            
+            # Initialize memory if provided and enabled
+            if self.memory and self.config.enable_memory:
                 await self.memory.initialize()
                 self._logger.debug("Memory system initialized")
             
@@ -374,12 +394,20 @@ class Agent(BaseAgent):
             # Execute step
             try:
                 if action == "execute":
-                    # Direct execution for this step
-                    result = await self._execute_direct(step_task)
+                    # Direct execution for this step (use current execution mode)
+                    result = await self._run_standard(step_task)
                 elif action in [t.name for t in self.tools if hasattr(t, 'name')]:
-                    # Tool call
-                    tool_args = step.args or {}
-                    result = await self._execute_tool(action, tool_args)
+                    # Tool call - use Executor if available
+                    if hasattr(self, '_executor') and self._executor:
+                        fn_call = {
+                            "name": action,
+                            "arguments": json.dumps(step.args or {})
+                        }
+                        result = await self._executor.execute(fn_call)
+                    else:
+                        # Fallback to old method
+                        tool_args = step.args or {}
+                        result = await self._execute_tool(action, tool_args)
                 else:
                     # Unknown action - log and continue
                     self._logger.warning(f"Unknown action '{action}' in plan step {step_num}, skipping")
@@ -509,10 +537,10 @@ class Agent(BaseAgent):
         """
         Execute a task using the agent's capabilities.
         
-        Execution Flow:
-        1. Optionally create a plan if use_planning is enabled
-        2. If plan has multiple steps, execute plan steps sequentially
-        3. Otherwise, execute task directly (current behavior)
+        Execution Flow (Gearbox Strategy):
+        - Direct mode: Fast, simple, no tools
+        - Standard mode: Tool-enabled, linear execution (default)
+        - Autonomous mode: Full reasoning loop with planning and self-correction
         
         The execution uses:
         - Task: User's request (what to do) - from task.objective
@@ -532,150 +560,234 @@ class Agent(BaseAgent):
         self._logger.debug("Starting execution for task %s", task.id)
         self._current_task = task.to_dict()  # Store as dict for compatibility
         
-        # Optionally create plan if planning is enabled
-        plan = None
-        if self.config.use_planning:
-            self.state = AgentState.PLANNING
-            self._logger.debug("Planning enabled, creating execution plan...")
-            plan = await self.plan(task)
-            self._logger.debug(f"Plan created with {len(plan)} step(s)")
+        # Route to appropriate execution mode (Gearbox Strategy)
+        from nucleusiq.agents.config.agent_config import ExecutionMode
+        execution_mode = self.config.execution_mode
         
-        # If plan has multiple steps, execute plan
-        if plan and len(plan) > 1:
-            self._logger.info(f"Executing multi-step plan with {len(plan)} steps")
-            return await self._execute_plan(task, plan)
+        # Get mode value (handle both enum and string for backward compatibility)
+        mode_value = execution_mode.value if hasattr(execution_mode, 'value') else str(execution_mode)
+        self._logger.info(f"Agent '{self.name}' executing in {mode_value.upper()} mode")
         
-        # Otherwise, execute directly (backward compatible)
-        return await self._execute_direct(task)
+        if execution_mode == ExecutionMode.DIRECT:
+            return await self._run_direct(task)
+        elif execution_mode == ExecutionMode.STANDARD:
+            return await self._run_standard(task)
+        elif execution_mode == ExecutionMode.AUTONOMOUS:
+            # For now, fallback to standard (autonomous mode will be implemented in Week 2)
+            self._logger.warning("Autonomous mode not yet implemented, falling back to standard mode")
+            return await self._run_standard(task)
+        else:
+            raise ValueError(f"Unknown execution mode: {execution_mode}")
     
-    async def _execute_direct(self, task: Union[Task, Dict[str, Any]]) -> Any:
+    async def _run_direct(self, task: Union[Task, Dict[str, Any]]) -> Any:
         """
-        Execute task directly without plan (current behavior).
+        Gear 1: Direct mode - Fast, simple, no tools.
         
-        • Builds the conversation (system → template user → real user)
-        • Sends tools spec on the first call
-        • Executes any requested tool and feeds result back
-        • Returns the model's final answer or echoes the objective.
+        Logic: Input → LLM → Output
+        
+        Use Cases: Chatbots, creative writing, simple explanations
+        
+        Characteristics:
+        - Near-zero overhead
+        - No tool execution
+        - No planning
+        - Single LLM call
+        
+        Args:
+            task: Task instance or dictionary
+            
+        Returns:
+            LLM response content
         """
-        self._logger.debug("Executing task directly (no plan)")
+        self._logger.debug("Executing in DIRECT mode (fast, no tools)")
         self.state = AgentState.EXECUTING
         
         # Check if LLM is available
         if not self.llm:
             self._logger.warning("No LLM configured, falling back to echo mode")
             self.state = AgentState.COMPLETED
-            # Handle both Task and dict
             objective = task.objective if isinstance(task, Task) else task.get('objective', '')
             return f"Echo: {objective}"
 
-        # (1) Convert tools to LLM-specific format
-        # The LLM provider handles conversion from BaseTool specs to its own format
-        tool_specs = []
-        if self.tools and self.llm:
-            tool_specs = self.llm.convert_tool_specs(self.tools)
-
-        # (2) construct messages
-        # Convert to dict for message building (backward compatibility)
+        # Build messages (no tools, no plan)
         task_dict = task.to_dict() if isinstance(task, Task) else task
-        messages = self._build_messages(task_dict)
+        messages = self._build_messages(task_dict, plan=None)
 
-        # (3) first LLM call
+        # Single LLM call (no tools)
         try:
-            resp1 = await self.llm.call(
+            response = await self.llm.call(
                 model=getattr(self.llm, "model_name", "default"),
                 messages=messages,
-                tools=tool_specs if tool_specs else None,
+                tools=None,  # Direct mode: no tools
             )
 
-            if not resp1 or not hasattr(resp1, "choices") or not resp1.choices:
+            if not response or not hasattr(response, "choices") or not response.choices:
                 raise ValueError("LLM returned empty response")
 
-            # BaseOpenAI returns a dict; MockLLM returns an object.
-            first_msg = resp1.choices[0].message
-            if isinstance(first_msg, dict):
-                fn_call = first_msg.get("function_call")
+            # Extract content
+            msg = response.choices[0].message
+            if isinstance(msg, dict):
+                content = msg.get("content")
             else:
-                fn_call = getattr(first_msg, "function_call", None)
-
-            # (4) handle function_call (only for BaseTool instances, not native tools)
-            if fn_call:
-                fn_name = fn_call.get("name") if isinstance(fn_call, dict) else getattr(fn_call, "name", None)
-                fn_args_str = fn_call.get("arguments") if isinstance(fn_call, dict) else getattr(fn_call, "arguments", "{}")
-                fn_args = json.loads(fn_args_str or "{}")
-
-                self._logger.info("Tool requested: %s  args=%s", fn_name, fn_args)
-                # Find tool instance (only BaseTool instances have execute() - native tools don't)
-                tool = next((t for t in self.tools if hasattr(t, 'name') and t.name == fn_name), None)
-                if tool is None:
-                    raise ValueError(f"Tool '{fn_name}' not found")
-                
-                # Check if it's a native tool (shouldn't have function calls, but just in case)
-                if hasattr(tool, 'is_native') and tool.is_native:
-                    raise ValueError(f"Tool '{fn_name}' is a native tool and doesn't support execute()")
-
-                tool_result = await tool.execute(**fn_args)
-
-                # append assistant's function_call & the tool (function) message
-                messages.extend(
-                    [
-                        {
-                            "role": "assistant",
-                            "content": None,
-                            "function_call": fn_call,
-                        },
-                        {
-                            "role": "function",
-                            "name": fn_name,
-                            "content": json.dumps(tool_result),
-                        },
-                    ]
-                )
-
-                # (5) final LLM call
-                resp2 = await self.llm.call(
-                    model=getattr(self.llm, 'model_name', 'default'), 
-                    messages=messages
-                )
-                
-                if not resp2 or not hasattr(resp2, 'choices') or not resp2.choices:
-                    raise ValueError("LLM returned empty response on final call")
-                    
-                final_msg = resp2.choices[0].message
-                # Handle both dict and object responses consistently
-                if isinstance(final_msg, dict):
-                    final = final_msg.get("content")
-                else:
-                    final = getattr(final_msg, "content", None)
-                
-                if not final:
-                    final = str(final_msg)
-                
-                self._logger.debug("Final LLM response: %s", final)
-                self.state = AgentState.COMPLETED
-                return final
-
-            # (6) no function call - return content or echo
-            if isinstance(first_msg, dict):
-                content = first_msg.get("content")
-            else:
-                content = getattr(first_msg, "content", None)
+                content = getattr(msg, "content", None)
 
             if content:
                 self.state = AgentState.COMPLETED
                 return content
 
-            self._logger.info(
-                "LLM did not request a tool and returned no content; echoing objective."
-            )
+            # Fallback
+            self._logger.warning("LLM returned no content, echoing objective")
             self.state = AgentState.COMPLETED
-            # Handle both Task and dict
             objective = task.objective if isinstance(task, Task) else task.get('objective', '')
             return f"Echo: {objective}"
                 
         except Exception as e:
-            self._logger.error(f"Error during execution: {str(e)}")
+            self._logger.error(f"Error during direct execution: {str(e)}")
             self.state = AgentState.ERROR
-            # Fallback to echo on error
-            # Handle both Task and dict
             objective = task.objective if isinstance(task, Task) else task.get('objective', '')
             return f"Echo: {objective}"
+    
+    async def _run_standard(self, task: Union[Task, Dict[str, Any]]) -> Any:
+        """
+        Gear 2: Standard mode - Tool-enabled, linear execution.
+        
+        Logic: Input → Decision → Tool Execution → Result
+        
+        Use Cases: "Check the weather", "Query database", "Search information"
+        
+        Characteristics:
+        - Tool execution enabled
+        - Linear flow (no loops)
+        - Fire-and-forget (tries once, returns error if fails)
+        - Optional memory
+        - Multiple tool calls supported
+        
+        Args:
+            task: Task instance or dictionary
+            
+        Returns:
+            Execution result
+        """
+        self._logger.debug("Executing in STANDARD mode (tool-enabled, linear)")
+        self.state = AgentState.EXECUTING
+        
+        # Check if LLM is available
+        if not self.llm:
+            self._logger.warning("No LLM configured, falling back to echo mode")
+            self.state = AgentState.COMPLETED
+            objective = task.objective if isinstance(task, Task) else task.get('objective', '')
+            return f"Echo: {objective}"
+
+        # Check if Executor is initialized
+        if not hasattr(self, '_executor') or self._executor is None:
+            if self.llm:
+                self._executor = Executor(self.llm, self.tools)
+            else:
+                raise RuntimeError("Cannot execute in standard mode: LLM not available")
+
+        # (1) Convert tools to LLM-specific format
+        tool_specs = []
+        if self.tools and self.llm:
+            tool_specs = self.llm.convert_tool_specs(self.tools)
+
+        # (2) Build messages
+        task_dict = task.to_dict() if isinstance(task, Task) else task
+        messages = self._build_messages(task_dict)
+
+        # (3) LLM call loop (may request multiple tools)
+        try:
+            max_tool_calls = 10  # Prevent infinite loops
+            tool_call_count = 0
+            
+            while tool_call_count < max_tool_calls:
+                response = await self.llm.call(
+                    model=getattr(self.llm, "model_name", "default"),
+                    messages=messages,
+                    tools=tool_specs if tool_specs else None,
+                )
+
+                if not response or not hasattr(response, "choices") or not response.choices:
+                    raise ValueError("LLM returned empty response")
+
+                msg = response.choices[0].message
+                if isinstance(msg, dict):
+                    fn_call = msg.get("function_call")
+                    content = msg.get("content")
+                else:
+                    fn_call = getattr(msg, "function_call", None)
+                    content = getattr(msg, "content", None)
+
+                # (4) Handle function call (fire-and-forget: try once, return error if fails)
+                if fn_call:
+                    tool_call_count += 1
+                    fn_name = fn_call.get("name") if isinstance(fn_call, dict) else getattr(fn_call, "name", None)
+                    fn_args_str = fn_call.get("arguments") if isinstance(fn_call, dict) else getattr(fn_call, "arguments", "{}")
+                    
+                    self._logger.info("Tool requested: %s", fn_name)
+                    
+                    try:
+                        # Use Executor to execute tool
+                        tool_result = await self._executor.execute(fn_call)
+                        
+                        # Append to conversation
+                        messages.append({
+                            "role": "assistant",
+                            "content": None,
+                            "function_call": fn_call,
+                        })
+                        messages.append({
+                            "role": "function",
+                            "name": fn_name,
+                            "content": json.dumps(tool_result),
+                        })
+                        
+                        # Continue loop to get final answer
+                        continue
+                        
+                    except Exception as e:
+                        # Fire-and-forget: return error immediately
+                        self._logger.error(f"Tool execution failed: {e}")
+                        self.state = AgentState.ERROR
+                        return f"Error: Tool '{fn_name}' execution failed: {str(e)}"
+
+                # (5) No function call - return content
+                if content:
+                    self.state = AgentState.COMPLETED
+                    
+                    # Store in memory if enabled
+                    if self.memory and self.config.enable_memory:
+                        try:
+                            await self.memory.store(task, content)
+                        except Exception as e:
+                            self._logger.warning(f"Failed to store in memory: {e}")
+                    
+                    return content
+
+                # No content and no function call - echo
+                self._logger.info("LLM did not request a tool and returned no content; echoing objective")
+                self.state = AgentState.COMPLETED
+                objective = task.objective if isinstance(task, Task) else task.get('objective', '')
+                return f"Echo: {objective}"
+            
+            # Max tool calls reached
+            self._logger.warning(f"Maximum tool calls ({max_tool_calls}) reached")
+            self.state = AgentState.ERROR
+            return f"Error: Maximum tool calls ({max_tool_calls}) reached"
+                
+        except Exception as e:
+            self._logger.error(f"Error during standard execution: {str(e)}")
+            self.state = AgentState.ERROR
+            objective = task.objective if isinstance(task, Task) else task.get('objective', '')
+            return f"Echo: {objective}"
+    
+    async def _execute_direct(self, task: Union[Task, Dict[str, Any]]) -> Any:
+        """
+        [DEPRECATED] Execute task directly without plan.
+        
+        This method is kept for backward compatibility.
+        It now delegates to _run_standard() which uses the Executor component.
+        
+        Use execution_mode="standard" instead.
+        """
+        self._logger.warning("_execute_direct() is deprecated, use _run_standard() or set execution_mode='standard'")
+        return await self._run_standard(task)

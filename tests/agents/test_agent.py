@@ -16,7 +16,7 @@ from typing import Dict, Any
 from unittest.mock import Mock, AsyncMock, patch
 
 from nucleusiq.agents import Agent
-from nucleusiq.agents.config import AgentConfig, AgentState, AgentMetrics
+from nucleusiq.agents.config import AgentConfig, AgentState, AgentMetrics, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.plan import Plan
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
