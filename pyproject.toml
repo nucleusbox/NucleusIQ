@@ -37,6 +37,3 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["src"]
 
-[tool.pyright]
-include = ["src"]
-exclude = ["**/__pycache__", "**/node_modules"]

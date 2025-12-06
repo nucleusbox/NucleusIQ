@@ -10,6 +10,15 @@ Tests cover:
 - Edge cases and error handling
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Add src directory to path for imports
+src_dir = Path(__file__).parent.parent.parent / "src"
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import pytest
 from typing import Dict, Any, List
 from pydantic import ValidationError
@@ -54,6 +63,8 @@ class TestPlanStepCreation:
         step = PlanStep(step=1, action="execute", task=task)
         
         assert step.task == task
+        # Type check: task can be Task or Dict, but we know it's Task here
+        assert isinstance(step.task, Task)
         assert step.task.objective == "Perform calculation"
     
     def test_plan_step_creation_with_args(self):
@@ -79,7 +90,7 @@ class TestPlanStepCreation:
     def test_plan_step_missing_step(self):
         """Test that missing step number raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            PlanStep(action="execute")
+            PlanStep(action="execute")  # type: ignore[call-arg]
         
         errors = exc_info.value.errors()
         assert any(error["loc"] == ("step",) for error in errors)
@@ -87,7 +98,7 @@ class TestPlanStepCreation:
     def test_plan_step_missing_action(self):
         """Test that missing action raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            PlanStep(step=1)
+            PlanStep(step=1)  # type: ignore[call-arg]
         
         errors = exc_info.value.errors()
         assert any(error["loc"] == ("action",) for error in errors)
@@ -95,17 +106,17 @@ class TestPlanStepCreation:
     def test_plan_step_invalid_step_type(self):
         """Test that invalid step type raises ValidationError."""
         with pytest.raises(ValidationError):
-            PlanStep(step="not-an-int", action="execute")
+            PlanStep(step="not-an-int", action="execute")  # type: ignore[arg-type]
     
     def test_plan_step_invalid_action_type(self):
         """Test that invalid action type raises ValidationError."""
         with pytest.raises(ValidationError):
-            PlanStep(step=1, action=123)
+            PlanStep(step=1, action=123)  # type: ignore[arg-type]
     
     def test_plan_step_invalid_args_type(self):
         """Test that invalid args type raises ValidationError."""
         with pytest.raises(ValidationError):
-            PlanStep(step=1, action="execute", args="not-a-dict")
+            PlanStep(step=1, action="execute", args="not-a-dict")  # type: ignore[arg-type]
     
     def test_plan_step_negative_step_number(self):
         """Test plan step with negative step number."""
@@ -162,7 +173,7 @@ class TestPlanCreation:
     def test_plan_missing_task(self):
         """Test that missing task raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            Plan()
+            Plan()  # type: ignore[call-arg]
         
         errors = exc_info.value.errors()
         assert any(error["loc"] == ("task",) for error in errors)
@@ -171,13 +182,13 @@ class TestPlanCreation:
         """Test that invalid steps type raises ValidationError."""
         task = Task(id="task1", objective="Main task")
         with pytest.raises(ValidationError):
-            Plan(task=task, steps="not-a-list")
+            Plan(task=task, steps="not-a-list")  # type: ignore[arg-type]
     
     def test_plan_invalid_step_in_list(self):
         """Test that invalid step in list raises ValidationError."""
         task = Task(id="task1", objective="Main task")
         with pytest.raises(ValidationError):
-            Plan(task=task, steps=["not-a-planstep"])
+            Plan(task=task, steps=["not-a-planstep"])  # type: ignore[arg-type]
 
 
 class TestPlanAccess:
@@ -335,7 +346,7 @@ class TestPlanValidation:
     def test_plan_from_list_invalid_task_type(self):
         """Test from_list with invalid task type."""
         with pytest.raises(ValidationError):
-            Plan.from_list([], "not-a-task-or-dict")
+            Plan.from_list([], "not-a-task-or-dict")  # type: ignore[arg-type]
 
 
 class TestPlanEdgeCases:
@@ -392,6 +403,8 @@ class TestPlanEdgeCases:
             }
         )
         
+        # Type check: args is Optional[Dict], but we know it's set here
+        assert step.args is not None
         assert step.args["nested"]["level1"]["level2"] == "value"
         assert step.args["list"] == [1, 2, 3]
         assert step.args["mixed"]["number"] == 42
@@ -401,6 +414,8 @@ class TestPlanEdgeCases:
         long_details = "A" * 10000
         step = PlanStep(step=1, action="execute", details=long_details)
         
+        # Type check: details is Optional[str], but we know it's set here
+        assert step.details is not None
         assert len(step.details) == 10000
     
     def test_plan_step_with_special_characters(self):
@@ -412,6 +427,8 @@ class TestPlanEdgeCases:
         )
         
         assert "!@#$%" in step.action
+        # Type check: details is Optional[str], but we know it's set here
+        assert step.details is not None
         assert "!@#$%^&*()" in step.details
 
 

@@ -8,6 +8,15 @@ Tests cover:
 - Tool spec generation
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Add src directory to path for imports
+src_dir = Path(__file__).parent.parent.parent / "src"
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import pytest
 from typing import Dict, Any, List
 from nucleusiq.providers.llms.openai.tools import OpenAITool
@@ -314,13 +323,13 @@ class TestConnectorTool:
 class TestNativeToolExecution:
     """Test that native tools raise NotImplementedError on execute()."""
     
-    def test_native_tool_execute_raises_error(self):
+    @pytest.mark.asyncio
+    async def test_native_tool_execute_raises_error(self):
         """Test that native tools raise NotImplementedError on execute()."""
         tool = OpenAITool.web_search()
         
         with pytest.raises(NotImplementedError, match="don't use execute"):
-            import asyncio
-            asyncio.run(tool.execute())
+            await tool.execute()
     
     @pytest.mark.asyncio
     async def test_native_tool_execute_async(self):

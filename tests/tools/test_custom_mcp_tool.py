@@ -8,6 +8,15 @@ Tests cover:
 - Integration with OpenAI LLM
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Add src directory to path for imports
+src_dir = Path(__file__).parent.parent.parent / "src"
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import pytest
 from typing import Dict, Any, List, Optional
 from nucleusiq.core.tools import BaseTool
@@ -109,7 +118,9 @@ class TestCustomMCPTool:
         assert tool.name == "mcp_client_test"
         assert tool.server_url == "https://test.com"
         assert tool.server_label == "test"
-        assert not hasattr(tool, 'is_native') or not tool.is_native
+        # Check if is_native attribute exists and is False (custom tools are not native)
+        is_native = getattr(tool, 'is_native', False)
+        assert not is_native
     
     def test_custom_mcp_tool_spec_before_init(self):
         """Test tool spec before initialization."""

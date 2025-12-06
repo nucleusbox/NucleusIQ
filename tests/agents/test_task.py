@@ -9,6 +9,15 @@ Tests cover:
 - Edge cases and error handling
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Add src directory to path for imports
+src_dir = Path(__file__).parent.parent.parent / "src"
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import pytest
 import uuid
 from typing import Dict, Any
@@ -380,7 +389,8 @@ class TestTaskComparison:
 class TestTaskIntegration:
     """Test Task integration with other components."""
     
-    def test_task_with_agent_execute(self):
+    @pytest.mark.asyncio
+    async def test_task_with_agent_execute(self):
         """Test task can be used with agent.execute()."""
         from nucleusiq.agents import Agent
         from nucleusiq.llms.mock_llm import MockLLM
@@ -396,11 +406,11 @@ class TestTaskIntegration:
         task = Task(id="task1", objective="What is 2 + 2?")
         
         # Should not raise error
-        import asyncio
-        result = asyncio.run(agent.execute(task))
+        result = await agent.execute(task)
         assert result is not None
     
-    def test_task_dict_compatibility(self):
+    @pytest.mark.asyncio
+    async def test_task_dict_compatibility(self):
         """Test task works with dict-based agent methods."""
         from nucleusiq.agents import Agent
         from nucleusiq.llms.mock_llm import MockLLM
@@ -417,7 +427,6 @@ class TestTaskIntegration:
         task_dict = task.to_dict()
         
         # Should work with dict
-        import asyncio
-        result = asyncio.run(agent.execute(task_dict))
+        result = await agent.execute(task_dict)
         assert result is not None
 

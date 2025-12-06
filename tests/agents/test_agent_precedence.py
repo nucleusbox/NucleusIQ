@@ -8,6 +8,15 @@ Tests verify:
 - Role/objective still used for planning context
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Add src directory to path for imports
+src_dir = Path(__file__).parent.parent.parent / "src"
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import pytest
 import asyncio
 from unittest.mock import Mock, patch
