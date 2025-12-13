@@ -9,7 +9,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.auto_chain_of_thought import AutoChainOfThoughtPrompt
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 
 def auto_cot_example():
     auto_cot: AutoChainOfThoughtPrompt= PromptFactory.create_prompt(PromptTechnique.AUTO_CHAIN_OF_THOUGHT)

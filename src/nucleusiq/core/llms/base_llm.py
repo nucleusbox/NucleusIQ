@@ -1,8 +1,8 @@
-# File: src/nucleusiq/llms/base_llm.py
+# File: src/nucleusiq/core/llms/base_llm.py
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from typing_extensions import override
-from nucleusiq.llms.base import BaseLanguageModel
+from nucleusiq.core.llms.base import BaseLanguageModel
 
 class BaseLLM(BaseLanguageModel, ABC):
     """
@@ -79,4 +79,5 @@ class BaseLLM(BaseLanguageModel, ABC):
           - or `.function_call` (dict) when the model decides to call a function.
         """
         raise NotImplementedError
+
 

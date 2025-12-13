@@ -15,7 +15,7 @@ import httpx
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 import openai
-from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.core.llms.base_llm import BaseLLM
 
 logger = logging.getLogger(__name__)
 

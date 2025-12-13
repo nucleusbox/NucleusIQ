@@ -1,5 +1,5 @@
 # quick example (same as you did with EchoAgent)
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.core.tools.base_tool import BaseTool
 from nucleusiq.agents.config.agent_config import AgentConfig

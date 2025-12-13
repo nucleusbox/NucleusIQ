@@ -21,7 +21,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 from nucleusiq.core.tools.base_tool import BaseTool
 
 # Configure logging

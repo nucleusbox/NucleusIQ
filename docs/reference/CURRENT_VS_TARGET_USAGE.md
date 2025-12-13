@@ -6,7 +6,7 @@
 
 ```python
 from nucleusiq.agents import Agent
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 from nucleusiq.core.tools import BaseTool
 
 # Create tool

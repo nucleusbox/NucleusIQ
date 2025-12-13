@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from nucleusiq.core.tools.base_tool import BaseTool
 from nucleusiq.agents.plan import PlanStep
-from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.core.llms.base_llm import BaseLLM
 
 logger = logging.getLogger(__name__)
 

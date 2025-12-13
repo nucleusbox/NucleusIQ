@@ -14,7 +14,7 @@ This document shows **how users will use the framework** with concrete examples,
 
 ```python
 from nucleusiq.agents import Agent
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 from nucleusiq.core.tools import BaseTool
 
 # Create a calculator tool
@@ -251,7 +251,7 @@ result3 = await agent.execute(task3)
 
 ```python
 from nucleusiq.agents import Agent
-from nucleusiq.llms.openai import BaseOpenAI
+from nucleusiq.providers.llms.openai.nb_openai import BaseOpenAI
 from nucleusiq.core.tools import BaseTool
 
 # 1. Create tools

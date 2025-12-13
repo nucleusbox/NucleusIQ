@@ -27,7 +27,7 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.core.tools import BaseTool
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 
 
 class MockCalculatorTool(BaseTool):

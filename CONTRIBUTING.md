@@ -88,8 +88,9 @@ NucleusIQ/
 ├── src/
 │   ├── nucleusiq/              # Main package
 │   │   ├── agents/             # Agent classes and configuration
-│   │   ├── core/               # Core components (tools, memory)
-│   │   ├── llms/               # LLM base classes and mock
+│   │   ├── core/               # Core components (tools, memory, llms)
+│   │   │   ├── llms/           # LLM base classes and mock
+│   │   │   └── tools/          # Base tool classes
 │   │   ├── prompts/            # Prompt engineering techniques
 │   │   ├── providers/          # LLM and DB providers
 │   │   └── utilities/          # Utility functions
@@ -112,6 +113,7 @@ NucleusIQ/
 ### Key Directories
 
 - **`src/nucleusiq/agents/`**: Core agent implementation
+- **`src/nucleusiq/core/llms/`**: Base LLM classes (BaseLLM, MockLLM)
 - **`src/nucleusiq/core/tools/`**: Base tool classes (LLM-agnostic)
 - **`src/nucleusiq/providers/llms/`**: LLM provider implementations
 - **`src/nucleusiq/providers/llms/openai/tools/`**: OpenAI-specific tools
@@ -313,7 +315,7 @@ $env:PYTHONPATH="src"; pytest tests/ --html=test_report.html --self-contained-ht
 ```python
 import pytest
 from nucleusiq.agents.agent import Agent
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 
 class TestAgentFeature:
     @pytest.mark.asyncio

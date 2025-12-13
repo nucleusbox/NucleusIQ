@@ -45,7 +45,7 @@ class AgentConfig(BaseModel):
         description="Execution mode (gear): DIRECT (fast, no tools), STANDARD (tool-enabled, linear), AUTONOMOUS (full reasoning loop with planning and self-correction)"
     )
     enable_memory: bool = Field(
-        default=True,
+        default=False,
         description="Enable memory for context (standard, autonomous modes). Memory stores conversation history and partial results."
     )
     require_quality_check: bool = Field(

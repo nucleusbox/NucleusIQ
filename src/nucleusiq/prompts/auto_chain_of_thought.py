@@ -3,7 +3,7 @@
 from typing import List, Dict, Optional, Any
 from pydantic import Field, field_validator
 from nucleusiq.prompts.base import BasePrompt
-from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.core.llms.base_llm import BaseLLM
 
 class AutoChainOfThoughtPrompt(BasePrompt):
     """

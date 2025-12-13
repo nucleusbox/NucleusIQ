@@ -393,7 +393,7 @@ class TestTaskIntegration:
     async def test_task_with_agent_execute(self):
         """Test task can be used with agent.execute()."""
         from nucleusiq.agents import Agent
-        from nucleusiq.llms.mock_llm import MockLLM
+        from nucleusiq.core.llms.mock_llm import MockLLM
         
         llm = MockLLM()
         agent = Agent(
@@ -413,7 +413,7 @@ class TestTaskIntegration:
     async def test_task_dict_compatibility(self):
         """Test task works with dict-based agent methods."""
         from nucleusiq.agents import Agent
-        from nucleusiq.llms.mock_llm import MockLLM
+        from nucleusiq.core.llms.mock_llm import MockLLM
         
         llm = MockLLM()
         agent = Agent(

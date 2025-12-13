@@ -43,6 +43,12 @@ python src/examples/agents/basic_agent.py
 # Math agent with tools
 python src/examples/agents/math_agent.py
 
+# Execution modes (DIRECT, STANDARD, AUTONOMOUS) - ⭐ NEW
+python src/examples/agents/execution_modes_example.py
+
+# Gearbox strategy guide - ⭐ NEW
+python src/examples/agents/gearbox_strategy_example.py
+
 # Full OpenAI agent
 python src/examples/agents/openai_agent.py
 
@@ -71,8 +77,17 @@ python src/examples/prompts/zero_shot_examples.py
 ### Agents (Primary Interface) ⭐
 - **basic_agent.py** - Simple agent example with OpenAI
 - **math_agent.py** - Math calculation agent with tools
-- **chat_agent.py** - Conversational agent
-- **tool_using_agent.py** - Agent with custom tools
+- **simple_agent_example.py** - Simple agent with MockLLM and tools
+- **execution_modes_example.py** - ⭐ NEW: Comprehensive examples of all execution modes (DIRECT, STANDARD, AUTONOMOUS)
+- **gearbox_strategy_example.py** - ⭐ NEW: Guide to choosing the right execution mode for your task
+- **task_usage_example.py** - ⭐ NEW: Different ways to create and use Tasks with Agents
+- **openai_agent.py** - Full OpenAI agent example
+- **openai_tool_example.py** - OpenAI tools integration
+- **openai_all_tools_example.py** - All OpenAI native tools
+- **openai_mcp_example.py** - Model Context Protocol example
+- **openai_connector_example.py** - OpenAI connector example
+- **react_agent_example.py** - ReAct agent pattern
+- **task_prompt_plan_example.py** - Task, prompt, and plan relationships
 
 **Key Concept:** You create Agents, not LLM clients. The LLM is passed to the Agent during creation:
 

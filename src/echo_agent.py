@@ -9,7 +9,7 @@ import json
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 from nucleusiq.core.tools.base_tool import BaseTool
 from typing import Dict, Any, List
 
@@ -45,8 +45,12 @@ class EchoAgent(Agent):
         messages.append({"role": "user", "content": task.get("objective", "")})
         print(messages)
         # 3) First LLM call (may return a function_call)
+        if not self.llm:
+            raise ValueError("LLM is required for execution")
+        
+        model_name = getattr(self.llm, "model_name", "default")
         response = await self.llm.call(
-            model=self.llm.model_name,
+            model=model_name,
             messages=messages,
             tools=tools_spec,
         )
@@ -83,7 +87,7 @@ class EchoAgent(Agent):
                     },
                 ]
             )
-            follow_up = await self.llm.call(model=self.llm.model_name, messages=messages)
+            follow_up = await self.llm.call(model=model_name, messages=messages)
             return follow_up.choices[0].message.content
 
         # 6) Fallback to a simple echo

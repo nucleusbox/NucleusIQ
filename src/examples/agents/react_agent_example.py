@@ -20,7 +20,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents.react_agent import ReActAgent
 from nucleusiq.agents.config import AgentConfig
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 from nucleusiq.core.tools import BaseTool
 from typing import Dict, Any
 

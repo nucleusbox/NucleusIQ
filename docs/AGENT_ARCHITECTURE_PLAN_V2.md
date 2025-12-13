@@ -790,7 +790,7 @@ Return Result
 ```python
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import ExecutionMode
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 
 llm = MockLLM()
 agent = Agent(

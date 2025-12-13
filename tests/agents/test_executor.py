@@ -26,7 +26,7 @@ from unittest.mock import Mock, AsyncMock
 from nucleusiq.agents.components.executor import Executor
 from nucleusiq.agents.plan import PlanStep
 from nucleusiq.core.tools import BaseTool
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 
 
 class MockCalculatorTool(BaseTool):

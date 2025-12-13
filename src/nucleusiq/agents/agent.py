@@ -8,11 +8,11 @@ from pydantic import PrivateAttr
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.config.agent_config import AgentState, AgentMetrics
 from nucleusiq.agents.task import Task
-from nucleusiq.agents.plan import Plan, PlanStep
+from nucleusiq.agents.plan import Plan, PlanStep, PlanResponse, PlanStepResponse
 from nucleusiq.agents.components.executor import Executor
 # from nucleusiq.core.memory import BaseMemory
 from nucleusiq.prompts.base import BasePrompt
-from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.core.llms.base_llm import BaseLLM
 # from nucleusiq.core.tools import BaseTool
 
 class Agent(BaseAgent):
@@ -156,27 +156,79 @@ class Agent(BaseAgent):
         return context
 
     async def _create_llm_plan(self, task: Union[Task, Dict[str, Any]], context: Dict[str, Any]) -> Plan:
-        """Create an execution plan using the LLM."""
+        """
+        Create an execution plan using the LLM with structured output.
+        
+        Uses function calling (if supported) or structured JSON prompt to ensure
+        deterministic, parseable plan structure.
+        """
         if not self.llm:
             raise ValueError("LLM is required for LLM-based planning")
         
-        # Construct planning prompt
+        # Construct planning prompt with structured output instructions
         plan_prompt = self._construct_planning_prompt(task, context)
         
         # Generate plan using LLM
         try:
             # Convert string prompt to message format for LLM.call()
             messages = [{"role": "user", "content": plan_prompt}]
-            plan_response = await self.llm.call(
-                model=getattr(self.llm, "model_name", "default"),
-                messages=messages,
-            )
+            
+            # Try function calling first (if LLM supports it) for structured output
+            plan_function_spec = self._get_plan_function_spec()
+            llm_response = None
+            
+            # Check if LLM supports function calling by checking if it has convert_tool_specs
+            # or if we can pass tools parameter
+            try:
+                # Try with function calling for structured output
+                llm_response = await self.llm.call(
+                    model=getattr(self.llm, "model_name", "default"),
+                    messages=messages,
+                    tools=[plan_function_spec],  # Pass plan function as a tool
+                )
+                
+                # Check if LLM returned a function call
+                response_msg = llm_response.choices[0].message
+                if isinstance(response_msg, dict):
+                    function_call = response_msg.get("function_call")
+                else:
+                    function_call = getattr(response_msg, "function_call", None)
+                
+                if function_call:
+                    # Extract function arguments (structured JSON)
+                    if isinstance(function_call, dict):
+                        fn_name = function_call.get("name")
+                        fn_args_str = function_call.get("arguments", "{}")
+                    else:
+                        fn_name = getattr(function_call, "name", None)
+                        fn_args_str = getattr(function_call, "arguments", "{}")
+                    
+                    if fn_name == "create_plan":
+                        import json
+                        try:
+                            plan_data = json.loads(fn_args_str)
+                            # Use Pydantic model for validation
+                            plan_response_model = PlanResponse.from_dict(plan_data)
+                            self._logger.debug("Successfully received structured plan via function calling")
+                            # Convert PlanResponse to Plan
+                            return plan_response_model.to_plan(task)
+                        except (json.JSONDecodeError, ValueError) as e:
+                            self._logger.warning(f"Failed to parse function call arguments: {e}. Falling back to content parsing.")
+            except Exception as e:
+                self._logger.debug(f"Function calling not available or failed: {e}. Using content-based parsing.")
+            
+            # Fallback: Parse from content (structured JSON or text)
+            if not llm_response:
+                llm_response = await self.llm.call(
+                    model=getattr(self.llm, "model_name", "default"),
+                    messages=messages,
+                )
             
             # Extract content from response (handle both dict and object)
-            if not plan_response or not hasattr(plan_response, "choices") or not plan_response.choices:
+            if not llm_response or not hasattr(llm_response, "choices") or not llm_response.choices:
                 raise ValueError("LLM returned empty response for planning")
             
-            response_msg = plan_response.choices[0].message
+            response_msg = llm_response.choices[0].message
             if isinstance(response_msg, dict):
                 response_content = response_msg.get("content")
             else:
@@ -185,10 +237,10 @@ class Agent(BaseAgent):
             if not response_content:
                 raise ValueError("LLM returned no content for planning")
             
-            steps = self._parse_plan_response(response_content)
-            # Convert to PlanStep objects
-            plan_steps = [PlanStep(**step) if isinstance(step, dict) else step for step in steps]
-            return Plan(steps=plan_steps, task=task)
+            # Parse structured response (returns PlanResponse model)
+            plan_response_model = self._parse_plan_response(response_content)
+            # Convert PlanResponse to Plan
+            return plan_response_model.to_plan(task)
         except Exception as e:
             self._logger.error(f"LLM planning failed: {str(e)}")
             return await self._create_basic_plan(task)
@@ -202,35 +254,160 @@ class Agent(BaseAgent):
         step = PlanStep(step=1, action="execute", task=task)
         return Plan(steps=[step], task=task)
 
+    def _get_plan_schema(self) -> Dict[str, Any]:
+        """
+        Get JSON schema for structured plan output from Pydantic model.
+        
+        This ensures deterministic, parseable plan structure.
+        The schema is automatically generated from PlanResponse model.
+        """
+        # Generate JSON schema from Pydantic model
+        schema = PlanResponse.model_json_schema()
+        
+        # Extract the main schema (remove $defs if present, they'll be inlined)
+        # For function calling, we want a clean schema
+        main_schema = {
+            "type": schema.get("type", "object"),
+            "properties": schema.get("properties", {}),
+            "required": schema.get("required", [])
+        }
+        
+        # Inline any $defs references for cleaner schema
+        defs = schema.get("$defs", {}) or schema.get("definitions", {})
+        if defs and "properties" in main_schema:
+            # Inline PlanStepResponse definition into items
+            if "steps" in main_schema["properties"]:
+                steps_prop = main_schema["properties"]["steps"]
+                if "items" in steps_prop and "$ref" in steps_prop["items"]:
+                    ref_name = steps_prop["items"]["$ref"].split("/")[-1]
+                    if ref_name in defs:
+                        steps_prop["items"] = defs[ref_name]
+                        # Ensure required fields are present
+                        if "required" not in steps_prop["items"]:
+                            steps_prop["items"]["required"] = ["step", "action"]
+        
+        return main_schema
+    
+    def _get_plan_function_spec(self) -> Dict[str, Any]:
+        """
+        Get function specification for structured plan generation via function calling.
+        
+        This enforces structured output through LLM function calling mechanism.
+        """
+        return {
+            "type": "function",
+            "function": {
+                "name": "create_plan",
+                "description": "Create a structured execution plan with step-by-step actions",
+                "parameters": self._get_plan_schema()
+            }
+        }
+    
     def _construct_planning_prompt(self, task: Union[Task, Dict[str, Any]], context: Dict[str, Any]) -> str:
-        """Construct a prompt for plan generation."""
+        """
+        Construct a prompt for plan generation with structured output instructions.
+        
+        The prompt explicitly requests JSON format for deterministic parsing.
+        """
+        # Convert task to dict for string representation
+        task_dict = task.to_dict() if isinstance(task, Task) else task
+        task_obj = task_dict.get("objective", str(task))
+        
+        # Get available tools
+        tool_names = [t.name for t in self.tools] if self.tools else []
+        tools_str = ", ".join(tool_names) if tool_names else "None"
+        
+        # Build structured prompt
         if self.prompt:
-            return self.prompt.format_prompt(
+            base_prompt = self.prompt.format_prompt(
                 task=task,
                 context=context,
                 tools=self.tools,
                 agent_role=self.role
             )
+        else:
+            base_prompt = f"""As {self.role} with objective '{self.objective}',
+create a plan to accomplish the following task:
+{task_obj}"""
         
-        # Basic prompt construction
-        return f"""
-        As {self.role} with objective '{self.objective}',
-        create a plan to accomplish the following task:
-        {task}
-        
-        Available tools: {[t.name for t in self.tools]}
-        
-        Create a step-by-step plan to accomplish this task.
-        """
+        # Add structured output instructions
+        structured_instructions = f"""
 
-    def _parse_plan_response(self, response: str) -> List[Dict[str, Any]]:
+IMPORTANT: You must respond with a valid JSON object following this exact structure:
+{{
+    "steps": [
+        {{
+            "step": 1,
+            "action": "execute",
+            "args": {{}},
+            "details": "Description of this step"
+        }},
+        {{
+            "step": 2,
+            "action": "tool_name",
+            "args": {{"param1": "value1"}},
+            "details": "Description of this step"
+        }}
+    ]
+}}
+
+Requirements:
+- "steps" must be an array of step objects
+- Each step must have "step" (integer, 1-indexed) and "action" (string)
+- "args" (object) and "details" (string) are optional
+- Action can be "execute" for direct execution or a tool name from: [{tools_str}]
+- Return ONLY valid JSON, no additional text before or after
+
+Available tools: {tools_str}
+
+Create a step-by-step plan to accomplish this task. Return the plan as a JSON object."""
+        
+        return base_prompt + structured_instructions
+
+    def _parse_plan_response(self, response: str) -> PlanResponse:
         """
-        Parse the LLM's planning response into structured steps.
-        Returns list of dicts (will be converted to PlanStep in _create_llm_plan).
+        Parse the LLM's planning response into structured PlanResponse model.
+        
+        Supports multiple formats:
+        1. Function call response (preferred - structured)
+        2. JSON object in response text
+        3. Fallback to text parsing (backward compatibility)
+        
+        Returns PlanResponse model instance.
         """
-        """Parse the LLM's planning response into structured steps."""
-        # This is a simplified version - in practice, you'd want more sophisticated parsing
-        steps = []
+        import json
+        import re
+        
+        # Method 1: Try to extract JSON from response (handles markdown code blocks)
+        json_match = re.search(
+            r'```(?:json)?\s*(\{.*?\})\s*```',
+            response,
+            re.DOTALL | re.IGNORECASE
+        )
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Try to find JSON object directly
+            json_match = re.search(r'\{.*"steps".*\}', response, re.DOTALL)
+            if json_match and json_match.group(0):
+                json_str = json_match.group(0)
+            else:
+                json_str = response.strip()
+        
+        # Try to parse as JSON and validate with Pydantic model
+        try:
+            plan_data = json.loads(json_str)
+            if isinstance(plan_data, dict) and "steps" in plan_data:
+                # Use Pydantic model for validation and parsing
+                plan_response = PlanResponse.from_dict(plan_data)
+                self._logger.debug(f"Successfully parsed {len(plan_response.steps)} steps from JSON using PlanResponse model")
+                return plan_response
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            self._logger.warning(f"Failed to parse JSON from response: {e}. Trying fallback parsing.")
+        
+        # Method 2: Fallback to text parsing (backward compatibility)
+        self._logger.warning("Using fallback text parsing. Consider using structured JSON output for better reliability.")
+        step_responses = []
         current_step = None
         
         for line in response.split('\n'):
@@ -238,24 +415,46 @@ class Agent(BaseAgent):
             if not line:
                 continue
                 
-            if line.startswith('Step'):
+            # Look for step markers
+            step_match = re.match(r'Step\s+(\d+)[:.]?\s*(.*)', line, re.IGNORECASE)
+            if step_match:
                 if current_step:
-                    steps.append(current_step)
+                    step_responses.append(PlanStepResponse(**current_step))
+                step_num = int(step_match.group(1))
+                action = step_match.group(2).strip()
                 current_step = {
-                    'step': len(steps) + 1,
-                    'action': '',
+                    'step': step_num,
+                    'action': action or 'execute',
+                    'args': {},
                     'details': ''
                 }
             elif current_step:
-                if not current_step['action']:
-                    current_step['action'] = line
+                # Check if line contains action information
+                if 'action' in line.lower() and ':' in line:
+                    action_match = re.search(r'action[:\s]+(.+)', line, re.IGNORECASE)
+                    if action_match and (not current_step.get('action') or current_step.get('action') == 'execute'):
+                        current_step['action'] = action_match.group(1).strip()
                 else:
-                    current_step['details'] += line + '\n'
+                    # Add to details
+                    if current_step['details']:
+                        current_step['details'] += '\n' + line
+                    else:
+                        current_step['details'] = line
                     
         if current_step:
-            steps.append(current_step)
+            step_responses.append(PlanStepResponse(**current_step))
+        
+        # If no steps found, create a default single-step plan
+        if not step_responses:
+            self._logger.warning("No steps parsed from response. Creating default single-step plan.")
+            step_responses = [PlanStepResponse(
+                step=1,
+                action='execute',
+                args={},
+                details='Execute the task'
+            )]
             
-        return steps
+        return PlanResponse(steps=step_responses)
     
     def _build_messages(self, task: Union[Task, Dict[str, Any]], plan: Union[Plan, List[Dict[str, Any]], None] = None) -> List[Dict[str, Any]]:
         """

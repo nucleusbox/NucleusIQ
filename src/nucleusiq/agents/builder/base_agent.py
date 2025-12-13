@@ -12,7 +12,7 @@ from nucleusiq.agents.config.agent_config import AgentConfig, AgentMetrics, Agen
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.plan import Plan
 from nucleusiq.prompts.base import BasePrompt
-from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.core.llms.base_llm import BaseLLM
 
 class BaseAgent(ABC, BaseModel):
     """

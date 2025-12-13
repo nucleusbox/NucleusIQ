@@ -438,7 +438,7 @@ class TestPlanIntegration:
     def test_plan_with_agent_execute(self):
         """Test plan can be used with agent execution."""
         from nucleusiq.agents import Agent
-        from nucleusiq.llms.mock_llm import MockLLM
+        from nucleusiq.core.llms.mock_llm import MockLLM
         from nucleusiq.agents.config import AgentConfig
         
         llm = MockLLM()

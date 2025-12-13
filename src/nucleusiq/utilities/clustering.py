@@ -25,6 +25,10 @@ def cluster_questions(questions: List[str], num_clusters: int = 5) -> Dict[int, 
     km.fit(X)
     labels = km.labels_
 
+    # Type check: labels_ is always set after fit(), but type checker doesn't know this
+    if labels is None:
+        raise RuntimeError("KMeans labels not available after fitting")
+
     clusters: Dict[int, List[str]] = {}
     for label, question in zip(labels, questions):
         clusters.setdefault(label, []).append(question)

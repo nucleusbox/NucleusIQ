@@ -1,12 +1,16 @@
 # File: src/nucleusiq/core/tools/base_tool.py
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Callable, Type
+from typing import Any, Dict, Optional, Callable, Type, TYPE_CHECKING
 import inspect
 from typing import get_origin, get_args
 
-try:
+if TYPE_CHECKING:
     from pydantic import BaseModel
+
+try:
+    from pydantic import BaseModel as _BaseModel
     PYDANTIC_AVAILABLE = True
+    BaseModel = _BaseModel
 except ImportError:
     PYDANTIC_AVAILABLE = False
     BaseModel = None
@@ -29,7 +33,7 @@ def _parse_annotation(annotation: Any) -> str:
     return mapping.get(origin, "string")
 
 
-def _pydantic_model_to_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
+def _pydantic_model_to_json_schema(model: Type[Any]) -> Dict[str, Any]:
     """
     Convert a Pydantic BaseModel to generic JSON Schema.
     
@@ -42,7 +46,7 @@ def _pydantic_model_to_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
     Returns:
         Generic JSON Schema dict
     """
-    if not PYDANTIC_AVAILABLE:
+    if not PYDANTIC_AVAILABLE or BaseModel is None:
         raise ImportError("Pydantic is required for schema-based tools. Install with: pip install pydantic")
     
     if not issubclass(model, BaseModel):
@@ -192,7 +196,7 @@ class BaseTool(ABC):
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
-        args_schema: Optional[Type[BaseModel]] = None,
+        args_schema: Optional[Type[Any]] = None,
     ) -> "BaseTool":
         """
         Wrap any Python function as a tool with auto-generated spec.

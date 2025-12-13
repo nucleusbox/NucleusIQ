@@ -30,7 +30,7 @@ from nucleusiq.agents.task import Task
 from nucleusiq.agents.plan import Plan
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.core.tools import BaseTool
-from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.core.llms.mock_llm import MockLLM
 
 
 class MockCalculatorTool(BaseTool):

@@ -15,6 +15,7 @@ from pydantic import Field
 
 
 
+
 @cache
 def get_tokenizer() -> Any:
     """Get a GPT-2 tokenizer instance."""
@@ -75,3 +76,4 @@ class BaseLanguageModel(ABC):
         return len(self.get_token_ids(text))
 
     
+

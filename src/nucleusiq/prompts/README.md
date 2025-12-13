@@ -131,7 +131,7 @@ Zero-Shot Prompting involves directly asking the LLM to perform a task without p
 
 ```python
 from nucleusiq.prompts.factory import PromptFactory
-from nucleusiq.llms.mock_llm import MockLLM  # Using MockLLM for testing
+from nucleusiq.core.llms.mock_llm import MockLLM  # Using MockLLM for testing
 
 def zero_shot_example():
     # Initialize MockLLM
