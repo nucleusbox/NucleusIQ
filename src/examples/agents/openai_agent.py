@@ -14,6 +14,11 @@ import sys
 import asyncio
 import logging
 from typing import Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 
 # Add src directory to path so we can import nucleusiq
 _src_dir = os.path.join(os.path.dirname(__file__), '../..')
@@ -37,24 +42,24 @@ async def main():
     
     # Check for API key
     if not os.getenv("OPENAI_API_KEY"):
-        print("❌ ERROR: OPENAI_API_KEY environment variable not set!")
+        print("ERROR: OPENAI_API_KEY environment variable not set!")
         print("Please set it in your .env file or environment.")
         return
     
     print("=" * 60)
     print("NucleusIQ Full Agent Example")
     print("=" * 60)
-    print("\n💡 Remember: You create Agents, not LLM calls!")
+    print("\nRemember: You create Agents, not LLM calls!")
     print("   The LLM provider is just a configuration detail.\n")
     
     # Step 1: Create LLM provider (internal detail)
     print("1. Creating LLM provider (internal)...")
     llm = BaseOpenAI(
-        model_name="gpt-3.5-turbo",
+        model_name="gpt-5-nano",
         temperature=0.7,
         max_retries=3,
     )
-    print("✅ LLM provider created")
+    print("[OK] LLM provider created")
     
     # Create prompt
     print("\n2. Creating prompt...")
@@ -64,7 +69,7 @@ async def main():
         system="You are a helpful assistant that can perform calculations.",
         user="Help the user with their request. Use tools when appropriate."
     )
-    print("✅ Prompt created")
+    print("[OK] Prompt created")
     
     # Create a tool
     print("\n3. Creating tools...")
@@ -78,7 +83,7 @@ async def main():
     
     adder = BaseTool.from_function(add, description="Add two integers.")
     multiplier = BaseTool.from_function(multiply, description="Multiply two integers.")
-    print("✅ Tools created: add, multiply")
+    print("[OK] Tools created: add, multiply")
     
     # Step 4: Create Agent (THIS IS THE PRIMARY INTERFACE)
     print("\n4. Creating Agent (primary interface)...")
@@ -92,12 +97,12 @@ async def main():
         tools=[adder, multiplier],
         config=AgentConfig(verbose=True)
     )
-    print("✅ Agent created")
+    print("[OK] Agent created")
     
     # Initialize agent
     print("\n5. Initializing agent...")
     await agent.initialize()
-    print(f"✅ Agent initialized (state: {agent.state})")
+    print(f"[OK] Agent initialized (state: {agent.state})")
     
     # Test 1: Simple addition
     print("\n" + "=" * 60)
@@ -106,9 +111,9 @@ async def main():
     task1 = {"id": "task1", "objective": "What is 15 + 27?"}
     try:
         result1 = await agent.execute(task1)
-        print(f"\n✅ Result: {result1}")
+        print(f"\n[OK] Result: {result1}")
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[ERROR] Error: {e}")
     
     # Test 2: Multiplication
     print("\n" + "=" * 60)
@@ -117,9 +122,9 @@ async def main():
     task2 = {"id": "task2", "objective": "What is 7 times 8?"}
     try:
         result2 = await agent.execute(task2)
-        print(f"\n✅ Result: {result2}")
+        print(f"\n[OK] Result: {result2}")
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[ERROR] Error: {e}")
     
     # Test 3: Complex calculation
     print("\n" + "=" * 60)
@@ -128,9 +133,9 @@ async def main():
     task3 = {"id": "task3", "objective": "Calculate (5 + 3) * 4"}
     try:
         result3 = await agent.execute(task3)
-        print(f"\n✅ Result: {result3}")
+        print(f"\n[OK] Result: {result3}")
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[ERROR] Error: {e}")
     
     # Test 4: Non-math question (should use LLM directly)
     print("\n" + "=" * 60)
@@ -139,14 +144,14 @@ async def main():
     task4 = {"id": "task4", "objective": "What is the capital of France?"}
     try:
         result4 = await agent.execute(task4)
-        print(f"\n✅ Result: {result4}")
+        print(f"\n[OK] Result: {result4}")
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[ERROR] Error: {e}")
     
     print("\n" + "=" * 60)
     print("Example completed!")
     print("=" * 60)
-    print("\n💡 Key takeaway: You work with Agents, not LLM APIs!")
+    print("\nKey takeaway: You work with Agents, not LLM APIs!")
     print("   The LLM provider is an implementation detail.")
 
 

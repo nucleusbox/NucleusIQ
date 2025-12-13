@@ -144,13 +144,32 @@ class BaseOpenAI(BaseLLM):
         return len(enc.encode(text))
 
     # ---------- BaseLLM impl ----------
+    def _uses_max_completion_tokens(self, model: str) -> bool:
+        """
+        Some newer OpenAI models reject `max_tokens` and require `max_completion_tokens`.
+
+        Example error:
+            "Unsupported parameter: 'max_tokens' is not supported with this model.
+             Use 'max_completion_tokens' instead."
+        """
+        m = (model or "").lower()
+        return m.startswith("gpt-5")
+
+    def _is_strict_defaults_model(self, model: str) -> bool:
+        """
+        Some models only support default sampling parameters (e.g., temperature=1)
+        and may reject explicit non-default values (or sometimes explicit params at all).
+        """
+        m = (model or "").lower()
+        return m.startswith("gpt-5")
+
     async def call(
         self,
         *,
         model: str,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        max_tokens: int = 256,
+        max_tokens: int = 1024,
         temperature: float | None = None,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
@@ -164,16 +183,28 @@ class BaseOpenAI(BaseLLM):
         If async_mode=True, this is an async method.
         If async_mode=False, this method runs sync code but is still async-compatible.
         """
-        payload = {
+        payload: Dict[str, Any] = {
             "model": model,
-            "messages": messages,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "top_p": top_p,
-            "frequency_penalty": frequency_penalty,
-            "presence_penalty": presence_penalty,
-            "max_tokens": max_tokens,
+            "messages": messages,  # Use modern tool_calls format directly
             "stream": stream,
         }
+
+        # Sampling params: some models (e.g., gpt-5-*) only support defaults.
+        if not self._is_strict_defaults_model(model):
+            payload.update(
+                {
+                    "temperature": temperature if temperature is not None else self.temperature,
+                    "top_p": top_p,
+                    "frequency_penalty": frequency_penalty,
+                    "presence_penalty": presence_penalty,
+                }
+            )
+
+        # Token limit parameter name depends on model family
+        if self._uses_max_completion_tokens(model):
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["max_tokens"] = max_tokens
         
         # Only include optional parameters if they are provided
         if self.logit_bias is not None:
@@ -196,9 +227,9 @@ class BaseOpenAI(BaseLLM):
                             )
                     else:
                         resp = await self._client.chat.completions.create(**payload)
-                        return _LLMResponse(
-                            choices=[_Choice(message=resp.choices[0].message.model_dump())]
-                        )
+                        msg_dict = resp.choices[0].message.model_dump()
+                        # Return modern tool_calls format directly (no legacy conversion)
+                        return _LLMResponse(choices=[_Choice(message=msg_dict)])
                 else:
                     # Sync mode - run in executor to make it async-compatible
                     import asyncio
@@ -218,9 +249,9 @@ class BaseOpenAI(BaseLLM):
                             None,
                             lambda: self._client.chat.completions.create(**payload)
                         )
-                        return _LLMResponse(
-                            choices=[_Choice(message=resp.choices[0].message.model_dump())]
-                        )
+                        msg_dict = resp.choices[0].message.model_dump()
+                        # Return modern tool_calls format directly (no legacy conversion)
+                        return _LLMResponse(choices=[_Choice(message=msg_dict)])
             except openai.RateLimitError as e:
                 # Rate limit errors - retry with exponential backoff
                 attempt += 1
@@ -257,11 +288,11 @@ class BaseOpenAI(BaseLLM):
                 # Authentication errors - don't retry, fail immediately
                 self._logger.error(f"Authentication failed: {e}")
                 raise ValueError(f"Invalid API key or authentication failed: {e}") from e
-            except openai.PermissionError as e:  # type: ignore[attr-defined]
+            except openai.PermissionDeniedError as e:
                 # Permission errors - don't retry, fail immediately
                 self._logger.error(f"Permission denied: {e}")
                 raise ValueError(f"Permission denied: {e}") from e
-            except openai.InvalidRequestError as e:  # type: ignore[attr-defined]
+            except (openai.BadRequestError, openai.UnprocessableEntityError) as e:
                 # Invalid request errors - don't retry, fail immediately
                 self._logger.error(f"Invalid request: {e}")
                 raise ValueError(f"Invalid request parameters: {e}") from e

@@ -187,35 +187,40 @@ class Agent(BaseAgent):
                     tools=[plan_function_spec],  # Pass plan function as a tool
                 )
                 
-                # Check if LLM returned a function call
+                # Check if LLM returned a tool call (modern format: tool_calls)
                 response_msg = llm_response.choices[0].message
                 if isinstance(response_msg, dict):
-                    function_call = response_msg.get("function_call")
+                    tool_calls = response_msg.get("tool_calls")
                 else:
-                    function_call = getattr(response_msg, "function_call", None)
+                    tool_calls = getattr(response_msg, "tool_calls", None)
                 
-                if function_call:
-                    # Extract function arguments (structured JSON)
-                    if isinstance(function_call, dict):
-                        fn_name = function_call.get("name")
-                        fn_args_str = function_call.get("arguments", "{}")
-                    else:
-                        fn_name = getattr(function_call, "name", None)
-                        fn_args_str = getattr(function_call, "arguments", "{}")
-                    
-                    if fn_name == "create_plan":
-                        import json
-                        try:
-                            plan_data = json.loads(fn_args_str)
-                            # Use Pydantic model for validation
-                            plan_response_model = PlanResponse.from_dict(plan_data)
-                            self._logger.debug("Successfully received structured plan via function calling")
-                            # Convert PlanResponse to Plan
-                            return plan_response_model.to_plan(task)
-                        except (json.JSONDecodeError, ValueError) as e:
-                            self._logger.warning(f"Failed to parse function call arguments: {e}. Falling back to content parsing.")
+                # Handle tool_calls format (modern OpenAI format)
+                if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+                    # Find the create_plan tool call
+                    for tool_call in tool_calls:
+                        if isinstance(tool_call, dict):
+                            fn_info = tool_call.get("function", {})
+                            fn_name = fn_info.get("name") if isinstance(fn_info, dict) else None
+                            fn_args_str = fn_info.get("arguments", "{}") if isinstance(fn_info, dict) else "{}"
+                        else:
+                            fn_info = getattr(tool_call, "function", None)
+                            fn_name = getattr(fn_info, "name", None) if fn_info else None
+                            fn_args_str = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
+                        
+                        if fn_name == "create_plan":
+                            import json
+                            try:
+                                plan_data = json.loads(fn_args_str)
+                                # Use Pydantic model for validation
+                                plan_response_model = PlanResponse.from_dict(plan_data)
+                                self._logger.debug("Successfully received structured plan via tool calling")
+                                # Convert PlanResponse to Plan
+                                return plan_response_model.to_plan(task)
+                            except (json.JSONDecodeError, ValueError) as e:
+                                self._logger.warning(f"Failed to parse tool call arguments: {e}. Falling back to content parsing.")
+                                break
             except Exception as e:
-                self._logger.debug(f"Function calling not available or failed: {e}. Using content-based parsing.")
+                self._logger.debug(f"Tool calling not available or failed: {e}. Using content-based parsing.")
             
             # Fallback: Parse from content (structured JSON or text)
             if not llm_response:
@@ -955,46 +960,69 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
 
                 msg = response.choices[0].message
                 if isinstance(msg, dict):
-                    fn_call = msg.get("function_call")
+                    tool_calls = msg.get("tool_calls")
                     content = msg.get("content")
                 else:
-                    fn_call = getattr(msg, "function_call", None)
+                    tool_calls = getattr(msg, "tool_calls", None)
                     content = getattr(msg, "content", None)
 
-                # (4) Handle function call (fire-and-forget: try once, return error if fails)
-                if fn_call:
-                    tool_call_count += 1
-                    fn_name = fn_call.get("name") if isinstance(fn_call, dict) else getattr(fn_call, "name", None)
-                    fn_args_str = fn_call.get("arguments") if isinstance(fn_call, dict) else getattr(fn_call, "arguments", "{}")
+                # (4) Handle tool calls (modern OpenAI format: tool_calls array)
+                if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+                    # Process each tool call in the response
+                    tool_results = []
+                    assistant_msg = {
+                        "role": "assistant",
+                        "content": msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None),
+                        "tool_calls": tool_calls,
+                    }
+                    messages.append(assistant_msg)
                     
-                    self._logger.info("Tool requested: %s", fn_name)
+                    for tool_call in tool_calls:
+                        tool_call_count += 1
+                        if tool_call_count > max_tool_calls:
+                            break
+                            
+                        # Extract tool call info (modern format)
+                        if isinstance(tool_call, dict):
+                            tool_call_id = tool_call.get("id")
+                            fn_info = tool_call.get("function", {})
+                            fn_name = fn_info.get("name") if isinstance(fn_info, dict) else None
+                            fn_args_str = fn_info.get("arguments", "{}") if isinstance(fn_info, dict) else "{}"
+                        else:
+                            tool_call_id = getattr(tool_call, "id", None)
+                            fn_info = getattr(tool_call, "function", None)
+                            fn_name = getattr(fn_info, "name", None) if fn_info else None
+                            fn_args_str = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
+                        
+                        if not fn_name:
+                            self._logger.warning("Tool call missing function name, skipping")
+                            continue
+                        
+                        self._logger.info("Tool requested: %s", fn_name)
+                        
+                        try:
+                            # Create function_call dict for Executor (it expects name/arguments)
+                            fn_call_dict = {"name": fn_name, "arguments": fn_args_str}
+                            # Use Executor to execute tool
+                            tool_result = await self._executor.execute(fn_call_dict)
+                            
+                            # Append tool result in modern format (role="tool" with tool_call_id)
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call_id,
+                                "content": json.dumps(tool_result),
+                            })
+                            
+                        except Exception as e:
+                            # Fire-and-forget: return error immediately
+                            self._logger.error(f"Tool execution failed: {e}")
+                            self.state = AgentState.ERROR
+                            return f"Error: Tool '{fn_name}' execution failed: {str(e)}"
                     
-                    try:
-                        # Use Executor to execute tool
-                        tool_result = await self._executor.execute(fn_call)
-                        
-                        # Append to conversation
-                        messages.append({
-                            "role": "assistant",
-                            "content": None,
-                            "function_call": fn_call,
-                        })
-                        messages.append({
-                            "role": "function",
-                            "name": fn_name,
-                            "content": json.dumps(tool_result),
-                        })
-                        
-                        # Continue loop to get final answer
-                        continue
-                        
-                    except Exception as e:
-                        # Fire-and-forget: return error immediately
-                        self._logger.error(f"Tool execution failed: {e}")
-                        self.state = AgentState.ERROR
-                        return f"Error: Tool '{fn_name}' execution failed: {str(e)}"
+                    # Continue loop to get final answer after tool execution
+                    continue
 
-                # (5) No function call - return content
+                # (5) No tool calls - return content
                 if content:
                     self.state = AgentState.COMPLETED
                     
@@ -1007,7 +1035,7 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
                     
                     return content
 
-                # No content and no function call - echo
+                # No content and no tool calls - echo
                 self._logger.info("LLM did not request a tool and returned no content; echoing objective")
                 self.state = AgentState.COMPLETED
                 objective = task.objective if isinstance(task, Task) else task.get('objective', '')

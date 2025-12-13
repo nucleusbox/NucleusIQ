@@ -20,6 +20,10 @@ from typing import Dict, Any, Optional, List
 # Add src directory to path
 _src_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.insert(0, _src_dir)
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
@@ -33,7 +37,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
 
 # ============================================================================
 # Example Usage
@@ -84,8 +87,10 @@ async def main():
     
     logger.info("✅ Created tools:")
     for tool in tools:
-        if hasattr(tool, 'is_native') and tool.is_native:
-            tool_type = f"OpenAI ({tool.tool_type})"
+        is_native = getattr(tool, 'is_native', False)
+        if is_native:
+            tool_type_str = getattr(tool, 'tool_type', 'native')
+            tool_type = f"OpenAI ({tool_type_str})"
         else:
             tool_type = "BaseTool"
         logger.info(f"   - {tool.name} ({tool_type})")
