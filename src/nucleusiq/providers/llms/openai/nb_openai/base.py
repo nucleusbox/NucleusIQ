@@ -237,22 +237,6 @@ class BaseOpenAI(BaseLLM):
                     await asyncio.sleep(backoff)
                 else:
                     time.sleep(backoff)
-            except openai.APIError as e:
-                # API errors (500, 502, 503, etc.) - retry with exponential backoff
-                attempt += 1
-                if attempt > self.max_retries:
-                    self._logger.error(
-                        f"API error after {self.max_retries} retries: {e}"
-                    )
-                    raise
-                backoff = 2 ** attempt
-                self._logger.warning(
-                    f"API error ({e}); retry {attempt}/{self.max_retries} in {backoff}s"
-                )
-                if self.async_mode:
-                    await asyncio.sleep(backoff)
-                else:
-                    time.sleep(backoff)
             except openai.APIConnectionError as e:
                 # Connection errors - retry with exponential backoff
                 attempt += 1
@@ -264,6 +248,35 @@ class BaseOpenAI(BaseLLM):
                 backoff = 2 ** attempt
                 self._logger.warning(
                     f"Connection error ({e}); retry {attempt}/{self.max_retries} in {backoff}s"
+                )
+                if self.async_mode:
+                    await asyncio.sleep(backoff)
+                else:
+                    time.sleep(backoff)
+            except openai.AuthenticationError as e:
+                # Authentication errors - don't retry, fail immediately
+                self._logger.error(f"Authentication failed: {e}")
+                raise ValueError(f"Invalid API key or authentication failed: {e}") from e
+            except openai.PermissionError as e:  # type: ignore[attr-defined]
+                # Permission errors - don't retry, fail immediately
+                self._logger.error(f"Permission denied: {e}")
+                raise ValueError(f"Permission denied: {e}") from e
+            except openai.InvalidRequestError as e:  # type: ignore[attr-defined]
+                # Invalid request errors - don't retry, fail immediately
+                self._logger.error(f"Invalid request: {e}")
+                raise ValueError(f"Invalid request parameters: {e}") from e
+            except openai.APIError as e:
+                # API errors (500, 502, 503, etc.) - retry with exponential backoff
+                # This must come after all specific APIError subclasses
+                attempt += 1
+                if attempt > self.max_retries:
+                    self._logger.error(
+                        f"API error after {self.max_retries} retries: {e}"
+                    )
+                    raise
+                backoff = 2 ** attempt
+                self._logger.warning(
+                    f"API error ({e}); retry {attempt}/{self.max_retries} in {backoff}s"
                 )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
@@ -285,18 +298,6 @@ class BaseOpenAI(BaseLLM):
                     await asyncio.sleep(backoff)
                 else:
                     time.sleep(backoff)
-            except openai.AuthenticationError as e:
-                # Authentication errors - don't retry, fail immediately
-                self._logger.error(f"Authentication failed: {e}")
-                raise ValueError(f"Invalid API key or authentication failed: {e}") from e
-            except openai.PermissionError as e:
-                # Permission errors - don't retry, fail immediately
-                self._logger.error(f"Permission denied: {e}")
-                raise ValueError(f"Permission denied: {e}") from e
-            except openai.InvalidRequestError as e:
-                # Invalid request errors - don't retry, fail immediately
-                self._logger.error(f"Invalid request: {e}")
-                raise ValueError(f"Invalid request parameters: {e}") from e
             except Exception as e:
                 # Unexpected errors - log and re-raise
                 self._logger.error(f"Unexpected error during OpenAI call: {e}", exc_info=True)
