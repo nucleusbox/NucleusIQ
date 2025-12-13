@@ -378,21 +378,51 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
         import json
         import re
         
-        # Method 1: Try to extract JSON from response (handles markdown code blocks)
-        json_match = re.search(
-            r'```(?:json)?\s*(\{.*?\})\s*```',
+        # Helper function to extract JSON with balanced brackets (handles nested structures)
+        def extract_balanced_json(text: str, start_pos: int) -> str | None:
+            """Extract JSON object using balanced bracket matching to handle nested structures."""
+            brace_count = 0
+            in_string = False
+            escape_next = False
+            
+            for i, char in enumerate(text[start_pos:], start=start_pos):
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == '\\':
+                    escape_next = True
+                    continue
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                if not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            return text[start_pos:i+1]
+            return None
+        
+        # Method 1: Try to extract JSON from markdown code blocks
+        json_str = None
+        code_block_match = re.search(
+            r'```(?:json)?\s*(\{)',
             response,
             re.DOTALL | re.IGNORECASE
         )
-        if json_match:
-            json_str = json_match.group(1)
-        else:
-            # Try to find JSON object directly
-            json_match = re.search(r'\{.*"steps".*\}', response, re.DOTALL)
-            if json_match and json_match.group(0):
-                json_str = json_match.group(0)
-            else:
-                json_str = response.strip()
+        if code_block_match:
+            json_str = extract_balanced_json(response, code_block_match.start(1))
+        
+        # Method 2: Try to find JSON object directly in text
+        if not json_str:
+            first_brace = response.find('{')
+            if first_brace != -1:
+                json_str = extract_balanced_json(response, first_brace)
+        
+        # Method 3: Fallback to entire response
+        if not json_str:
+            json_str = response.strip()
         
         # Try to parse as JSON and validate with Pydantic model
         try:
