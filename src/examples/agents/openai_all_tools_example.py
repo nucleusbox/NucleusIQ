@@ -56,7 +56,7 @@ async def main():
     
     # Step 1: Create LLM
     logger.info("1. Creating OpenAI LLM...")
-    llm = BaseOpenAI(model_name="gpt-4o", temperature=0)
+    llm = BaseOpenAI(model_name="gpt-5-mini", temperature=0.7)
     logger.info("✅ LLM created")
     
     # Step 2: Create BaseTool (function calling)

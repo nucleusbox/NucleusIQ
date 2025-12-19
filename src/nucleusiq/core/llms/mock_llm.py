@@ -38,6 +38,7 @@ class MockLLM(BaseLLM):
         model: str,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         max_tokens: int = 150,
         temperature: float = 0.5,
         top_p: float = 1.0,

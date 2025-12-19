@@ -169,6 +169,7 @@ class BaseOpenAI(BaseLLM):
         model: str,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         max_tokens: int = 1024,
         temperature: float | None = None,
         top_p: float = 1.0,
@@ -211,6 +212,10 @@ class BaseOpenAI(BaseLLM):
             payload["logit_bias"] = self.logit_bias
         if tools is not None:
             payload["tools"] = tools
+        # `tool_choice` support varies across models/endpoints; we pass it through when provided.
+        # If the API rejects it, we handle that with a one-time retry in the error handler.
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
         if stop is not None:
             payload["stop"] = stop
 
@@ -293,7 +298,14 @@ class BaseOpenAI(BaseLLM):
                 self._logger.error(f"Permission denied: {e}")
                 raise ValueError(f"Permission denied: {e}") from e
             except (openai.BadRequestError, openai.UnprocessableEntityError) as e:
-                # Invalid request errors - don't retry, fail immediately
+                # Invalid request errors - usually don't retry.
+                # But some endpoints/models may reject optional parameters like `tool_choice`.
+                # If we sent tool_choice, retry once without it.
+                if tool_choice is not None and "tool_choice" in payload:
+                    self._logger.warning(f"Invalid request (will retry once without tool_choice): {e}")
+                    payload.pop("tool_choice", None)
+                    tool_choice = None
+                    continue
                 self._logger.error(f"Invalid request: {e}")
                 raise ValueError(f"Invalid request parameters: {e}") from e
             except openai.APIError as e:

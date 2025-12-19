@@ -57,6 +57,38 @@ class AgentConfig(BaseModel):
         description="Maximum iterations for iterative agents (autonomous mode, ReAct, etc.)"
     )
 
+    # LLM call budgets (model-agnostic knobs)
+    llm_max_tokens: int = Field(
+        default=2048,
+        description="Token budget for normal LLM calls (STANDARD mode and general execution)."
+    )
+    planning_max_tokens: int = Field(
+        default=4096,
+        description="Token budget for plan generation calls (AUTONOMOUS planning)."
+    )
+    step_inference_max_tokens: int = Field(
+        default=2048,
+        description="Token budget for per-step tool-argument inference during plan execution."
+    )
+    
+    # Timeout settings (in seconds)
+    planning_timeout: int = Field(
+        default=120,
+        description="Timeout in seconds for plan generation. If exceeded, planning fails or retries."
+    )
+    step_timeout: int = Field(
+        default=60,
+        description="Timeout in seconds for each step execution. If exceeded, step fails."
+    )
+    llm_call_timeout: int = Field(
+        default=90,
+        description="Timeout in seconds for individual LLM API calls."
+    )
+    step_max_retries: int = Field(
+        default=2,
+        description="Maximum retries for a failed step before giving up (0 = no retries)."
+    )
+
 class AgentMetrics(BaseModel):
     """Tracks agent performance metrics."""
     tasks_completed: int = 0

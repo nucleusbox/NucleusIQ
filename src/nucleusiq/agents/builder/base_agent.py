@@ -97,10 +97,14 @@ class BaseAgent(ABC, BaseModel):
         handler.setFormatter(formatter)
         if not self._logger.handlers:
             self._logger.addHandler(handler)
+        # Avoid duplicate logs when the app configures root logging (e.g., logging.basicConfig in examples).
+        # We attach our own handler, so we should not also propagate to root.
+        self._logger.propagate = False
         if self.config.verbose:
             self._logger.setLevel(logging.DEBUG)
         else:
-            self._logger.setLevel(logging.WARNING)
+            # Default to INFO for a small set of high-signal traces.
+            self._logger.setLevel(logging.INFO)
 
 
     def _validate_configuration(self):

@@ -1,6 +1,7 @@
 # src/nucleusiq/agents/agent.py
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
+import asyncio
 import json
 import inspect
 from pydantic import PrivateAttr
@@ -167,13 +168,84 @@ class Agent(BaseAgent):
         
         # Construct planning prompt with structured output instructions
         plan_prompt = self._construct_planning_prompt(task, context)
+
+        # A shorter prompt used specifically for tool-calling (more reliable than a huge JSON-instructions prompt).
+        task_dict = task.to_dict() if isinstance(task, Task) else task
+        task_obj = task_dict.get("objective", str(task_dict))
+        tool_names = [t.name for t in self.tools] if self.tools else []
+        tools_str = ", ".join(tool_names) if tool_names else "None"
+        # Include tool parameter hints (critical for getting usable args back in the plan).
+        tool_param_lines: List[str] = []
+        for t in self.tools or []:
+            try:
+                spec = t.get_spec() if hasattr(t, "get_spec") else None
+                params = (spec or {}).get("parameters", {})
+                props = (params or {}).get("properties", {}) if isinstance(params, dict) else {}
+                required = (params or {}).get("required", []) if isinstance(params, dict) else []
+                if isinstance(props, dict) and props:
+                    tool_param_lines.append(
+                        f"- {t.name}({', '.join(props.keys())}) required={required}"
+                    )
+                else:
+                    tool_param_lines.append(f"- {t.name}(...)")
+            except Exception:
+                tool_param_lines.append(f"- {getattr(t, 'name', 'unknown')}(...)")
+
+        tool_call_prompt = (
+            "Create a step-by-step execution plan for the task below. "
+            "You MUST call the create_plan tool with the plan.\n\n"
+            f"Task: {task_obj}\n\n"
+            f"Available tools:\n"
+            + ("\n".join(tool_param_lines) if tool_param_lines else "- None") + "\n\n"
+            "CRITICAL RULES:\n"
+            "1. EVERY tool step MUST include 'args' with ALL required parameters filled in.\n"
+            "2. For the first steps, extract CONCRETE VALUES from the task (e.g., numbers, strings).\n"
+            "3. For later steps that need results from previous steps, use \"$step_N\" references.\n\n"
+            "EXAMPLE for task 'Calculate (5 + 3) * 2':\n"
+            "{\n"
+            '  "steps": [\n'
+            '    {"step": 1, "action": "add", "args": {"a": 5, "b": 3}, "details": "5 + 3 = 8"},\n'
+            '    {"step": 2, "action": "multiply", "args": {"a": "$step_1", "b": 2}, "details": "8 * 2 = 16"}\n'
+            "  ]\n"
+            "}\n\n"
+            "Now create the plan for the given task. Extract actual values from the task text.\n"
+        )
         
         # Generate plan using LLM
-        try:
+        def _content_to_text(content: Any) -> Optional[str]:
+            """
+            Coerce OpenAI-style message content into plain text.
+
+            Chat completions generally return `content: str | None`, but some SDKs / modes
+            may represent content as a list of parts.
+            """
+            if content is None:
+                return None
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                # Common shape: [{"type":"text","text":"..."}]
+                parts: List[str] = []
+                for part in content:
+                    if isinstance(part, dict):
+                        t = part.get("text")
+                        if isinstance(t, str):
+                            parts.append(t)
+                joined = "\n".join(p for p in parts if p.strip())
+                return joined if joined.strip() else None
+            # Last resort
+            s = str(content)
+            return s if s.strip() else None
+
+        # We occasionally see transient empty assistant messages (no tool_calls, no content).
+        # Retry once before falling back.
+        empty_retries_remaining = 1
+
+        while True:
             # Convert string prompt to message format for LLM.call()
             messages = [{"role": "user", "content": plan_prompt}]
             
-            # Try function calling first (if LLM supports it) for structured output
+            # Try tool calling first for structured output
             plan_function_spec = self._get_plan_function_spec()
             llm_response = None
             
@@ -183,8 +255,9 @@ class Agent(BaseAgent):
                 # Try with function calling for structured output
                 llm_response = await self.llm.call(
                     model=getattr(self.llm, "model_name", "default"),
-                    messages=messages,
+                    messages=[{"role": "user", "content": tool_call_prompt}],
                     tools=[plan_function_spec],  # Pass plan function as a tool
+                    max_tokens=getattr(self.config, "planning_max_tokens", 4096),
                 )
                 
                 # Check if LLM returned a tool call (modern format: tool_calls)
@@ -227,6 +300,7 @@ class Agent(BaseAgent):
                 llm_response = await self.llm.call(
                     model=getattr(self.llm, "model_name", "default"),
                     messages=messages,
+                    max_tokens=getattr(self.config, "planning_max_tokens", 4096),
                 )
             
             # Extract content from response (handle both dict and object)
@@ -235,20 +309,29 @@ class Agent(BaseAgent):
             
             response_msg = llm_response.choices[0].message
             if isinstance(response_msg, dict):
-                response_content = response_msg.get("content")
+                refusal = response_msg.get("refusal")
+                response_content = _content_to_text(response_msg.get("content"))
             else:
-                response_content = getattr(response_msg, "content", None)
+                refusal = getattr(response_msg, "refusal", None)
+                response_content = _content_to_text(getattr(response_msg, "content", None))
+
+            # Refusals should fail planning so AUTONOMOUS can fall back.
+            if refusal:
+                raise ValueError(f"LLM refused to generate plan: {refusal}")
             
             if not response_content:
+                if empty_retries_remaining > 0:
+                    empty_retries_remaining -= 1
+                    # Nudge the model to respond with either tool call or JSON content.
+                    plan_prompt = plan_prompt + "\n\nIMPORTANT: Do not return an empty message. Return either a tool call to create_plan, or JSON content."
+                    continue
                 raise ValueError("LLM returned no content for planning")
             
             # Parse structured response (returns PlanResponse model)
             plan_response_model = self._parse_plan_response(response_content)
             # Convert PlanResponse to Plan
             return plan_response_model.to_plan(task)
-        except Exception as e:
-            self._logger.error(f"LLM planning failed: {str(e)}")
-            return await self._create_basic_plan(task)
+        # unreachable
 
     async def _create_basic_plan(self, task: Union[Task, Dict[str, Any]]) -> Plan:
         """Create a basic execution plan without LLM."""
@@ -266,32 +349,32 @@ class Agent(BaseAgent):
         This ensures deterministic, parseable plan structure.
         The schema is automatically generated from PlanResponse model.
         """
-        # Generate JSON schema from Pydantic model
-        schema = PlanResponse.model_json_schema()
-        
-        # Extract the main schema (remove $defs if present, they'll be inlined)
-        # For function calling, we want a clean schema
-        main_schema = {
-            "type": schema.get("type", "object"),
-            "properties": schema.get("properties", {}),
-            "required": schema.get("required", [])
+        # NOTE:
+        # Some OpenAI models / endpoints behave poorly (including returning empty messages)
+        # when given large/complex JSON schemas generated by Pydantic. We keep the schema
+        # minimal and OpenAI-friendly to maximize reliability.
+        return {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "step": {"type": "integer", "description": "Step number (1-indexed)"},
+                            "action": {"type": "string", "description": "Action/tool name or 'execute'"},
+                            "args": {"type": "object", "description": "Arguments for the action/tool"},
+                            "details": {"type": "string", "description": "Human-readable description"},
+                        },
+                        # Always require args. For "execute" actions, args can be {}.
+                        "required": ["step", "action", "args"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["steps"],
+            "additionalProperties": False,
         }
-        
-        # Inline any $defs references for cleaner schema
-        defs = schema.get("$defs", {}) or schema.get("definitions", {})
-        if defs and "properties" in main_schema:
-            # Inline PlanStepResponse definition into items
-            if "steps" in main_schema["properties"]:
-                steps_prop = main_schema["properties"]["steps"]
-                if "items" in steps_prop and "$ref" in steps_prop["items"]:
-                    ref_name = steps_prop["items"]["$ref"].split("/")[-1]
-                    if ref_name in defs:
-                        steps_prop["items"] = defs[ref_name]
-                        # Ensure required fields are present
-                        if "required" not in steps_prop["items"]:
-                            steps_prop["items"]["required"] = ["step", "action"]
-        
-        return main_schema
     
     def _get_plan_function_spec(self) -> Dict[str, Any]:
         """
@@ -615,6 +698,34 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
         
         context = {}
         results = []
+
+        def _resolve_arg_value(val: Any) -> Any:
+            if isinstance(val, str):
+                s = val.strip()
+                # Support "$step_1", "${step_1}", "{{step_1}}"
+                for prefix, suffix in [("$", ""), ("${", "}"), ("{{", "}}")]:
+                    if s.startswith(prefix) and s.endswith(suffix):
+                        key = s[len(prefix): len(s) - (len(suffix) if suffix else 0)]
+                        key = key.strip()
+                        if key in context:
+                            return context[key]
+                # Also allow direct "step_1" keys
+                if s in context:
+                    return context[s]
+            if isinstance(val, dict):
+                return {k: _resolve_arg_value(v) for k, v in val.items()}
+            if isinstance(val, list):
+                return [_resolve_arg_value(v) for v in val]
+            return val
+
+        def _resolve_args(args: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+            if not args:
+                return {}
+            return {k: _resolve_arg_value(v) for k, v in args.items()}
+        
+        # Get timeout and retry settings from config
+        step_timeout = getattr(self.config, 'step_timeout', 60)
+        step_max_retries = getattr(self.config, 'step_max_retries', 2)
         
         for step in plan.steps:
             step_num = step.step
@@ -635,41 +746,149 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
             if step_details:
                 self._logger.debug(f"Step details: {step_details}")
             
-            # Execute step
-            try:
-                if action == "execute":
-                    # Direct execution for this step (use current execution mode)
-                    result = await self._run_standard(step_task)
-                elif action in [t.name for t in self.tools if hasattr(t, 'name')]:
-                    # Tool call - use Executor if available
-                    if hasattr(self, '_executor') and self._executor:
-                        fn_call = {
-                            "name": action,
-                            "arguments": json.dumps(step.args or {})
-                        }
-                        result = await self._executor.execute(fn_call)
+            # Execute step with timeout and retry
+            step_result = None
+            step_error = None
+            
+            for attempt in range(step_max_retries + 1):
+                try:
+                    step_result = await asyncio.wait_for(
+                        self._execute_step(
+                            step, step_num, action, step_task, step_details, 
+                            context, _resolve_args, task
+                        ),
+                        timeout=step_timeout
+                    )
+                    break  # Success - exit retry loop
+                except asyncio.TimeoutError:
+                    step_error = f"Step {step_num} ({action}) timed out after {step_timeout}s"
+                    if attempt < step_max_retries:
+                        self._logger.warning(f"{step_error} (attempt {attempt + 1}/{step_max_retries + 1})")
+                        await asyncio.sleep(1)  # Brief pause before retry
                     else:
-                        # Fallback to old method
-                        tool_args = step.args or {}
-                        result = await self._execute_tool(action, tool_args)
-                else:
-                    # Unknown action - log and continue
-                    self._logger.warning(f"Unknown action '{action}' in plan step {step_num}, skipping")
-                    result = f"Skipped unknown action: {action}"
-                
-                results.append(result)
-                context[f"step_{step_num}"] = result
+                        self._logger.error(f"{step_error} - max retries exceeded")
+                except Exception as e:
+                    step_error = str(e)
+                    self._logger.error(f"Error in step {step_num}: {step_error}")
+                    break  # Don't retry non-timeout errors
+            
+            # Handle step result or failure
+            if step_result is not None:
+                results.append(step_result)
+                context[f"step_{step_num}"] = step_result
                 context[f"step_{step_num}_action"] = action
-                
-            except Exception as e:
-                self._logger.error(f"Error executing plan step {step_num}: {str(e)}")
-                results.append(f"Error in step {step_num}: {str(e)}")
-                context[f"step_{step_num}_error"] = str(e)
+            elif step_error:
+                # Step failed after retries
+                self.state = AgentState.ERROR
+                return f"Error: Step {step_num} ({action}) failed: {step_error}"
         
         # Return final result (last step result)
         final_result = results[-1] if results else None
         self.state = AgentState.COMPLETED
         return final_result
+
+    async def _execute_step(
+        self,
+        step: PlanStep,
+        step_num: int,
+        action: str,
+        step_task: Dict[str, Any],
+        step_details: str,
+        context: Dict[str, Any],
+        _resolve_args,
+        task: Union[Task, Dict[str, Any]]
+    ) -> Any:
+        """
+        Execute a single plan step with the given parameters.
+        
+        This method is called by _execute_plan with timeout wrapping.
+        
+        Args:
+            step: The PlanStep object
+            step_num: Step number for logging
+            action: The action/tool name to execute
+            step_task: The task dictionary for this step
+            step_details: Additional details about the step
+            context: Context dictionary with results from previous steps
+            _resolve_args: Function to resolve $step_N references in args
+            task: The original task
+            
+        Returns:
+            The result of the step execution
+        """
+        if action == "execute":
+            # Direct execution for this step (use current execution mode)
+            return await self._run_standard(step_task)
+        elif action in [t.name for t in self.tools if hasattr(t, 'name')]:
+            # Tool call - use Executor if available
+            if hasattr(self, '_executor') and self._executor:
+                resolved_args = _resolve_args(step.args)
+                # If the plan didn't provide args (or provided empty args), ask the LLM to
+                # produce a tool call for this specific tool given current context.
+                if (not resolved_args) and self.llm:
+                    tool_specs = self.llm.convert_tool_specs(self.tools) if self.tools else []
+                    if tool_specs:
+                        # Try to make the tool call deterministic by including explicit required arg names.
+                        required_keys: List[str] = []
+                        for spec in tool_specs:
+                            try:
+                                fn = spec.get("function", {}) if isinstance(spec, dict) else {}
+                                if fn.get("name") == action:
+                                    params = fn.get("parameters", {}) if isinstance(fn, dict) else {}
+                                    required_keys = params.get("required", []) if isinstance(params, dict) else []
+                                    break
+                            except Exception:
+                                continue
+
+                        task_obj = (task.to_dict() if isinstance(task, Task) else task).get("objective", "")
+                        step_prompt = (
+                            "You must call the tool below with valid JSON arguments.\n\n"
+                            f"Tool: {action}\n"
+                            f"Required args: {required_keys}\n\n"
+                            f"Overall task: {task_obj}\n"
+                            f"Current context (use these concrete values): {json.dumps(context)}\n"
+                            f"Step {step_num} details: {step_details}\n\n"
+                            "Call the tool now."
+                        )
+                        step_resp = await self.llm.call(
+                            model=getattr(self.llm, "model_name", "default"),
+                            messages=[{"role": "user", "content": step_prompt}],
+                            tools=tool_specs,
+                            max_tokens=getattr(self.config, "step_inference_max_tokens", 2048),
+                        )
+                        step_msg = step_resp.choices[0].message if step_resp and step_resp.choices else {}
+                        step_tool_calls = step_msg.get("tool_calls") if isinstance(step_msg, dict) else getattr(step_msg, "tool_calls", None)
+                        if step_tool_calls and isinstance(step_tool_calls, list):
+                            # Pick the first matching call
+                            for tc in step_tool_calls:
+                                fn = (tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)) or {}
+                                fn_name = fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None)
+                                if fn_name == action:
+                                    args_str = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", "{}")
+                                    try:
+                                        resolved_args = json.loads(args_str) if isinstance(args_str, str) else (args_str or {})
+                                    except Exception:
+                                        resolved_args = {}
+                                    break
+                        if not resolved_args:
+                            raise ValueError(
+                                f"Plan step {step_num} requires tool '{action}' but no args were provided "
+                                "and argument inference failed."
+                            )
+
+                fn_call = {
+                    "name": action,
+                    "arguments": json.dumps(resolved_args)
+                }
+                return await self._executor.execute(fn_call)
+            else:
+                # Fallback to old method
+                tool_args = _resolve_args(step.args)
+                return await self._execute_tool(action, tool_args)
+        else:
+            # Unknown action - log and continue
+            self._logger.warning(f"Unknown action '{action}' in plan step {step_num}, skipping")
+            return f"Skipped unknown action: {action}"
 
     async def _process_result(self, result: Any) -> Any:
         """Process and store execution results."""
@@ -822,9 +1041,7 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
         elif execution_mode == ExecutionMode.STANDARD:
             return await self._run_standard(task)
         elif execution_mode == ExecutionMode.AUTONOMOUS:
-            # For now, fallback to standard (autonomous mode will be implemented in Week 2)
-            self._logger.warning("Autonomous mode not yet implemented, falling back to standard mode")
-            return await self._run_standard(task)
+            return await self._run_autonomous(task)
         else:
             raise ValueError(f"Unknown execution mode: {execution_mode}")
     
@@ -868,27 +1085,46 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
                 model=getattr(self.llm, "model_name", "default"),
                 messages=messages,
                 tools=None,  # Direct mode: no tools
+                max_tokens=getattr(self.config, "llm_max_tokens", 1024),
             )
 
             if not response or not hasattr(response, "choices") or not response.choices:
                 raise ValueError("LLM returned empty response")
 
-            # Extract content
+            # Extract content (handle both string and list-of-parts formats)
             msg = response.choices[0].message
             if isinstance(msg, dict):
-                content = msg.get("content")
+                raw_content = msg.get("content")
             else:
-                content = getattr(msg, "content", None)
+                raw_content = getattr(msg, "content", None)
+            
+            # Normalize content (can be string, list of content parts, or None)
+            if isinstance(raw_content, str) and raw_content.strip():
+                content = raw_content
+            elif isinstance(raw_content, list):
+                # Content parts format: [{"type": "text", "text": "..."}]
+                text_parts = []
+                for part in raw_content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        t = part.get("text")
+                        if isinstance(t, str) and t.strip():
+                            text_parts.append(t)
+                content = "\n".join(text_parts) if text_parts else None
+            else:
+                content = None
 
             if content:
                 self.state = AgentState.COMPLETED
                 return content
 
-            # Fallback
-            self._logger.warning("LLM returned no content, echoing objective")
+            # Model returned empty content - this often means the task needs tools/planning
+            self._logger.warning("LLM returned no content in DIRECT mode (task may require tools)")
             self.state = AgentState.COMPLETED
             objective = task.objective if isinstance(task, Task) else task.get('objective', '')
-            return f"Echo: {objective}"
+            return (
+                f"No response from LLM. The task '{objective[:100]}...' may require tools or planning. "
+                "Try using STANDARD or AUTONOMOUS execution mode."
+            )
                 
         except Exception as e:
             self._logger.error(f"Error during direct execution: {str(e)}")
@@ -948,11 +1184,31 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
             max_tool_calls = 10  # Prevent infinite loops
             tool_call_count = 0
             
+            empty_retries_remaining = 1
+
+            def _content_to_text(content: Any) -> Optional[str]:
+                if content is None:
+                    return None
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    parts: List[str] = []
+                    for part in content:
+                        if isinstance(part, dict):
+                            t = part.get("text")
+                            if isinstance(t, str):
+                                parts.append(t)
+                    joined = "\n".join(p for p in parts if p.strip())
+                    return joined if joined.strip() else None
+                s = str(content)
+                return s if s.strip() else None
+
             while tool_call_count < max_tool_calls:
                 response = await self.llm.call(
                     model=getattr(self.llm, "model_name", "default"),
                     messages=messages,
                     tools=tool_specs if tool_specs else None,
+                    max_tokens=getattr(self.config, "llm_max_tokens", 2048),
                 )
 
                 if not response or not hasattr(response, "choices") or not response.choices:
@@ -961,10 +1217,16 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
                 msg = response.choices[0].message
                 if isinstance(msg, dict):
                     tool_calls = msg.get("tool_calls")
-                    content = msg.get("content")
+                    refusal = msg.get("refusal")
+                    content = _content_to_text(msg.get("content"))
                 else:
                     tool_calls = getattr(msg, "tool_calls", None)
-                    content = getattr(msg, "content", None)
+                    refusal = getattr(msg, "refusal", None)
+                    content = _content_to_text(getattr(msg, "content", None))
+
+                if refusal:
+                    self.state = AgentState.ERROR
+                    return f"Error: LLM refused request: {refusal}"
 
                 # (4) Handle tool calls (modern OpenAI format: tool_calls array)
                 if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
@@ -1035,11 +1297,23 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
                     
                     return content
 
-                # No content and no tool calls - echo
-                self._logger.info("LLM did not request a tool and returned no content; echoing objective")
-                self.state = AgentState.COMPLETED
+                # No content and no tool calls - this is a failure
+                if empty_retries_remaining > 0:
+                    empty_retries_remaining -= 1
+                    # Add a nudge and retry; transient empty messages do occur.
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Your last message was empty. You MUST either call a tool or provide a final answer.",
+                        }
+                    )
+                    continue
+
+                # LLM failed to respond properly after retry - this is an error, not success
+                self._logger.error("LLM returned no tool calls and no content after retry")
+                self.state = AgentState.ERROR
                 objective = task.objective if isinstance(task, Task) else task.get('objective', '')
-                return f"Echo: {objective}"
+                return f"Error: LLM did not respond. Task '{objective[:80]}...' may require AUTONOMOUS mode for multi-step planning."
             
             # Max tool calls reached
             self._logger.warning(f"Maximum tool calls ({max_tool_calls}) reached")
@@ -1049,8 +1323,109 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
         except Exception as e:
             self._logger.error(f"Error during standard execution: {str(e)}")
             self.state = AgentState.ERROR
-            objective = task.objective if isinstance(task, Task) else task.get('objective', '')
-            return f"Echo: {objective}"
+            return f"Error: Standard execution failed: {str(e)}"
+    
+    async def _run_autonomous(self, task: Union[Task, Dict[str, Any]]) -> Any:
+        """
+        Gear 3: Autonomous mode - Full reasoning loop with planning and self-correction.
+        
+        Logic: Input → Plan → Execute Plan → Self-Correct → Result
+        
+        Use Cases: Complex multi-step tasks, research, analysis, problem-solving
+        
+        Characteristics:
+        - Automatic planning (calls plan() internally)
+        - Multi-step execution following the plan
+        - Context building across steps
+        - Self-correction capabilities (future enhancement)
+        - Memory enabled for context retention
+        - Iterative refinement (future enhancement)
+        
+        Args:
+            task: Task instance or dictionary
+            
+        Returns:
+            Execution result from plan execution
+        """
+        self._logger.debug("Executing in AUTONOMOUS mode (planning + execution)")
+        self.state = AgentState.PLANNING
+        
+        # Check if LLM is available (required for planning)
+        if not self.llm:
+            self._logger.warning("No LLM configured for autonomous mode, falling back to standard mode")
+            return await self._run_standard(task)
+        
+        try:
+            # Step 1: Generate plan automatically (user doesn't need to call plan() explicitly)
+            self._logger.info("Autonomous mode: Generating execution plan...")
+            
+            # Get timeout from config
+            planning_timeout = getattr(self.config, 'planning_timeout', 120)
+            max_retries = getattr(self.config, 'max_retries', 3)
+            
+            context = await self._get_context(task)
+            
+            # Try LLM-based planning with timeout and retry
+            plan = None
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    plan = await asyncio.wait_for(
+                        self._create_llm_plan(task, context),
+                        timeout=planning_timeout
+                    )
+                    self._logger.info(f"Generated plan with {len(plan)} steps using LLM")
+                    break
+                except asyncio.TimeoutError:
+                    last_error = f"Planning timed out after {planning_timeout}s (attempt {attempt + 1}/{max_retries})"
+                    self._logger.warning(last_error)
+                    if attempt < max_retries - 1:
+                        self._logger.info(f"Retrying planning (attempt {attempt + 2}/{max_retries})...")
+                        await asyncio.sleep(1)  # Brief pause before retry
+                except Exception as e:
+                    last_error = str(e)
+                    self._logger.warning(f"LLM planning failed (attempt {attempt + 1}): {e}")
+                    break  # Don't retry on non-timeout errors
+            
+            # Fallback to basic plan if LLM planning failed
+            if plan is None:
+                self._logger.warning(f"LLM planning failed after retries: {last_error}. Falling back to basic plan.")
+                plan = await self.plan(task)
+            
+            # Log plan details
+            if len(plan.steps) > 1:
+                self._logger.info("Multi-step plan generated:")
+                for step in plan.steps:
+                    self._logger.debug(f"  Step {step.step}: {step.action}" + 
+                                     (f" - {step.details}" if step.details else ""))
+            else:
+                self._logger.debug("Single-step plan (direct execution)")
+            
+            # Step 2: Execute the plan
+            self._logger.info("Autonomous mode: Executing plan...")
+            result = await self._execute_plan(task, plan)
+            
+            # Check if plan execution failed (result starts with "Error:")
+            if isinstance(result, str) and result.strip().startswith("Error:"):
+                # State was already set to ERROR by _execute_plan
+                return result
+            
+            # Step 3: Store in memory if enabled
+            if self.memory and self.config.enable_memory:
+                try:
+                    await self.memory.store(task, result)
+                except Exception as e:
+                    self._logger.warning(f"Failed to store in memory: {e}")
+            
+            self.state = AgentState.COMPLETED
+            return result
+            
+        except Exception as e:
+            self._logger.error(f"Error during autonomous execution: {str(e)}")
+            self.state = AgentState.ERROR
+            # Fallback to standard mode on error
+            self._logger.warning("Falling back to standard mode due to error")
+            return await self._run_standard(task)
     
     async def _execute_direct(self, task: Union[Task, Dict[str, Any]]) -> Any:
         """
