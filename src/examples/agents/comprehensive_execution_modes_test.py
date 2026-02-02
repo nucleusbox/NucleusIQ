@@ -149,7 +149,8 @@ async def test_direct_mode():
         
         try:
             result = await agent.execute(test_case['task'])
-            logger.info(f"   ✅ Result: {result[:100]}{'...' if len(result) > 100 else ''}")
+            result_str = str(result) if result is not None else "None"
+            logger.info(f"   ✅ Result: {result_str[:100]}{'...' if len(result_str) > 100 else ''}")
             logger.info(f"   State: {agent.state}")
             results.append({"test": test_case['name'], "status": "PASS", "result": result})
         except Exception as e:
@@ -256,7 +257,8 @@ async def test_standard_mode():
         
         try:
             result = await agent.execute(test_case['task'])
-            logger.info(f"   ✅ Result: {result[:100]}{'...' if len(result) > 100 else ''}")
+            result_str = str(result) if result is not None else "None"
+            logger.info(f"   ✅ Result: {result_str[:100]}{'...' if len(result_str) > 100 else ''}")
             logger.info(f"   State: {agent.state}")
             results.append({"test": test_case['name'], "status": "PASS", "result": result})
         except Exception as e:
@@ -347,7 +349,8 @@ async def test_autonomous_mode():
         
         try:
             result = await agent.execute(test_case['task'])
-            logger.info(f"   ✅ Result: {result[:100]}{'...' if len(result) > 100 else ''}")
+            result_str = str(result) if result is not None else "None"
+            logger.info(f"   ✅ Result: {result_str[:100]}{'...' if len(result_str) > 100 else ''}")
             logger.info(f"   State: {agent.state}")
             results.append({"test": test_case['name'], "status": "PASS", "result": result})
         except Exception as e:
@@ -392,7 +395,8 @@ async def test_mode_comparison():
     )
     try:
         result_direct = await agent_direct.execute(test_task)
-        logger.info(f"✅ Result: {result_direct[:100]}")
+        result_str = str(result_direct) if result_direct is not None else "None"
+        logger.info(f"✅ Result: {result_str[:100]}")
         logger.info(f"   Note: Tools ignored, LLM answers directly")
     except Exception as e:
         logger.error(f"❌ Error: {e}")
@@ -410,7 +414,8 @@ async def test_mode_comparison():
     )
     try:
         result_standard = await agent_standard.execute(test_task)
-        logger.info(f"✅ Result: {result_standard[:100]}")
+        result_str = str(result_standard) if result_standard is not None else "None"
+        logger.info(f"✅ Result: {result_str[:100]}")
         logger.info(f"   Note: Tools available, should use add tool")
     except Exception as e:
         logger.error(f"❌ Error: {e}")
@@ -428,7 +433,8 @@ async def test_mode_comparison():
     )
     try:
         result_autonomous = await agent_autonomous.execute(test_task)
-        logger.info(f"✅ Result: {result_autonomous[:100]}")
+        result_str = str(result_autonomous) if result_autonomous is not None else "None"
+        logger.info(f"✅ Result: {result_str[:100]}")
         logger.info(f"   Note: Falls back to STANDARD mode")
     except Exception as e:
         logger.error(f"❌ Error: {e}")

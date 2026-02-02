@@ -163,4 +163,4 @@ cython_debug/
 #.idea/
 
 # Strategy and planning documents (private)
-docs/strategy/
+docs/*

@@ -72,6 +72,18 @@ class BaseAgent(ABC, BaseModel):
     
     llm: Optional[BaseLLM] = Field(default=None)
     
+    # Structured Output 
+    # Can be: ProviderStrategy, ToolStrategy, schema type, or None
+    response_format: Optional[Any] = Field(
+        default=None,
+        description="""Structured output configuration. Supports:
+        - ProviderStrategy[T]: Uses provider-native structured output
+        - ToolStrategy[T]: Uses tool calling for structured output
+        - type[T]: Auto-selects best strategy based on model capabilities
+        - None: No structured output (default)
+        """
+    )
+    
     # Private attributes
     _logger: logging.Logger = PrivateAttr()
     _start_time: Optional[float] = PrivateAttr(default=None)

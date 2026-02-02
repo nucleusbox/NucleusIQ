@@ -999,6 +999,105 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
             self.state = AgentState.EXECUTING
 
     # --------------------------------------------------------------------- #
+    # STRUCTURED OUTPUT HELPERS                                             #
+    # --------------------------------------------------------------------- #
+    def _resolve_response_format(self):
+        """
+        Resolve response_format to an OutputSchema configuration.
+        
+        Returns:
+            OutputSchema or None
+        """
+        if self.response_format is None:
+            return None
+        
+        from nucleusiq.agents.structured_output import (
+            resolve_output_config,
+            get_provider_from_llm,
+        )
+        
+        model_name = getattr(self.llm, "model_name", "") if self.llm else ""
+        provider = get_provider_from_llm(self.llm)
+        
+        return resolve_output_config(
+            self.response_format,
+            model_name=model_name,
+            provider=provider,
+        )
+    
+    def _get_structured_output_kwargs(self, output_config) -> dict:
+        """
+        Build LLM call kwargs for structured output.
+        
+        This is the centralized method used by all execution modes (DIRECT, STANDARD, AUTONOMOUS)
+        to consistently handle structured output configuration.
+        
+        Args:
+            output_config: Resolved OutputSchema configuration
+            
+        Returns:
+            Dict with 'response_format' key if structured output is configured, empty dict otherwise
+        """
+        if output_config is None:
+            return {}
+        
+        from nucleusiq.agents.structured_output import OutputMode, OutputSchema, get_provider_from_llm
+        
+        if output_config._resolved_mode != OutputMode.NATIVE:
+            # Mode not implemented - validate will raise helpful error
+            from nucleusiq.agents.structured_output import OutputMode as OM
+            OM.validate_mode(output_config._resolved_mode)
+            return {}  # Won't reach here if validation fails
+        
+        # Check if user passed explicit OutputSchema with custom settings
+        if isinstance(self.response_format, OutputSchema):
+            # Use for_provider() to get properly formatted response with strict/mode settings
+            provider = get_provider_from_llm(self.llm) or "openai"
+            provider_format = output_config.for_provider(provider)
+            # Pass both: provider format for API, schema type for parsing
+            return {"response_format": (provider_format, output_config.schema)}
+        else:
+            # Simple schema passed - let LLM provider handle it
+            return {"response_format": output_config.schema}
+    
+    def _wrap_structured_output_result(self, response, output_config) -> Any:
+        """
+        Wrap LLM response with structured output metadata.
+        
+        This is the centralized method used by all execution modes to consistently
+        return structured output results.
+        
+        Args:
+            response: The LLM response (could be validated instance or raw response)
+            output_config: Resolved OutputSchema configuration
+            
+        Returns:
+            Dict with 'output', 'schema', and optional metadata if structured output,
+            otherwise returns the raw response
+        """
+        if output_config is None:
+            return response
+        
+        from nucleusiq.agents.structured_output import OutputMode
+        
+        if output_config._resolved_mode == OutputMode.NATIVE:
+            # Response should be a validated instance (no 'choices' attribute)
+            if not hasattr(response, 'choices'):
+                return {
+                    "output": response,
+                    "schema": output_config.schema_name,
+                    "mode": "native"
+                }
+        
+        # If we get here with a normal response, extract content
+        if hasattr(response, 'choices') and response.choices:
+            msg = response.choices[0].message
+            content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+            return content
+        
+        return response
+
+    # --------------------------------------------------------------------- #
     # EXECUTION WITH FUNCTION-CALLING LOOP                                  #
     # --------------------------------------------------------------------- #
     async def execute(self, task: Union[Task, Dict[str, Any]]) -> Any:
@@ -1079,14 +1178,29 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
         task_dict = task.to_dict() if isinstance(task, Task) else task
         messages = self._build_messages(task_dict, plan=None)
 
+        # Resolve structured output configuration (centralized)
+        output_config = self._resolve_response_format()
+
         # Single LLM call (no tools)
         try:
-            response = await self.llm.call(
-                model=getattr(self.llm, "model_name", "default"),
-                messages=messages,
-                tools=None,  # Direct mode: no tools
-                max_tokens=getattr(self.config, "llm_max_tokens", 1024),
-            )
+            # Build LLM call kwargs
+            call_kwargs = {
+                "model": getattr(self.llm, "model_name", "default"),
+                "messages": messages,
+                "tools": None,  # Direct mode: no tools
+                "max_tokens": getattr(self.config, "llm_max_tokens", 1024),
+            }
+            
+            # Add structured output kwargs (centralized helper)
+            call_kwargs.update(self._get_structured_output_kwargs(output_config))
+            
+            response = await self.llm.call(**call_kwargs)
+            
+            # Handle structured output result (centralized helper)
+            wrapped_result = self._wrap_structured_output_result(response, output_config)
+            if isinstance(wrapped_result, dict) and "output" in wrapped_result:
+                self.state = AgentState.COMPLETED
+                return wrapped_result
 
             if not response or not hasattr(response, "choices") or not response.choices:
                 raise ValueError("LLM returned empty response")
@@ -1179,6 +1293,9 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
         task_dict = task.to_dict() if isinstance(task, Task) else task
         messages = self._build_messages(task_dict)
 
+        # (2.5) Resolve structured output configuration (centralized)
+        output_config = self._resolve_response_format()
+
         # (3) LLM call loop (may request multiple tools)
         try:
             max_tool_calls = 10  # Prevent infinite loops
@@ -1204,12 +1321,23 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
                 return s if s.strip() else None
 
             while tool_call_count < max_tool_calls:
-                response = await self.llm.call(
-                    model=getattr(self.llm, "model_name", "default"),
-                    messages=messages,
-                    tools=tool_specs if tool_specs else None,
-                    max_tokens=getattr(self.config, "llm_max_tokens", 2048),
-                )
+                # Build LLM call kwargs with structured output support
+                call_kwargs = {
+                    "model": getattr(self.llm, "model_name", "default"),
+                    "messages": messages,
+                    "tools": tool_specs if tool_specs else None,
+                    "max_tokens": getattr(self.config, "llm_max_tokens", 2048),
+                }
+                # Add structured output kwargs (centralized helper)
+                call_kwargs.update(self._get_structured_output_kwargs(output_config))
+                
+                response = await self.llm.call(**call_kwargs)
+                
+                # Handle structured output response first
+                wrapped_result = self._wrap_structured_output_result(response, output_config)
+                if isinstance(wrapped_result, dict) and "output" in wrapped_result:
+                    self.state = AgentState.COMPLETED
+                    return wrapped_result
 
                 if not response or not hasattr(response, "choices") or not response.choices:
                     raise ValueError("LLM returned empty response")
@@ -1416,6 +1544,18 @@ Create a step-by-step plan to accomplish this task. Return the plan as a JSON ob
                     await self.memory.store(task, result)
                 except Exception as e:
                     self._logger.warning(f"Failed to store in memory: {e}")
+            
+            # Step 4: Wrap result with structured output if configured (centralized)
+            output_config = self._resolve_response_format()
+            if output_config is not None:
+                # For AUTONOMOUS mode, the result is already computed by tool execution
+                # We wrap it in the structured output format for consistency
+                self.state = AgentState.COMPLETED
+                return {
+                    "output": result,
+                    "schema": output_config.schema_name if hasattr(output_config, 'schema_name') else "Result",
+                    "mode": "autonomous"
+                }
             
             self.state = AgentState.COMPLETED
             return result

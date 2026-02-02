@@ -9,9 +9,10 @@ ReAct agents alternate between:
 - Loop until final answer
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import json
 import re
+from pydantic import Field, PrivateAttr
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentState
 
@@ -40,19 +41,10 @@ class ReActAgent(Agent):
         ```
     """
     
-    def __init__(self, max_iterations: int = 10, **kwargs):
-        """
-        Initialize ReAct Agent.
-        
-        Args:
-            max_iterations: Maximum number of Thought-Action-Observation cycles
-            **kwargs: Arguments passed to base Agent class
-        """
-        super().__init__(**kwargs)
-        self.max_iterations = max_iterations
-        self._react_history: List[Dict[str, Any]] = []
+    max_iterations: int = Field(default=10, description="Maximum number of Thought-Action-Observation cycles")
+    _react_history: List[Dict[str, Any]] = PrivateAttr(default_factory=list)
     
-    async def execute(self, task: Dict[str, Any]) -> Any:
+    async def execute(self, task: Union[Dict[str, Any], Any]) -> Any:
         """
         Execute task using ReAct pattern.
         
@@ -63,7 +55,7 @@ class ReActAgent(Agent):
         4. Repeat until final answer or max_iterations reached
         
         Args:
-            task: Task dictionary with 'id' and 'objective' keys
+            task: Task dictionary with 'id' and 'objective' keys, or Task object
             
         Returns:
             Final answer from the agent
@@ -74,7 +66,12 @@ class ReActAgent(Agent):
         if not self.llm:
             self._logger.warning("No LLM configured, falling back to echo mode")
             self.state = AgentState.COMPLETED
-            return f"Echo: {task.get('objective', '')}"
+            # Handle both Task object and dict
+            if isinstance(task, dict):
+                objective = task.get('objective', '')
+            else:
+                objective = getattr(task, 'objective', '')
+            return f"Echo: {objective}"
         
         # Build initial messages with ReAct instructions
         messages: list[dict[str, Any]] = self._build_react_messages(task)
@@ -121,6 +118,9 @@ class ReActAgent(Agent):
             # Execute action (tool call)
             if action["type"] == "tool":
                 tool_name = action["name"]
+                # Remove namespace prefix if present (e.g., "functions.add" -> "add")
+                if "." in tool_name:
+                    tool_name = tool_name.split(".")[-1]
                 tool_args = action["args"]
                 
                 # Find and execute tool
@@ -141,9 +141,11 @@ class ReActAgent(Agent):
                     "role": "assistant",
                     "content": content
                 })
+                # Sanitize tool name for OpenAI (only alphanumeric, underscore, hyphen)
+                sanitized_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_name)
                 messages.append({
                     "role": "function",
-                    "name": tool_name,
+                    "name": sanitized_name,
                     "content": json.dumps(observation) if not isinstance(observation, str) else str(observation)
                 })
                 
@@ -169,7 +171,7 @@ class ReActAgent(Agent):
         self.state = AgentState.ERROR
         return f"Max iterations ({self.max_iterations}) reached. Task incomplete."
     
-    def _build_react_messages(self, task: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _build_react_messages(self, task: Union[Dict[str, Any], Any]) -> List[Dict[str, Any]]:
         """Build initial messages with ReAct instructions."""
         messages = []
         
@@ -198,10 +200,16 @@ Always follow the Thought -> Action -> Observation pattern. When you have the fi
             if hasattr(self.prompt, 'user') and self.prompt.user:
                 messages.append({"role": "user", "content": self.prompt.user})
         
-        # Add task objective
+        # Add task objective (handle both Task object and dict)
+        if isinstance(task, dict):
+            task_objective = task.get('objective', '')
+        else:
+            # Task is a Task object (Pydantic model)
+            task_objective = getattr(task, 'objective', '')
+        
         messages.append({
             "role": "user",
-            "content": f"Task: {task.get('objective', '')}"
+            "content": f"Task: {task_objective}"
         })
         
         return messages
@@ -289,9 +297,10 @@ Always follow the Thought -> Action -> Observation pattern. When you have the fi
     def _extract_content(self, message: Any) -> str:
         """Extract content from message (handles both dict and object)."""
         if isinstance(message, dict):
-            return message.get("content", "")
+            content = message.get("content")
         else:
-            return getattr(message, "content", "")
+            content = getattr(message, "content", None)
+        return content if content is not None else ""
     
     def get_react_history(self) -> List[Dict[str, Any]]:
         """
