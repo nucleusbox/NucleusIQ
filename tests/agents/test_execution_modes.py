@@ -349,8 +349,8 @@ class TestAutonomousMode:
         assert result != ""
     
     @pytest.mark.asyncio
-    async def test_autonomous_mode_warning(self):
-        """Test autonomous mode logs warning about fallback."""
+    async def test_autonomous_mode_runs_planning(self):
+        """Test autonomous mode generates and executes a plan."""
         llm = MockLLM()
         agent = Agent(
             name="TestAgent",
@@ -359,21 +359,18 @@ class TestAutonomousMode:
             llm=llm,
             config=AgentConfig(
                 execution_mode=ExecutionMode.AUTONOMOUS,
-                verbose=True
+                verbose=False
             )
         )
         
         await agent.initialize()
         
         task = Task(id="task1", objective="Test")
+        result = await agent.execute(task)
         
-        # Patch the agent's logger instance
-        with patch.object(agent, '_logger') as mock_logger:
-            await agent.execute(task)
-            # Check that warning was logged
-            warning_calls = [call for call in mock_logger.warning.call_args_list 
-                           if call and 'Autonomous mode not yet implemented' in str(call)]
-            assert len(warning_calls) > 0
+        # Autonomous mode is implemented: generates plan and executes
+        assert result is not None
+        assert result != ""
 
 
 class TestModeRouting:
@@ -435,7 +432,7 @@ class TestModeRouting:
     
     @pytest.mark.asyncio
     async def test_mode_routing_autonomous(self):
-        """Test routing to autonomous mode (falls back to standard)."""
+        """Test routing to autonomous mode calls _run_autonomous."""
         llm = MockLLM()
         agent = Agent(
             name="TestAgent",
@@ -450,15 +447,15 @@ class TestModeRouting:
         
         await agent.initialize()
         
-        # Mock _run_standard to verify fallback
-        with patch.object(agent, '_run_standard', new_callable=AsyncMock) as mock_standard:
-            mock_standard.return_value = "Standard result (fallback)"
+        # Mock _run_autonomous to verify routing (autonomous mode is now implemented)
+        with patch.object(agent, '_run_autonomous', new_callable=AsyncMock) as mock_autonomous:
+            mock_autonomous.return_value = "Autonomous result"
             
             task = Task(id="task1", objective="Test")
             result = await agent.execute(task)
             
-            assert result == "Standard result (fallback)"
-            mock_standard.assert_called_once()
+            assert result == "Autonomous result"
+            mock_autonomous.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_mode_routing_invalid(self):

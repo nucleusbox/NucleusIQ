@@ -19,9 +19,16 @@ class MockLLM(BaseLLM):
         self._call_count = 0
 
     class Message:
-        def __init__(self, content: Optional[str] = None, function_call: Optional[Dict[str, Any]] = None):
+        def __init__(
+            self,
+            content: Optional[str] = None,
+            function_call: Optional[Dict[str, Any]] = None,
+            tool_calls: Optional[List[Dict[str, Any]]] = None,
+        ):
             self.content = content
             self.function_call = function_call
+            # Modern format: agent checks tool_calls first
+            self.tool_calls = tool_calls
 
     class Choice:
         def __init__(self, message: 'MockLLM.Message'):
@@ -66,13 +73,19 @@ class MockLLM(BaseLLM):
             nums = re.findall(r'-?\d+', user_msg)
             args = {params[i]: int(nums[i]) for i in range(min(len(nums), len(params)))}
             fn_call = {'name': tool_name, 'arguments': json.dumps(args)}
-            msg = self.Message(content=None, function_call=fn_call)
+            # Modern tool_calls format (agent checks this first)
+            tool_calls = [{
+                "id": "call_mock_1",
+                "type": "function",
+                "function": {"name": tool_name, "arguments": json.dumps(args)},
+            }]
+            msg = self.Message(content=None, function_call=fn_call, tool_calls=tool_calls)
             return self.LLMResponse([self.Choice(msg)])
 
         # Subsequent call or no tools: return a normal completion
         last = messages[-1]
-        if last.get('role') == 'function':
-            body = last.get('content')
+        if last.get('role') in ('function', 'tool'):
+            body = last.get('content', '')
             reply = f"Dummy Model final answer incorporating function output is: {body}"
         else:
             reply = f"Echo: {messages[-1].get('content', '')}"

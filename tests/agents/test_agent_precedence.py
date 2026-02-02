@@ -100,17 +100,23 @@ class TestAgentPromptPrecedence:
         assert "You are a Calculator" in system_msg["content"]
     
     @pytest.mark.asyncio
-    async def test_warning_logged_when_prompt_overrides(self, agent_with_prompt, caplog):
-        """Test that warning is logged when prompt overrides role/objective."""
+    async def test_prompt_overrides_role_objective_in_system_message(self, agent_with_prompt):
+        """Test that when prompt is set, prompt.system overrides role/objective in system message."""
         task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
         
-        with caplog.at_level(logging.INFO):
-            messages = agent_with_prompt._build_messages(task)
+        # Agent retains role/objective for planning context even when prompt overrides for execution
+        assert agent_with_prompt.role == "Calculator"
+        assert agent_with_prompt.objective == "Perform calculations"
         
-        # Verify warning was logged
-        assert any("overriding role" in record.message.lower() for record in caplog.records)
-        assert any("Calculator" in record.message for record in caplog.records)
-        assert any("Perform calculations" in record.message for record in caplog.records)
+        messages = agent_with_prompt._build_messages(task)
+        
+        # When prompt overrides: system message uses prompt.system, not role/objective
+        system_msg = next((m for m in messages if m.get("role") == "system"), None)
+        assert system_msg is not None
+        assert system_msg["content"] == "You are a helpful calculator assistant."
+        # Role and objective from agent are overridden (not in system content)
+        assert "Calculator" not in system_msg["content"]
+        assert "Perform calculations" not in system_msg["content"]
     
     @pytest.mark.asyncio
     async def test_no_warning_when_no_role_objective(self, mock_llm, caplog):

@@ -80,7 +80,7 @@ class TestTaskCreation:
         """Test that task ID is required (no auto-generation)."""
         # ID is required, so this should fail
         with pytest.raises(ValidationError):
-            Task(objective="Task 1")
+            Task(objective="Task 1")  # type: ignore[call-arg]
         
         # But we can provide it
         task1 = Task(id="task1", objective="Task 1")
@@ -98,7 +98,7 @@ class TestTaskCreation:
     def test_task_with_none_objective(self):
         """Test creating task with None objective (should fail)."""
         with pytest.raises(ValidationError):
-            Task(objective=None)
+            Task(id="task1", objective=None)  # type: ignore[arg-type]
     
     def test_task_with_whitespace_only_objective(self):
         """Test creating task with whitespace-only objective."""
@@ -121,6 +121,7 @@ class TestTaskCreation:
             }
         )
         
+        assert task.context is not None
         assert task.context["nested"]["level1"]["level2"] == "value"
         assert task.context["list"] == [1, 2, 3]
         assert task.context["mixed"]["number"] == 42
@@ -139,6 +140,7 @@ class TestTaskCreation:
             }
         )
         
+        assert task.metadata is not None
         assert "urgent" in task.metadata["tags"]
         assert task.metadata["config"]["timeout"] == 30
 
@@ -252,7 +254,7 @@ class TestTaskValidation:
     def test_task_missing_objective(self):
         """Test that missing objective raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            Task()
+            Task()  # type: ignore[call-arg]
         
         errors = exc_info.value.errors()
         assert any(error["loc"] == ("objective",) for error in errors)
@@ -267,16 +269,18 @@ class TestTaskValidation:
         """Test that invalid context type raises ValidationError."""
         with pytest.raises(ValidationError):
             Task(
+                id="task1",
                 objective="Test task",
-                context="not-a-dict"
+                context="not-a-dict"  # type: ignore[arg-type]
             )
     
     def test_task_invalid_metadata_type(self):
         """Test that invalid metadata type raises ValidationError."""
         with pytest.raises(ValidationError):
             Task(
+                id="task1",
                 objective="Test task",
-                metadata="not-a-dict"
+                metadata="not-a-dict"  # type: ignore[arg-type]
             )
     
     def test_task_from_dict_invalid_objective(self):
@@ -352,7 +356,7 @@ class TestTaskEdgeCases:
         original_context["new_key"] = "new_value"
         
         # Task context should not change (Pydantic creates a copy)
-        assert "new_key" not in task.context
+        assert task.context is not None and "new_key" not in task.context
     
     def test_task_metadata_immutability(self):
         """Test that modifying metadata dict doesn't affect task."""
@@ -363,7 +367,7 @@ class TestTaskEdgeCases:
         original_metadata["new_key"] = "new_value"
         
         # Task metadata should not change (Pydantic creates a copy)
-        assert "new_key" not in task.metadata
+        assert task.metadata is not None and "new_key" not in task.metadata
 
 
 class TestTaskComparison:

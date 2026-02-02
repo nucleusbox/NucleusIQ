@@ -456,8 +456,8 @@ class TestAgentExecute:
         task = {"id": "task1", "objective": "Test task"}
         result = await agent.execute(task)
         
-        # Should fallback to echo mode on error
-        assert "Echo:" in result
+        # Should return error message and set ERROR state (no longer falls back to echo)
+        assert "Error:" in result
         assert agent.state == AgentState.ERROR
 
 
