@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from typing_extensions import override
-from nucleusiq.core.llms.base import BaseLanguageModel
+from nucleusiq.llms.base import BaseLanguageModel
 
 class BaseLLM(BaseLanguageModel, ABC):
     """

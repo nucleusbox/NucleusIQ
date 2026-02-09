@@ -1,0 +1,109 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nucleusiq-openai"
+version = "0.1.0"
+description = "OpenAI provider for the NucleusIQ AI agent framework – ChatGPT, GPT-4, embeddings, structured output, and tool integration."
+requires-python = ">=3.10,<4.0"
+license = { text = "MIT" }
+authors = [
+    { name = "Nucleusbox", email = "info@nucleusbox.com" }
+]
+keywords = ["AI", "agents", "openai", "gpt", "nucleusiq"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "nucleusiq>=0.1.0",
+    "openai>=1.0",
+    "tiktoken>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/nucleusbox/NucleusIQ"
+Repository = "https://github.com/nucleusbox/NucleusIQ"
+Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
+
+# ---------------------------------------------------------------------------
+# Dependency groups (PEP 735)
+# ---------------------------------------------------------------------------
+[dependency-groups]
+test = [
+    "pytest>=8.0,<10.0",
+    "pytest-asyncio>=0.23,<1.0",
+    "pytest-cov>=4.0,<6.0",
+    "pytest-mock>=3.10,<4.0",
+]
+lint = [
+    "ruff>=0.4,<1.0",
+]
+dev = [
+    { include-group = "test" },
+    { include-group = "lint" },
+]
+
+# ---------------------------------------------------------------------------
+# uv – local editable sources for monorepo development
+# ---------------------------------------------------------------------------
+[tool.uv.sources]
+nucleusiq = { path = "../../../nucleusiq", editable = true }
+
+# ---------------------------------------------------------------------------
+# Hatch build config
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["nucleusiq_openai"]
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",
+    "B008",
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = [
+    "S101",
+]
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config -vv"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests requiring live API keys",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+omit = ["tests/*", "examples/*"]

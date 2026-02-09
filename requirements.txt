@@ -1,14 +1,17 @@
-setuptools
-pathlib
-pydantic
-PyYAML
-scikit-learn
-requests
-pytest
-pytest-html
-python-dotenv
+# Core (also in pyproject.toml)
+pydantic>=2.0
+PyYAML>=5.4
+python-dotenv>=0.19.0
+openai>=1.0
+tiktoken>=0.5
+requests>=2.25.1
 
-# openai
-openai
-tiktoken
+# Development
+setuptools
+pytest
+pytest-asyncio
+pytest-html
+
+# Optional (for examples)
+scikit-learn
 transformers

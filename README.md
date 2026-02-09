@@ -60,70 +60,44 @@ At the heart of NucleusIQ lies a commitment to simplicity, flexibility, and cont
 
 ### Prerequisites
 
-- **Python 3.6+**
-- **Git**
+- **Python 3.10+**
+- **pip**
 
-### Steps
+### Quick Install
 
-1. **Clone the Repository**
+```bash
+pip install -e .
+```
 
-    ```bash
-    git clone https://github.com/nucleusbox/NucleusIQ.git
-    cd NucleusIQ
-    ```
-2. **Set Up Virtual Environment**
+For detailed instructions (virtual env, OpenAI setup), see [docs/INSTALL.md](docs/INSTALL.md).
 
-    It's recommended to use a virtual environment to manage dependencies.
+### Verify
 
-    ```bash
-    python -m venv nb
-    source nb/bin/activate  # On Windows: nb\Scripts\activate
-    ```
+```bash
+pytest tests/ -q
+```
 
-3. **Install Dependencies**
-
-    Install the required Python packages using `pip`.
-
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4. **Configure Environment Variables**
-
-    Create a `.env` file in the root directory and add necessary configurations:
-
-    ```env
-    OPENAI_API_KEY=your_openai_api_key
-    DATABASE_URL=your_database_url
-    ```
-
-5. **Run the Tests**
-
-    ```bash
-    pytest
-    ```
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for a minimal example.
 
 ## Current Status
 
-**Version:** 0.1.0-alpha (Pre-Release)
+**Version:** 0.1.0
 
-### ✅ Implemented:
-- Core agent framework
-- 7+ prompt engineering techniques (Zero-shot, Few-shot, CoT, Auto-CoT, RAG, Meta-prompting, Prompt Composer)
-- Function calling loop
-- Tool system
-- MockLLM for testing
-- OpenAI integration (partial)
-- State management and observability
+### ✅ Implemented
+- **Core agent framework**: Agent, ReActAgent with execution modes (DIRECT, STANDARD, AUTONOMOUS)
+- **Planning**: LLM-based plan generation, basic fallback, `$step_N` context resolution
+- **7+ prompt techniques**: Zero-shot, Few-shot, CoT, Auto-CoT, RAG, Meta-prompting, Prompt Composer
+- **Tool system**: BaseTool, Executor, OpenAI integration
+- **Structured output**: NATIVE mode with OpenAI `response_format` (Pydantic, dataclass, TypedDict)
+- **OpenAI provider**: Chat, embeddings, structured output
+- **MockLLM** for testing without API calls
+- **State management** and observability
 
-### 🚧 Coming Soon:
-- Memory system (in progress)
+### 📋 Planned (see [ROADMAP.md](ROADMAP.md))
+- Memory system (interface defined, implementation planned)
 - Additional LLM providers (Ollama, Groq, Gemini)
 - Vector database integrations (Pinecone, Chroma)
 - Multi-agent orchestration
-- Advanced observability dashboard
-
-See [ROADMAP.md](ROADMAP.md) for detailed plans.
 
 ## Contributing
 
