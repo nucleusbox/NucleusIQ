@@ -43,8 +43,8 @@ Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
 [dependency-groups]
 test = [
     "pytest>=8.0,<10.0",
-    "pytest-asyncio>=0.23,<1.0",
-    "pytest-cov>=4.0,<6.0",
+    "pytest-asyncio>=0.23,<2.0",
+    "pytest-cov>=4.0,<8.0",
     "pytest-mock>=3.10,<4.0",
 ]
 lint = [
