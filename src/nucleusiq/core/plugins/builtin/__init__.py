@@ -5,7 +5,12 @@ from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
 from nucleusiq.plugins.builtin.model_fallback import ModelFallbackPlugin
 from nucleusiq.plugins.builtin.pii_guard import PIIGuardPlugin
-from nucleusiq.plugins.builtin.human_approval import HumanApprovalPlugin
+from nucleusiq.plugins.builtin.human_approval import (
+    HumanApprovalPlugin,
+    ApprovalHandler,
+    ConsoleApprovalHandler,
+    PolicyApprovalHandler,
+)
 from nucleusiq.plugins.builtin.context_window import ContextWindowPlugin
 from nucleusiq.plugins.builtin.tool_guard import ToolGuardPlugin
 
@@ -16,6 +21,9 @@ __all__ = [
     "ModelFallbackPlugin",
     "PIIGuardPlugin",
     "HumanApprovalPlugin",
+    "ApprovalHandler",
+    "ConsoleApprovalHandler",
+    "PolicyApprovalHandler",
     "ContextWindowPlugin",
     "ToolGuardPlugin",
 ]

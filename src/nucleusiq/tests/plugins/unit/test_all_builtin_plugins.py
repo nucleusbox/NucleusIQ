@@ -19,7 +19,12 @@ from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
 from nucleusiq.plugins.builtin.model_fallback import ModelFallbackPlugin
 from nucleusiq.plugins.builtin.pii_guard import PIIGuardPlugin, _luhn_check, BUILTIN_PATTERNS
-from nucleusiq.plugins.builtin.human_approval import HumanApprovalPlugin
+from nucleusiq.plugins.builtin.human_approval import (
+    HumanApprovalPlugin,
+    ApprovalHandler,
+    ConsoleApprovalHandler,
+    PolicyApprovalHandler,
+)
 from nucleusiq.plugins.builtin.context_window import ContextWindowPlugin, _approximate_tokens
 from nucleusiq.plugins.builtin.tool_guard import ToolGuardPlugin
 
@@ -650,6 +655,264 @@ class TestHumanApprovalPluginDetailed:
 
 
 # ====================================================================
+# 6b. ApprovalHandler + PolicyApprovalHandler + integration
+# ====================================================================
+
+
+class TestApprovalHandlerConstruction:
+
+    def test_cannot_pass_both_handler_and_callback(self):
+        class DummyHandler(ApprovalHandler):
+            async def decide(self, n, a):
+                return True
+
+        with pytest.raises(ValueError, match="not both"):
+            HumanApprovalPlugin(
+                approval_handler=DummyHandler(),
+                approval_callback=lambda n, a: True,
+            )
+
+    def test_no_args_creates_console_handler(self):
+        p = HumanApprovalPlugin()
+        assert p._handler is not None
+        assert isinstance(p._handler, ConsoleApprovalHandler)
+        assert p._callback is None
+
+    def test_callback_only_sets_callback(self):
+        cb = lambda n, a: True
+        p = HumanApprovalPlugin(approval_callback=cb)
+        assert p._handler is None
+        assert p._callback is cb
+
+    def test_handler_only_sets_handler(self):
+        class DummyHandler(ApprovalHandler):
+            async def decide(self, n, a):
+                return True
+
+        h = DummyHandler()
+        p = HumanApprovalPlugin(approval_handler=h)
+        assert p._handler is h
+        assert p._callback is None
+
+
+class TestCustomApprovalHandler:
+
+    @pytest.mark.asyncio
+    async def test_handler_decide_approve(self):
+        class AlwaysApprove(ApprovalHandler):
+            async def decide(self, n, a):
+                return True
+
+        p = HumanApprovalPlugin(approval_handler=AlwaysApprove())
+        handler = AsyncMock(return_value="result")
+        assert await p.wrap_tool_call(ToolRequest(tool_name="t"), handler) == "result"
+
+    @pytest.mark.asyncio
+    async def test_handler_decide_deny(self):
+        class AlwaysDeny(ApprovalHandler):
+            async def decide(self, n, a):
+                return False
+
+        p = HumanApprovalPlugin(approval_handler=AlwaysDeny())
+        handler = AsyncMock()
+        result = await p.wrap_tool_call(ToolRequest(tool_name="t"), handler)
+        handler.assert_not_called()
+        assert "denied" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_handler_on_approve_called(self):
+        class TrackingHandler(ApprovalHandler):
+            def __init__(self):
+                self.approved = []
+            async def decide(self, n, a):
+                return True
+            async def on_approve(self, n, a):
+                self.approved.append(n)
+
+        h = TrackingHandler()
+        p = HumanApprovalPlugin(approval_handler=h)
+        handler = AsyncMock(return_value="ok")
+        await p.wrap_tool_call(ToolRequest(tool_name="search"), handler)
+        assert h.approved == ["search"]
+
+    @pytest.mark.asyncio
+    async def test_handler_on_deny_called(self):
+        class TrackingHandler(ApprovalHandler):
+            def __init__(self):
+                self.denied = []
+            async def decide(self, n, a):
+                return False
+            async def on_deny(self, n, a):
+                self.denied.append(n)
+
+        h = TrackingHandler()
+        p = HumanApprovalPlugin(approval_handler=h)
+        handler = AsyncMock()
+        await p.wrap_tool_call(ToolRequest(tool_name="delete"), handler)
+        assert h.denied == ["delete"]
+
+    @pytest.mark.asyncio
+    async def test_handler_on_approve_not_called_on_deny(self):
+        class TrackingHandler(ApprovalHandler):
+            def __init__(self):
+                self.approve_calls = 0
+                self.deny_calls = 0
+            async def decide(self, n, a):
+                return False
+            async def on_approve(self, n, a):
+                self.approve_calls += 1
+            async def on_deny(self, n, a):
+                self.deny_calls += 1
+
+        h = TrackingHandler()
+        p = HumanApprovalPlugin(approval_handler=h)
+        handler = AsyncMock()
+        await p.wrap_tool_call(ToolRequest(tool_name="x"), handler)
+        assert h.approve_calls == 0
+        assert h.deny_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_handler_receives_correct_args(self):
+        received = {}
+
+        class CaptureHandler(ApprovalHandler):
+            async def decide(self, n, a):
+                received["name"] = n
+                received["args"] = a
+                return True
+
+        p = HumanApprovalPlugin(approval_handler=CaptureHandler())
+        handler = AsyncMock(return_value="ok")
+        await p.wrap_tool_call(
+            ToolRequest(tool_name="search", tool_args={"q": "test"}), handler
+        )
+        assert received == {"name": "search", "args": {"q": "test"}}
+
+    @pytest.mark.asyncio
+    async def test_handler_with_auto_approve_skips_handler(self):
+        class NeverApprove(ApprovalHandler):
+            def __init__(self):
+                self.called = False
+            async def decide(self, n, a):
+                self.called = True
+                return False
+
+        h = NeverApprove()
+        p = HumanApprovalPlugin(approval_handler=h, auto_approve=["math"])
+        handler = AsyncMock(return_value="42")
+        assert await p.wrap_tool_call(ToolRequest(tool_name="math"), handler) == "42"
+        assert not h.called
+
+    @pytest.mark.asyncio
+    async def test_handler_with_require_approval_routes_correctly(self):
+        class DenyAll(ApprovalHandler):
+            async def decide(self, n, a):
+                return False
+
+        p = HumanApprovalPlugin(
+            approval_handler=DenyAll(),
+            require_approval=["dangerous"],
+        )
+        handler = AsyncMock(return_value="ok")
+        assert await p.wrap_tool_call(ToolRequest(tool_name="safe"), handler) == "ok"
+        handler.reset_mock()
+        result = await p.wrap_tool_call(ToolRequest(tool_name="dangerous"), handler)
+        assert "denied" in result.lower()
+
+
+class TestPolicyApprovalHandler:
+
+    @pytest.mark.asyncio
+    async def test_safe_tool_approved(self):
+        h = PolicyApprovalHandler(safe_tools=["add", "search"])
+        assert await h.decide("add", {}) is True
+
+    @pytest.mark.asyncio
+    async def test_dangerous_tool_denied(self):
+        h = PolicyApprovalHandler(dangerous_tools=["delete_file"])
+        assert await h.decide("delete_file", {}) is False
+
+    @pytest.mark.asyncio
+    async def test_unknown_tool_default_deny(self):
+        h = PolicyApprovalHandler(safe_tools=["add"], default_allow=False)
+        assert await h.decide("unknown", {}) is False
+
+    @pytest.mark.asyncio
+    async def test_unknown_tool_default_allow(self):
+        h = PolicyApprovalHandler(safe_tools=["add"], default_allow=True)
+        assert await h.decide("unknown", {}) is True
+
+    @pytest.mark.asyncio
+    async def test_audit_log_records_decisions(self):
+        h = PolicyApprovalHandler(
+            safe_tools=["add"],
+            dangerous_tools=["delete"],
+            default_allow=False,
+        )
+        await h.decide("add", {"a": 1})
+        await h.decide("delete", {"path": "/tmp"})
+        await h.decide("unknown", {})
+
+        log = h.audit_log
+        assert len(log) == 3
+
+        assert log[0]["tool"] == "add"
+        assert log[0]["approved"] is True
+        assert log[0]["reason"] == "safe_list"
+
+        assert log[1]["tool"] == "delete"
+        assert log[1]["approved"] is False
+        assert log[1]["reason"] == "dangerous_list"
+
+        assert log[2]["tool"] == "unknown"
+        assert log[2]["approved"] is False
+        assert log[2]["reason"] == "default_policy"
+
+    @pytest.mark.asyncio
+    async def test_audit_log_has_timestamp(self):
+        h = PolicyApprovalHandler(safe_tools=["add"])
+        await h.decide("add", {})
+        assert "timestamp" in h.audit_log[0]
+        assert "T" in h.audit_log[0]["timestamp"]
+
+    @pytest.mark.asyncio
+    async def test_audit_log_is_copy(self):
+        h = PolicyApprovalHandler(safe_tools=["add"])
+        await h.decide("add", {})
+        log = h.audit_log
+        log.clear()
+        assert len(h.audit_log) == 1
+
+    @pytest.mark.asyncio
+    async def test_policy_handler_with_plugin_end_to_end(self):
+        h = PolicyApprovalHandler(
+            safe_tools=["add", "search"],
+            dangerous_tools=["delete_file", "deploy"],
+        )
+        p = HumanApprovalPlugin(approval_handler=h)
+        tool_handler = AsyncMock(return_value="ok")
+
+        assert await p.wrap_tool_call(ToolRequest(tool_name="add"), tool_handler) == "ok"
+        result = await p.wrap_tool_call(ToolRequest(tool_name="delete_file"), tool_handler)
+        assert "denied" in result.lower()
+
+        assert len(h.audit_log) == 2
+        assert h.audit_log[0]["approved"] is True
+        assert h.audit_log[1]["approved"] is False
+
+    @pytest.mark.asyncio
+    async def test_empty_policy_denies_all_by_default(self):
+        h = PolicyApprovalHandler()
+        assert await h.decide("anything", {}) is False
+
+    @pytest.mark.asyncio
+    async def test_safe_takes_priority_if_in_both(self):
+        """If a tool is in both safe and dangerous, safe_tools is checked first."""
+        h = PolicyApprovalHandler(safe_tools=["tool"], dangerous_tools=["tool"])
+        assert await h.decide("tool", {}) is True
+
+
+# ====================================================================
 # 7. ContextWindowPlugin
 # ====================================================================
 
@@ -954,3 +1217,718 @@ class TestMultiPluginPipeline:
         req = ModelRequest(messages=[{"role": "user", "content": "hello"}], call_count=1)
         result = await mgr.run_before_model(req)
         assert result is None or isinstance(result, ModelRequest)
+
+
+# ====================================================================
+# 9. BasePlugin defaults, repr, request objects
+# ====================================================================
+
+
+class TestBasePluginDefaults:
+
+    @pytest.mark.asyncio
+    async def test_default_name_is_class_name(self):
+        class MyCustomPlugin(BasePlugin):
+            pass
+        p = MyCustomPlugin()
+        assert p.name == "MyCustomPlugin"
+
+    @pytest.mark.asyncio
+    async def test_repr(self):
+        class FancyPlugin(BasePlugin):
+            pass
+        p = FancyPlugin()
+        assert "FancyPlugin" in repr(p)
+        assert "name=" in repr(p)
+
+    @pytest.mark.asyncio
+    async def test_before_agent_default_returns_none(self):
+        class Noop(BasePlugin):
+            pass
+        p = Noop()
+        ctx = AgentContext(agent_name="test", task={"id": "1"}, state="idle", config={})
+        result = await p.before_agent(ctx)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_after_agent_default_returns_result(self):
+        class Noop(BasePlugin):
+            pass
+        p = Noop()
+        ctx = AgentContext(agent_name="test", task={"id": "1"}, state="idle", config={})
+        result = await p.after_agent(ctx, "hello")
+        assert result == "hello"
+
+    @pytest.mark.asyncio
+    async def test_before_model_default_returns_none(self):
+        class Noop(BasePlugin):
+            pass
+        p = Noop()
+        result = await p.before_model(ModelRequest(messages=[], call_count=1))
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_after_model_default_returns_response(self):
+        class Noop(BasePlugin):
+            pass
+        p = Noop()
+        result = await p.after_model(ModelRequest(messages=[], call_count=1), "resp")
+        assert result == "resp"
+
+    @pytest.mark.asyncio
+    async def test_wrap_model_call_default_calls_handler(self):
+        class Noop(BasePlugin):
+            pass
+        p = Noop()
+        handler = AsyncMock(return_value="model_result")
+        req = ModelRequest(messages=[], call_count=1)
+        result = await p.wrap_model_call(req, handler)
+        handler.assert_called_once_with(req)
+        assert result == "model_result"
+
+    @pytest.mark.asyncio
+    async def test_wrap_tool_call_default_calls_handler(self):
+        class Noop(BasePlugin):
+            pass
+        p = Noop()
+        handler = AsyncMock(return_value="tool_result")
+        req = ToolRequest(tool_name="t")
+        result = await p.wrap_tool_call(req, handler)
+        handler.assert_called_once_with(req)
+        assert result == "tool_result"
+
+
+class TestToolRequestMethods:
+
+    def test_with_creates_new_request(self):
+        orig = ToolRequest(tool_name="add", tool_args={"a": 1})
+        modified = orig.with_(tool_args={"a": 2})
+        assert modified.tool_args == {"a": 2}
+        assert orig.tool_args == {"a": 1}
+
+    def test_to_tool_call_request(self):
+        req = ToolRequest(tool_name="search", tool_args={"q": "test"}, tool_call_id="tc_1")
+        tc = req.to_tool_call_request()
+        assert tc.name == "search"
+        assert tc.id == "tc_1"
+        assert "test" in tc.arguments
+
+
+# ====================================================================
+# 10. PluginManager coverage
+# ====================================================================
+
+
+class TestPluginManagerCoverage:
+
+    def test_has_plugins_true(self):
+        mgr = PluginManager([ModelCallLimitPlugin()])
+        assert mgr.has_plugins() is True
+
+    def test_has_plugins_false(self):
+        mgr = PluginManager()
+        assert mgr.has_plugins() is False
+
+    def test_plugins_property(self):
+        p = ModelCallLimitPlugin()
+        mgr = PluginManager([p])
+        assert mgr.plugins == [p]
+
+    def test_counters_and_reset(self):
+        mgr = PluginManager()
+        assert mgr.model_call_count == 0
+        assert mgr.tool_call_count == 0
+        mgr.increment_model_calls()
+        mgr.increment_model_calls()
+        mgr.increment_tool_calls()
+        assert mgr.model_call_count == 2
+        assert mgr.tool_call_count == 1
+        mgr.reset_counters()
+        assert mgr.model_call_count == 0
+        assert mgr.tool_call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_run_before_agent(self):
+        class ModifyCtx(BasePlugin):
+            async def before_agent(self, ctx):
+                return AgentContext(agent_name="m", task={"id": "modified"}, state="s", config={})
+
+        mgr = PluginManager([ModifyCtx()])
+        ctx = AgentContext(agent_name="t", task={"id": "orig"}, state="s", config={})
+        result = await mgr.run_before_agent(ctx)
+        assert result.task["id"] == "modified"
+
+    @pytest.mark.asyncio
+    async def test_run_before_agent_none_passthrough(self):
+        class NoOp(BasePlugin):
+            pass
+
+        mgr = PluginManager([NoOp()])
+        ctx = AgentContext(agent_name="t", task={"id": "orig"}, state="s", config={})
+        result = await mgr.run_before_agent(ctx)
+        assert result.task["id"] == "orig"
+
+    @pytest.mark.asyncio
+    async def test_run_after_agent(self):
+        class DoubleResult(BasePlugin):
+            async def after_agent(self, ctx, result):
+                return result * 2
+
+        mgr = PluginManager([DoubleResult()])
+        ctx = AgentContext(agent_name="t", task={}, state="s", config={})
+        result = await mgr.run_after_agent(ctx, 5)
+        assert result == 10
+
+    @pytest.mark.asyncio
+    async def test_run_before_model(self):
+        class DowngradeModel(BasePlugin):
+            async def before_model(self, request):
+                return request.with_(model="gpt-3.5")
+
+        mgr = PluginManager([DowngradeModel()])
+        req = ModelRequest(messages=[], model="gpt-4", call_count=1)
+        result = await mgr.run_before_model(req)
+        assert result.model == "gpt-3.5"
+
+    @pytest.mark.asyncio
+    async def test_run_after_model(self):
+        class AppendNote(BasePlugin):
+            async def after_model(self, request, response):
+                return f"{response}_checked"
+
+        mgr = PluginManager([AppendNote()])
+        req = ModelRequest(messages=[], call_count=1)
+        result = await mgr.run_after_model(req, "hello")
+        assert result == "hello_checked"
+
+    @pytest.mark.asyncio
+    async def test_execute_model_call_chain(self):
+        mgr = PluginManager()
+        final = AsyncMock(return_value="llm_response")
+        req = ModelRequest(messages=[{"role": "user", "content": "hi"}], call_count=1)
+        result = await mgr.execute_model_call(req, final)
+        assert result == "llm_response"
+
+    @pytest.mark.asyncio
+    async def test_execute_tool_call_chain(self):
+        mgr = PluginManager()
+        final = AsyncMock(return_value="tool_result")
+        req = ToolRequest(tool_name="add", tool_args={"a": 1})
+        result = await mgr.execute_tool_call(req, final)
+        assert result == "tool_result"
+
+    @pytest.mark.asyncio
+    async def test_execute_model_call_with_plugin(self):
+        class AddHeader(BasePlugin):
+            async def wrap_model_call(self, request, handler):
+                result = await handler(request)
+                return f"wrapped_{result}"
+
+        mgr = PluginManager([AddHeader()])
+        final = AsyncMock(return_value="raw")
+        req = ModelRequest(messages=[{"role": "user", "content": "hi"}], call_count=1)
+        result = await mgr.execute_model_call(req, final)
+        assert result == "wrapped_raw"
+
+    @pytest.mark.asyncio
+    async def test_execute_tool_call_with_plugin(self):
+        class LogTool(BasePlugin):
+            async def wrap_tool_call(self, request, handler):
+                result = await handler(request)
+                return f"logged_{result}"
+
+        mgr = PluginManager([LogTool()])
+        final = AsyncMock(return_value="data")
+        req = ToolRequest(tool_name="search")
+        result = await mgr.execute_tool_call(req, final)
+        assert result == "logged_data"
+
+
+# ====================================================================
+# 11. Decorator API coverage
+# ====================================================================
+
+
+from nucleusiq.plugins.decorators import (
+    before_agent as before_agent_dec,
+    after_agent as after_agent_dec,
+    before_model as before_model_dec,
+    after_model as after_model_dec,
+    wrap_model_call as wrap_model_call_dec,
+    wrap_tool_call as wrap_tool_call_dec,
+)
+
+
+class TestDecoratorPlugins:
+
+    def test_before_agent_creates_plugin(self):
+        @before_agent_dec
+        def my_hook(ctx):
+            return None
+        assert isinstance(my_hook, BasePlugin)
+        assert my_hook.name == "my_hook"
+
+    @pytest.mark.asyncio
+    async def test_before_agent_sync_function(self):
+        @before_agent_dec
+        def log_it(ctx):
+            return None
+
+        ctx = AgentContext(agent_name="t", task={}, state="s", config={})
+        result = await log_it.before_agent(ctx)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_before_agent_async_function(self):
+        @before_agent_dec
+        async def check_it(ctx):
+            return AgentContext(agent_name="t", task={"id": "modified"}, state="s", config={})
+
+        ctx = AgentContext(agent_name="t", task={}, state="s", config={})
+        result = await check_it.before_agent(ctx)
+        assert result.task["id"] == "modified"
+
+    def test_after_agent_creates_plugin(self):
+        @after_agent_dec
+        def my_hook(ctx, result):
+            return result
+        assert isinstance(my_hook, BasePlugin)
+        assert my_hook.name == "my_hook"
+
+    @pytest.mark.asyncio
+    async def test_after_agent_modifies_result(self):
+        @after_agent_dec
+        def double(ctx, result):
+            return result * 2
+
+        ctx = AgentContext(agent_name="t", task={}, state="s", config={})
+        result = await double.after_agent(ctx, 21)
+        assert result == 42
+
+    def test_before_model_creates_plugin(self):
+        @before_model_dec
+        def log_model(request):
+            return None
+        assert isinstance(log_model, BasePlugin)
+        assert log_model.name == "log_model"
+
+    @pytest.mark.asyncio
+    async def test_before_model_returns_none(self):
+        @before_model_dec
+        def noop(request):
+            return None
+
+        result = await noop.before_model(ModelRequest(messages=[], call_count=1))
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_before_model_modifies_request(self):
+        @before_model_dec
+        def downgrade(request):
+            return request.with_(model="gpt-3.5")
+
+        req = ModelRequest(messages=[], model="gpt-4", call_count=1)
+        result = await downgrade.before_model(req)
+        assert result.model == "gpt-3.5"
+
+    def test_after_model_creates_plugin(self):
+        @after_model_dec
+        def log_resp(request, response):
+            return response
+        assert isinstance(log_resp, BasePlugin)
+
+    @pytest.mark.asyncio
+    async def test_after_model_modifies_response(self):
+        @after_model_dec
+        def censor(request, response):
+            return "censored"
+
+        result = await censor.after_model(ModelRequest(messages=[], call_count=1), "secret")
+        assert result == "censored"
+
+    def test_wrap_model_call_creates_plugin(self):
+        @wrap_model_call_dec
+        async def retry(request, handler):
+            return await handler(request)
+        assert isinstance(retry, BasePlugin)
+        assert retry.name == "retry"
+
+    @pytest.mark.asyncio
+    async def test_wrap_model_call_executes(self):
+        @wrap_model_call_dec
+        async def add_prefix(request, handler):
+            result = await handler(request)
+            return f"prefix_{result}"
+
+        handler = AsyncMock(return_value="raw")
+        req = ModelRequest(messages=[], call_count=1)
+        result = await add_prefix.wrap_model_call(req, handler)
+        assert result == "prefix_raw"
+
+    def test_wrap_tool_call_creates_plugin(self):
+        @wrap_tool_call_dec
+        async def guard(request, handler):
+            return await handler(request)
+        assert isinstance(guard, BasePlugin)
+        assert guard.name == "guard"
+
+    @pytest.mark.asyncio
+    async def test_wrap_tool_call_executes(self):
+        @wrap_tool_call_dec
+        async def block_bad(request, handler):
+            if request.tool_name == "bad":
+                return "blocked"
+            return await handler(request)
+
+        handler = AsyncMock(return_value="ok")
+        assert await block_bad.wrap_tool_call(ToolRequest(tool_name="bad"), handler) == "blocked"
+        assert await block_bad.wrap_tool_call(ToolRequest(tool_name="good"), handler) == "ok"
+
+    @pytest.mark.asyncio
+    async def test_wrap_tool_call_sync_function(self):
+        @wrap_tool_call_dec
+        def sync_guard(request, handler):
+            return "sync_blocked"
+
+        result = await sync_guard.wrap_tool_call(ToolRequest(tool_name="t"), AsyncMock())
+        assert result == "sync_blocked"
+
+
+# ====================================================================
+# 12. PIIGuard edge cases for full coverage
+# ====================================================================
+
+
+class TestPIIGuardEdgeCases:
+
+    @pytest.mark.asyncio
+    async def test_mask_credit_card(self):
+        p = PIIGuardPlugin(pii_types=["credit_card"], strategy="mask")
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "Card: 4111111111111111"}],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is not None
+        content = result.messages[0]["content"]
+        assert "****-****-****-1111" in content
+
+    @pytest.mark.asyncio
+    async def test_sanitize_messages_with_non_dict_non_object(self):
+        """Message that is neither dict nor has .content is kept as-is."""
+        p = PIIGuardPlugin(pii_types=["email"], strategy="redact")
+        req = ModelRequest(
+            messages=[
+                {"role": "user", "content": "test@example.com"},
+                42,
+            ],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is not None
+        assert result.messages[1] == 42
+
+    @pytest.mark.asyncio
+    async def test_after_model_sanitizes_response_content(self):
+        from pydantic import BaseModel as PydanticModel
+
+        class FakeResponse(PydanticModel):
+            content: str
+
+        p = PIIGuardPlugin(pii_types=["email"], strategy="redact", apply_to_output=True)
+        resp = FakeResponse(content="Contact me at test@example.com")
+        result = await p.after_model(
+            ModelRequest(messages=[], call_count=1),
+            resp,
+        )
+        assert "[REDACTED_EMAIL]" in result.content
+
+    @pytest.mark.asyncio
+    async def test_mask_short_custom_pattern(self):
+        """Custom pattern with value <= 4 chars masks entirely."""
+        p = PIIGuardPlugin(
+            custom_patterns={"short_code": r"\bAB\d{2}\b"},
+            strategy="mask",
+        )
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "Code is AB12 here"}],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is not None
+        content = result.messages[0]["content"]
+        assert "AB12" not in content
+        assert "****" in content
+
+    @pytest.mark.asyncio
+    async def test_mask_longer_custom_pattern(self):
+        """Custom pattern with value > 4 chars partial masks."""
+        p = PIIGuardPlugin(
+            custom_patterns={"api_key": r"sk-[a-z]{8}"},
+            strategy="mask",
+        )
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "key: sk-abcdefgh"}],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is not None
+        content = result.messages[0]["content"]
+        assert content != "key: sk-abcdefgh"
+        assert "sk" in content
+        assert "gh" in content
+
+
+# ====================================================================
+# 13. ContextWindow edge cases for full coverage
+# ====================================================================
+
+
+class TestContextWindowEdgeCases:
+
+    @pytest.mark.asyncio
+    async def test_token_trim_budget_exhausted(self):
+        """When head+tail already exceed budget, no middle is kept."""
+        p = ContextWindowPlugin(max_tokens=10, keep_recent=1)
+        long_msg = "x" * 100
+        req = ModelRequest(
+            messages=[
+                {"role": "system", "content": long_msg},
+                {"role": "user", "content": "middle1"},
+                {"role": "user", "content": "middle2"},
+                {"role": "user", "content": "middle3"},
+                {"role": "assistant", "content": long_msg},
+            ],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is not None
+        assert len(result.messages) < 5
+        contents = [m.get("content", "") if isinstance(m, dict) else "" for m in result.messages]
+        assert "middle1" not in contents
+        assert "middle2" not in contents
+        assert "middle3" not in contents
+
+    @pytest.mark.asyncio
+    async def test_message_with_content_attribute(self):
+        """Messages with .content attribute (not dict) are handled by token counter."""
+        from pydantic import BaseModel as PydanticModel
+
+        class Msg(PydanticModel):
+            role: str
+            content: str
+
+        p = ContextWindowPlugin(max_messages=3, keep_recent=1)
+        msgs = [
+            Msg(role="system", content="sys"),
+            Msg(role="user", content="m1"),
+            Msg(role="user", content="m2"),
+            Msg(role="user", content="m3"),
+            Msg(role="assistant", content="a1"),
+        ]
+        req = ModelRequest(messages=msgs, call_count=1)
+        result = await p.before_model(req)
+        assert result is not None
+        assert len(result.messages) <= 3
+
+
+# ====================================================================
+# 14. ConsoleApprovalHandler coverage (mocked input)
+# ====================================================================
+
+
+class TestConsoleApprovalHandler:
+
+    @pytest.mark.asyncio
+    async def test_approve_yes(self, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        from nucleusiq.plugins.builtin.human_approval import ConsoleApprovalHandler
+        h = ConsoleApprovalHandler()
+        assert await h.decide("search", {"q": "test"}) is True
+
+    @pytest.mark.asyncio
+    async def test_approve_full_yes(self, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda _: "yes")
+        from nucleusiq.plugins.builtin.human_approval import ConsoleApprovalHandler
+        h = ConsoleApprovalHandler()
+        assert await h.decide("search", {}) is True
+
+    @pytest.mark.asyncio
+    async def test_deny_no(self, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda _: "n")
+        from nucleusiq.plugins.builtin.human_approval import ConsoleApprovalHandler
+        h = ConsoleApprovalHandler()
+        assert await h.decide("delete", {}) is False
+
+    @pytest.mark.asyncio
+    async def test_deny_random_input(self, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda _: "maybe")
+        from nucleusiq.plugins.builtin.human_approval import ConsoleApprovalHandler
+        h = ConsoleApprovalHandler()
+        assert await h.decide("delete", {}) is False
+
+
+# ====================================================================
+# 15. Remaining edge cases for near-100% coverage
+# ====================================================================
+
+
+class TestPIIGuardCreditCardBranches:
+
+    @pytest.mark.asyncio
+    async def test_detect_skips_invalid_credit_card(self):
+        """_detect with credit_card type skips numbers that fail Luhn check."""
+        p = PIIGuardPlugin(pii_types=["credit_card"], strategy="redact")
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "Card: 4111111111111112"}],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_redact_skips_invalid_credit_card(self):
+        """_redact returns the original number if Luhn fails."""
+        p = PIIGuardPlugin(pii_types=["credit_card"], strategy="redact")
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "Card: 4111111111111112"}],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_mask_skips_invalid_credit_card(self):
+        """_mask returns the original number if Luhn fails."""
+        p = PIIGuardPlugin(pii_types=["credit_card"], strategy="mask")
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "Card: 4111111111111112"}],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_mask_valid_credit_card(self):
+        """_mask masks a valid credit card number."""
+        p = PIIGuardPlugin(pii_types=["credit_card"], strategy="mask")
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "Card: 4111111111111111"}],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is not None
+        assert "****-****-****-1111" in result.messages[0]["content"]
+
+
+class TestPIIGuardSanitizeMessagesObjectContent:
+
+    @pytest.mark.asyncio
+    async def test_sanitize_messages_with_object_having_content(self):
+        """Message objects with .content attribute are sanitized."""
+        from pydantic import BaseModel as PydanticModel
+
+        class Msg(PydanticModel):
+            role: str
+            content: str
+
+        p = PIIGuardPlugin(pii_types=["email"], strategy="redact")
+        req = ModelRequest(
+            messages=[Msg(role="user", content="Email: test@example.com")],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is not None
+
+
+class TestPIIGuardAfterModelEdgeCases:
+
+    @pytest.mark.asyncio
+    async def test_after_model_non_model_copy_response(self):
+        """Response object without model_copy gets a warning, no crash."""
+
+        class PlainResponse:
+            def __init__(self, content: str):
+                self.content = content
+
+        p = PIIGuardPlugin(pii_types=["email"], strategy="redact", apply_to_output=True)
+        resp = PlainResponse(content="test@example.com")
+        result = await p.after_model(ModelRequest(messages=[], call_count=1), resp)
+        assert result is resp
+
+    @pytest.mark.asyncio
+    async def test_after_model_no_content_attribute(self):
+        """Response without .content is returned as-is."""
+        p = PIIGuardPlugin(pii_types=["email"], strategy="redact", apply_to_output=True)
+        result = await p.after_model(
+            ModelRequest(messages=[], call_count=1),
+            {"data": "just a dict"},
+        )
+        assert result == {"data": "just a dict"}
+
+
+class TestContextWindowTokenMiddleKept:
+
+    @pytest.mark.asyncio
+    async def test_token_trim_keeps_some_middle(self):
+        """Token limit trims some middle messages but keeps recent ones."""
+        p = ContextWindowPlugin(max_tokens=50, keep_recent=1)
+        req = ModelRequest(
+            messages=[
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "short"},
+                {"role": "user", "content": "x" * 200},
+                {"role": "user", "content": "short2"},
+                {"role": "assistant", "content": "ok"},
+            ],
+            call_count=1,
+        )
+        result = await p.before_model(req)
+        assert result is not None
+        assert len(result.messages) < 5
+
+
+class TestDecoratorAfterModelSync:
+
+    @pytest.mark.asyncio
+    async def test_after_model_sync_decorator(self):
+        """after_model decorator with a sync function."""
+        @after_model_dec
+        def add_prefix(request, response):
+            return f"checked_{response}"
+
+        result = await add_prefix.after_model(
+            ModelRequest(messages=[], call_count=1), "raw_response"
+        )
+        assert result == "checked_raw_response"
+
+
+class TestModelRequestToCallKwargs:
+
+    def test_to_call_kwargs_with_dict_messages(self):
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-4",
+            call_count=1,
+        )
+        kwargs = req.to_call_kwargs()
+        assert kwargs["model"] == "gpt-4"
+        assert len(kwargs["messages"]) == 1
+        assert kwargs["messages"][0] == {"role": "user", "content": "hello"}
+
+    def test_to_call_kwargs_with_string_message(self):
+        req = ModelRequest(
+            messages=["plain string message"],
+            model="gpt-4",
+            call_count=1,
+        )
+        kwargs = req.to_call_kwargs()
+        assert kwargs["messages"][0]["role"] == "user"
+        assert kwargs["messages"][0]["content"] == "plain string message"
+
+    def test_to_call_kwargs_with_chat_message(self):
+        from nucleusiq.agents.chat_models import ChatMessage
+        msg = ChatMessage(role="assistant", content="hi")
+        req = ModelRequest(messages=[msg], model="gpt-4", call_count=1)
+        kwargs = req.to_call_kwargs()
+        assert kwargs["messages"][0]["role"] == "assistant"
