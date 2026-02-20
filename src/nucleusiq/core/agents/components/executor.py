@@ -11,11 +11,12 @@ The Executor is responsible for:
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq.agents.plan import PlanStep
 from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.agents.chat_models import ToolCallRequest
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +44,12 @@ class Executor:
         self.tools = {tool.name: tool for tool in tools if hasattr(tool, 'name')}
         logger.debug(f"Executor initialized with {len(self.tools)} tools: {list(self.tools.keys())}")
     
-    async def execute(self, fn_call: Dict[str, Any]) -> Any:
+    async def execute(self, fn_call: Union[ToolCallRequest, Dict[str, Any]]) -> Any:
         """
         Execute a single tool call.
         
         Args:
-            fn_call: Function call dictionary with 'name' and 'arguments' keys
-                Example: {"name": "add", "arguments": '{"a": 5, "b": 3}'}
+            fn_call: ToolCallRequest or dict with 'name' and 'arguments' keys
         
         Returns:
             Tool execution result
@@ -57,12 +57,14 @@ class Executor:
         Raises:
             ValueError: If tool not found or is a native tool
         """
-        tool_name = fn_call.get("name")
-        if not tool_name:
-            raise ValueError("Function call missing 'name' field")
-        
-        # Parse arguments
-        fn_args_str = fn_call.get("arguments", "{}")
+        if isinstance(fn_call, ToolCallRequest):
+            tool_name = fn_call.name
+            fn_args_str = fn_call.arguments
+        else:
+            tool_name = fn_call.get("name")
+            if not tool_name:
+                raise ValueError("Function call missing 'name' field")
+            fn_args_str = fn_call.get("arguments", "{}")
         try:
             fn_args = json.loads(fn_args_str) if isinstance(fn_args_str, str) else fn_args_str
         except json.JSONDecodeError as e:

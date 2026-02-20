@@ -35,6 +35,7 @@ from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.plan import Plan, PlanStep
+from nucleusiq.agents.planning.planner import Planner
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq_openai import BaseOpenAI
 from nucleusiq.tools import BaseTool
@@ -120,7 +121,7 @@ async def test_llm_planning():
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
-            enable_memory=True,
+
             max_iterations=15
         )
     )
@@ -196,7 +197,7 @@ async def test_manual_multi_step_plan():
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
-            enable_memory=True,
+
             max_iterations=15
         )
     )
@@ -245,7 +246,7 @@ async def test_manual_multi_step_plan():
     # Execute the plan
     logger.info("\n🚀 Executing Manual Plan...")
     try:
-        result = await agent._execute_plan(task, plan)
+        result = await Planner(agent).execute_plan(task, plan)
         logger.info(f"\nFinal Result: {result}")
         logger.info(f"   Agent State: {agent.state}")
         return True
@@ -285,7 +286,7 @@ async def test_complex_workflow_planning():
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
-            enable_memory=True,
+
             max_iterations=20
         )
     )
@@ -349,7 +350,7 @@ async def test_plan_with_context_building():
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
-            enable_memory=True,
+
             max_iterations=15
         )
     )

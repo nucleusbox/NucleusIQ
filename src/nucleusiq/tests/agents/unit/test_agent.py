@@ -28,6 +28,8 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState, AgentMetrics, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.plan import Plan
+from nucleusiq.agents.messaging.message_builder import MessageBuilder
+from nucleusiq.agents.planning.planner import Planner
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.tools import BaseTool
 from nucleusiq.llms.mock_llm import MockLLM
@@ -275,7 +277,7 @@ class TestAgentPlan:
         await agent.initialize()
         
         task = {"id": "task1", "objective": "Test task"}
-        plan = await agent._create_basic_plan(task)
+        plan = await agent.plan(task)
 
         assert isinstance(plan, Plan)
         assert len(plan) == 1
@@ -303,7 +305,7 @@ class TestAgentPlan:
         await agent.initialize()
         
         task = {"id": "task1", "objective": "Calculate 5 + 3"}
-        context = await agent._get_context(task)
+        context = await Planner(agent).get_context(task)
         
         assert "task" in context
         assert "agent_role" in context
@@ -687,7 +689,7 @@ class TestAgentPlanIntegration:
             {"step": 1, "action": "execute", "task": task},
         ]
         
-        result = await agent._execute_plan(task, plan)
+        result = await Planner(agent).execute_plan(task, plan)
         
         assert result is not None
         assert agent.state == AgentState.COMPLETED
@@ -720,13 +722,16 @@ class TestAgentPlanIntegration:
             {"step": 2, "action": "execute", "task": task},
         ]
         
-        messages = agent._build_messages(task, plan)
+        messages = MessageBuilder.build(
+            task, plan, prompt=agent.prompt,
+            role=agent.role, objective=agent.objective,
+        )
         
         # Should include system, user template, plan, and task objective
         assert len(messages) >= 3
-        assert any(m.get("role") == "system" for m in messages)
-        assert any("Execution Plan" in m.get("content", "") for m in messages)
-        assert any(task["objective"] in m.get("content", "") for m in messages)
+        assert any(m.role == "system" for m in messages)
+        assert any("Execution Plan" in (m.content or "") for m in messages)
+        assert any(task["objective"] in (m.content or "") for m in messages)
     
     @pytest.mark.asyncio
     async def test_agent_build_messages_without_plan(self):
@@ -751,14 +756,17 @@ class TestAgentPlanIntegration:
         await agent.initialize()
         
         task = {"id": "task1", "objective": "Test"}
-        messages = agent._build_messages(task)
+        messages = MessageBuilder.build(
+            task, prompt=agent.prompt,
+            role=agent.role, objective=agent.objective,
+        )
         
         # Should include system, user template, and task objective (no plan)
         assert len(messages) >= 2
-        assert any(m.get("role") == "system" for m in messages)
-        assert any(task["objective"] in m.get("content", "") for m in messages)
+        assert any(m.role == "system" for m in messages)
+        assert any(task["objective"] in (m.content or "") for m in messages)
         # Should not have plan
-        assert not any("Execution Plan" in m.get("content", "") for m in messages)
+        assert not any("Execution Plan" in (m.content or "") for m in messages)
 
 
 class TestAgentIntegration:

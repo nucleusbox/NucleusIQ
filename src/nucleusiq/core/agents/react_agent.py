@@ -15,6 +15,7 @@ import re
 from pydantic import Field, PrivateAttr
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentState
+from nucleusiq.agents.chat_models import ChatMessage
 
 
 class ReActAgent(Agent):
@@ -73,21 +74,19 @@ class ReActAgent(Agent):
                 objective = getattr(task, 'objective', '')
             return f"Echo: {objective}"
         
-        # Build initial messages with ReAct instructions
-        messages: list[dict[str, Any]] = self._build_react_messages(task)
+        messages: List[ChatMessage] = self._build_react_messages(task)
         
-        # ReAct loop
         for iteration in range(self.max_iterations):
             self._logger.info(f"ReAct iteration {iteration + 1}/{self.max_iterations}")
             
-            # Call LLM for Thought and Action
-            tool_specs = []
+            tool_specs: List[Dict[str, Any]] = []
             if self.tools and self.llm:
                 tool_specs = self.llm.convert_tool_specs(self.tools)
             
+            from nucleusiq.agents.chat_models import messages_to_dicts
             response = await self.llm.call(
                 model=getattr(self.llm, "model_name", "default"),
-                messages=messages,
+                messages=messages_to_dicts(messages),
                 tools=tool_specs if tool_specs else None
             )
             
@@ -136,34 +135,31 @@ class ReActAgent(Agent):
                     except Exception as e:
                         observation = f"Error: {str(e)}"
                 
-                # Add to messages for next iteration
-                messages.append({
-                    "role": "assistant",
-                    "content": content
-                })
-                # Sanitize tool name for OpenAI (only alphanumeric, underscore, hyphen)
+                messages.append(ChatMessage(
+                    role="assistant",
+                    content=content,
+                ))
                 sanitized_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_name)
-                messages.append({
-                    "role": "function",
-                    "name": sanitized_name,
-                    "content": json.dumps(observation) if not isinstance(observation, str) else str(observation)
-                })
+                messages.append(ChatMessage(
+                    role="function",
+                    name=sanitized_name,
+                    content=json.dumps(observation) if not isinstance(observation, str) else str(observation),
+                ))
                 
                 # Update history with observation
                 self._react_history[-1]["observation"] = observation
                 
                 self._logger.info(f"Tool '{tool_name}' executed. Observation: {observation}")
             else:
-                # Unknown action type - treat as error
                 observation = f"Error: Unknown action type '{action['type']}'"
-                messages.append({
-                    "role": "assistant",
-                    "content": content
-                })
-                messages.append({
-                    "role": "user",
-                    "content": f"Observation: {observation}"
-                })
+                messages.append(ChatMessage(
+                    role="assistant",
+                    content=content,
+                ))
+                messages.append(ChatMessage(
+                    role="user",
+                    content=f"Observation: {observation}",
+                ))
                 
                 self._react_history[-1]["observation"] = observation
         
@@ -171,14 +167,13 @@ class ReActAgent(Agent):
         self.state = AgentState.ERROR
         return f"Max iterations ({self.max_iterations}) reached. Task incomplete."
     
-    def _build_react_messages(self, task: Union[Dict[str, Any], Any]) -> List[Dict[str, Any]]:
+    def _build_react_messages(self, task: Union[Dict[str, Any], Any]) -> List[ChatMessage]:
         """Build initial messages with ReAct instructions."""
-        messages = []
-        
-        # System message with ReAct instructions
+        messages: List[ChatMessage] = []
+
         tool_names = [t.name for t in self.tools] if self.tools else []
         tool_list = ", ".join(tool_names) if tool_names else "None"
-        
+
         react_system = f"""You are a ReAct agent. Follow this pattern:
 
 Thought: [Your reasoning about what to do next]
@@ -190,28 +185,25 @@ After each action, you will receive an Observation. Use it to inform your next T
 Available tools: {tool_list}
 
 Always follow the Thought -> Action -> Observation pattern. When you have the final answer, use Action: Final Answer."""
-        
-        messages.append({"role": "system", "content": react_system})
-        
-        # Add prompt if provided (can override or supplement ReAct instructions)
+
+        messages.append(ChatMessage(role="system", content=react_system))
+
         if self.prompt:
             if hasattr(self.prompt, 'system') and self.prompt.system:
-                messages.append({"role": "system", "content": self.prompt.system})
+                messages.append(ChatMessage(role="system", content=self.prompt.system))
             if hasattr(self.prompt, 'user') and self.prompt.user:
-                messages.append({"role": "user", "content": self.prompt.user})
-        
-        # Add task objective (handle both Task object and dict)
+                messages.append(ChatMessage(role="user", content=self.prompt.user))
+
         if isinstance(task, dict):
             task_objective = task.get('objective', '')
         else:
-            # Task is a Task object (Pydantic model)
             task_objective = getattr(task, 'objective', '')
-        
-        messages.append({
-            "role": "user",
-            "content": f"Task: {task_objective}"
-        })
-        
+
+        messages.append(ChatMessage(
+            role="user",
+            content=f"Task: {task_objective}",
+        ))
+
         return messages
     
     def _parse_react_response(self, content: str, message: Any) -> tuple[str, Dict[str, Any]]:

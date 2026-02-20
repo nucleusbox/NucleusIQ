@@ -36,7 +36,7 @@ class PromptFactory:
         PromptTechnique.AUTO_CHAIN_OF_THOUGHT.value: AutoChainOfThoughtPrompt,
         PromptTechnique.RETRIEVAL_AUGMENTED_GENERATION.value: RetrievalAugmentedGenerationPrompt,
         PromptTechnique.PROMPT_COMPOSER.value: PromptComposer,
-        PromptTechnique.META_PROMPTING.value: MetaPrompt
+        PromptTechnique.META_PROMPTING.value: MetaPrompt,
     }
 
     @classmethod

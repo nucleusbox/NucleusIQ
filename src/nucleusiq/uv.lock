@@ -505,7 +505,7 @@ dev = [
     { name = "nucleusiq-openai", editable = "../providers/llms/openai" },
     { name = "pytest", specifier = ">=8.0,<10.0" },
     { name = "pytest-asyncio", specifier = ">=0.23,<2.0" },
-    { name = "pytest-cov", specifier = ">=4.0,<6.0" },
+    { name = "pytest-cov", specifier = ">=4.0,<8.0" },
     { name = "pytest-mock", specifier = ">=3.10,<4.0" },
     { name = "ruff", specifier = ">=0.4,<1.0" },
     { name = "scikit-learn", specifier = ">=1.0" },
@@ -515,7 +515,7 @@ test = [
     { name = "nucleusiq-openai", editable = "../providers/llms/openai" },
     { name = "pytest", specifier = ">=8.0,<10.0" },
     { name = "pytest-asyncio", specifier = ">=0.23,<2.0" },
-    { name = "pytest-cov", specifier = ">=4.0,<6.0" },
+    { name = "pytest-cov", specifier = ">=4.0,<8.0" },
     { name = "pytest-mock", specifier = ">=3.10,<4.0" },
     { name = "scikit-learn", specifier = ">=1.0" },
 ]
@@ -540,16 +540,16 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=8.0,<10.0" },
-    { name = "pytest-asyncio", specifier = ">=0.23,<1.0" },
-    { name = "pytest-cov", specifier = ">=4.0,<6.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23,<2.0" },
+    { name = "pytest-cov", specifier = ">=4.0,<8.0" },
     { name = "pytest-mock", specifier = ">=3.10,<4.0" },
     { name = "ruff", specifier = ">=0.4,<1.0" },
 ]
 lint = [{ name = "ruff", specifier = ">=0.4,<1.0" }]
 test = [
     { name = "pytest", specifier = ">=8.0,<10.0" },
-    { name = "pytest-asyncio", specifier = ">=0.23,<1.0" },
-    { name = "pytest-cov", specifier = ">=4.0,<6.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23,<2.0" },
+    { name = "pytest-cov", specifier = ">=4.0,<8.0" },
     { name = "pytest-mock", specifier = ">=3.10,<4.0" },
 ]
 

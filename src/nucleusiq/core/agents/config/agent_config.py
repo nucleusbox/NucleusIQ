@@ -1,7 +1,9 @@
 # src/nucleusiq/agents/config/agent_config.py
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
+
+from nucleusiq.llms.llm_params import LLMParams
 
 class ExecutionMode(str, Enum):
     """Execution modes (Gearbox Strategy) for agent execution."""
@@ -44,10 +46,6 @@ class AgentConfig(BaseModel):
         default=ExecutionMode.STANDARD,
         description="Execution mode (gear): DIRECT (fast, no tools), STANDARD (tool-enabled, linear), AUTONOMOUS (full reasoning loop with planning and self-correction)"
     )
-    enable_memory: bool = Field(
-        default=False,
-        description="Enable memory for context (standard, autonomous modes). Memory stores conversation history and partial results."
-    )
     require_quality_check: bool = Field(
         default=False,
         description="Require quality check before returning (autonomous mode only). Uses Critic component to review output."
@@ -87,6 +85,19 @@ class AgentConfig(BaseModel):
     step_max_retries: int = Field(
         default=2,
         description="Maximum retries for a failed step before giving up (0 = no retries)."
+    )
+
+    # Type-safe LLM parameter overrides for this agent.
+    # Accepts LLMParams (base) or any provider subclass (OpenAILLMParams, etc.)
+    # These are merged into every llm.call() this agent makes, overriding
+    # the LLM-level defaults set in BaseOpenAI.__init__().
+    llm_params: Optional[LLMParams] = Field(
+        default=None,
+        description=(
+            "Type-safe LLM call parameter overrides for this agent. "
+            "Accepts LLMParams or any provider-specific subclass "
+            "(e.g. OpenAILLMParams). Only non-None fields are merged."
+        ),
     )
 
 class AgentMetrics(BaseModel):

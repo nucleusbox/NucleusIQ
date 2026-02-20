@@ -51,7 +51,8 @@ class MockLLM(BaseLLM):
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
-        stop: Optional[List[str]] = None
+        stop: Optional[List[str]] = None,
+        **kwargs: Any,
     ) -> 'MockLLM.LLMResponse':
         self._call_count += 1
         # First call: simulate a function_call if tools are provided

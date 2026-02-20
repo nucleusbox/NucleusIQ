@@ -3,6 +3,7 @@ Tests for OpenAI Tools (OpenAITool factory methods).
 
 Tests cover:
 - All OpenAI native tool types (web_search, code_interpreter, file_search, etc.)
+- Tool type constants and NATIVE_TOOL_TYPES registry
 - MCP tool creation and validation
 - Connector creation
 - Tool spec generation
@@ -20,86 +21,135 @@ if str(src_dir) not in sys.path:
 import pytest
 from typing import Dict, Any, List
 from nucleusiq_openai import OpenAITool
+from nucleusiq_openai.tools.openai_tool import NATIVE_TOOL_TYPES
 from nucleusiq.tools import BaseTool
+
+
+class TestOpenAIToolConstants:
+    """Test tool type constants and registry."""
+
+    def test_type_constants_exist(self):
+        """All tool type constants are defined."""
+        assert hasattr(OpenAITool, "WEB_SEARCH_TYPE")
+        assert hasattr(OpenAITool, "CODE_INTERPRETER_TYPE")
+        assert hasattr(OpenAITool, "FILE_SEARCH_TYPE")
+        assert hasattr(OpenAITool, "IMAGE_GENERATION_TYPE")
+        assert hasattr(OpenAITool, "MCP_TYPE")
+        assert hasattr(OpenAITool, "COMPUTER_USE_TYPE")
+
+    def test_type_constants_values(self):
+        """Tool type constants have correct default values."""
+        assert OpenAITool.WEB_SEARCH_TYPE == "web_search_preview"
+        assert OpenAITool.CODE_INTERPRETER_TYPE == "code_interpreter"
+        assert OpenAITool.FILE_SEARCH_TYPE == "file_search"
+        assert OpenAITool.IMAGE_GENERATION_TYPE == "image_generation"
+        assert OpenAITool.MCP_TYPE == "mcp"
+        assert OpenAITool.COMPUTER_USE_TYPE == "computer_use_preview"
+
+    def test_native_tool_types_registry(self):
+        """NATIVE_TOOL_TYPES contains all expected types."""
+        assert "web_search_preview" in NATIVE_TOOL_TYPES
+        assert "web_search_preview_2025_03_11" in NATIVE_TOOL_TYPES
+        assert "code_interpreter" in NATIVE_TOOL_TYPES
+        assert "file_search" in NATIVE_TOOL_TYPES
+        assert "image_generation" in NATIVE_TOOL_TYPES
+        assert "mcp" in NATIVE_TOOL_TYPES
+        assert "computer_use_preview" in NATIVE_TOOL_TYPES
+        assert "computer_use_preview_2025_03_11" in NATIVE_TOOL_TYPES
+
+    def test_native_tool_types_excludes_function(self):
+        """function type is NOT in the native tool registry."""
+        assert "function" not in NATIVE_TOOL_TYPES
+
+    def test_type_constants_are_overridable(self):
+        """Type constants can be overridden (adaptive design)."""
+        original = OpenAITool.WEB_SEARCH_TYPE
+        try:
+            OpenAITool.WEB_SEARCH_TYPE = "web_search_v2"
+            tool = OpenAITool.web_search()
+            spec = tool.get_spec()
+            assert spec == {"type": "web_search_v2"}
+        finally:
+            OpenAITool.WEB_SEARCH_TYPE = original
 
 
 class TestOpenAIToolFactory:
     """Test OpenAITool factory methods for creating native tools."""
-    
+
     def test_web_search_tool(self):
         """Test creating web search tool."""
         tool = OpenAITool.web_search()
-        
+
         assert isinstance(tool, BaseTool)
-        assert tool.name == "web_search_preview"
-        assert hasattr(tool, 'is_native')
+        assert tool.name == "web_search"
+        assert hasattr(tool, "is_native")
         assert tool.is_native is True
-        
+
         spec = tool.get_spec()
         assert spec == {"type": "web_search_preview"}
-    
+
     def test_code_interpreter_tool(self):
         """Test creating code interpreter tool."""
         tool = OpenAITool.code_interpreter()
-        
+
         assert isinstance(tool, BaseTool)
         assert tool.name == "code_interpreter"
         assert tool.is_native is True
-        
+
         spec = tool.get_spec()
         assert spec == {"type": "code_interpreter"}
-    
+
     def test_file_search_tool_no_vector_stores(self):
         """Test creating file search tool without vector stores."""
         tool = OpenAITool.file_search()
-        
+
         assert isinstance(tool, BaseTool)
         assert tool.name == "file_search"
         assert tool.is_native is True
-        
+
         spec = tool.get_spec()
         assert spec == {"type": "file_search"}
-    
+
     def test_file_search_tool_with_vector_stores(self):
         """Test creating file search tool with vector stores."""
         vector_store_ids = ["vs_123", "vs_456"]
         tool = OpenAITool.file_search(vector_store_ids=vector_store_ids)
-        
+
         assert isinstance(tool, BaseTool)
         assert tool.name == "file_search"
-        
+
         spec = tool.get_spec()
         assert spec == {
             "type": "file_search",
-            "vector_store_ids": vector_store_ids
+            "vector_store_ids": vector_store_ids,
         }
-    
+
     def test_image_generation_tool(self):
         """Test creating image generation tool."""
         tool = OpenAITool.image_generation()
-        
+
         assert isinstance(tool, BaseTool)
         assert tool.name == "image_generation"
         assert tool.is_native is True
-        
+
         spec = tool.get_spec()
         assert spec == {"type": "image_generation"}
-    
+
     def test_computer_use_tool(self):
         """Test creating computer use tool."""
         tool = OpenAITool.computer_use()
-        
+
         assert isinstance(tool, BaseTool)
         assert tool.name == "computer_use"
         assert tool.is_native is True
-        
+
         spec = tool.get_spec()
-        assert spec == {"type": "computer_use"}
+        assert spec == {"type": "computer_use_preview"}
 
 
 class TestMCPTool:
     """Test MCP tool creation and validation."""
-    
+
     def test_mcp_tool_remote_server(self):
         """Test creating MCP tool for remote server."""
         tool = OpenAITool.mcp(
@@ -107,11 +157,11 @@ class TestMCPTool:
             server_description="A D&D dice rolling server",
             server_url="https://dmcp-server.deno.dev/sse",
         )
-        
+
         assert isinstance(tool, BaseTool)
         assert tool.name == "mcp_dmcp"
         assert tool.is_native is True
-        
+
         spec = tool.get_spec()
         assert spec == {
             "type": "mcp",
@@ -119,7 +169,7 @@ class TestMCPTool:
             "server_description": "A D&D dice rolling server",
             "server_url": "https://dmcp-server.deno.dev/sse",
         }
-    
+
     def test_mcp_tool_with_require_approval_never(self):
         """Test MCP tool with require_approval='never'."""
         tool = OpenAITool.mcp(
@@ -128,10 +178,10 @@ class TestMCPTool:
             server_url="https://test.com",
             require_approval="never",
         )
-        
+
         spec = tool.get_spec()
         assert spec["require_approval"] == "never"
-    
+
     def test_mcp_tool_with_require_approval_always(self):
         """Test MCP tool with require_approval='always'."""
         tool = OpenAITool.mcp(
@@ -140,10 +190,10 @@ class TestMCPTool:
             server_url="https://test.com",
             require_approval="always",
         )
-        
+
         spec = tool.get_spec()
         assert spec["require_approval"] == "always"
-    
+
     def test_mcp_tool_with_require_approval_dict(self):
         """Test MCP tool with require_approval as dict."""
         require_approval = {
@@ -157,10 +207,10 @@ class TestMCPTool:
             server_url="https://test.com",
             require_approval=require_approval,
         )
-        
+
         spec = tool.get_spec()
         assert spec["require_approval"] == require_approval
-    
+
     def test_mcp_tool_with_allowed_tools(self):
         """Test MCP tool with allowed_tools filter."""
         allowed_tools = ["roll", "search"]
@@ -170,10 +220,10 @@ class TestMCPTool:
             server_url="https://test.com",
             allowed_tools=allowed_tools,
         )
-        
+
         spec = tool.get_spec()
         assert spec["allowed_tools"] == allowed_tools
-    
+
     def test_mcp_tool_with_authorization(self):
         """Test MCP tool with OAuth authorization."""
         auth_token = "ya29.test_token"
@@ -183,10 +233,10 @@ class TestMCPTool:
             server_url="https://test.com",
             authorization=auth_token,
         )
-        
+
         spec = tool.get_spec()
         assert spec["authorization"] == auth_token
-    
+
     def test_mcp_tool_with_all_parameters(self):
         """Test MCP tool with all optional parameters."""
         tool = OpenAITool.mcp(
@@ -197,7 +247,7 @@ class TestMCPTool:
             allowed_tools=["roll"],
             authorization="token123",
         )
-        
+
         spec = tool.get_spec()
         assert spec == {
             "type": "mcp",
@@ -208,16 +258,15 @@ class TestMCPTool:
             "allowed_tools": ["roll"],
             "authorization": "token123",
         }
-    
+
     def test_mcp_tool_missing_server_url_and_connector_id(self):
         """Test MCP tool validation - missing both server_url and connector_id."""
         with pytest.raises(ValueError, match="Either server_url.*or connector_id"):
             OpenAITool.mcp(
                 server_label="test",
                 server_description="Test",
-                # Missing both server_url and connector_id
             )
-    
+
     def test_mcp_tool_both_server_url_and_connector_id(self):
         """Test MCP tool validation - both server_url and connector_id provided."""
         with pytest.raises(ValueError, match="Cannot specify both"):
@@ -227,7 +276,7 @@ class TestMCPTool:
                 server_url="https://test.com",
                 connector_id="connector_test",
             )
-    
+
     def test_mcp_tool_connector_id(self):
         """Test MCP tool with connector_id."""
         tool = OpenAITool.mcp(
@@ -236,7 +285,7 @@ class TestMCPTool:
             connector_id="connector_googlecalendar",
             authorization="ya29.token",
         )
-        
+
         spec = tool.get_spec()
         assert spec == {
             "type": "mcp",
@@ -250,7 +299,7 @@ class TestMCPTool:
 
 class TestConnectorTool:
     """Test connector tool creation."""
-    
+
     def test_connector_tool_google_calendar(self):
         """Test creating Google Calendar connector."""
         tool = OpenAITool.connector(
@@ -259,15 +308,15 @@ class TestConnectorTool:
             server_description="Access Google Calendar events",
             authorization="ya29.token",
         )
-        
+
         assert isinstance(tool, BaseTool)
         assert tool.name == "mcp_google_calendar"
-        
+
         spec = tool.get_spec()
         assert spec["connector_id"] == "connector_googlecalendar"
         assert spec["authorization"] == "ya29.token"
         assert "server_url" not in spec
-    
+
     def test_connector_tool_with_require_approval(self):
         """Test connector with require_approval."""
         tool = OpenAITool.connector(
@@ -277,10 +326,10 @@ class TestConnectorTool:
             authorization="ya29.token",
             require_approval="never",
         )
-        
+
         spec = tool.get_spec()
         assert spec["require_approval"] == "never"
-    
+
     def test_connector_tool_with_allowed_tools(self):
         """Test connector with allowed_tools."""
         tool = OpenAITool.connector(
@@ -290,10 +339,10 @@ class TestConnectorTool:
             authorization="ya29.token",
             allowed_tools=["read_file", "list_files"],
         )
-        
+
         spec = tool.get_spec()
         assert spec["allowed_tools"] == ["read_file", "list_files"]
-    
+
     def test_connector_tool_all_connectors(self):
         """Test all available connectors."""
         connectors = [
@@ -306,7 +355,7 @@ class TestConnectorTool:
             "connector_outlookemail",
             "connector_sharepoint",
         ]
-        
+
         for connector_id in connectors:
             tool = OpenAITool.connector(
                 connector_id=connector_id,
@@ -314,7 +363,7 @@ class TestConnectorTool:
                 server_description=f"{connector_id} connector",
                 authorization="ya29.token",
             )
-            
+
             spec = tool.get_spec()
             assert spec["connector_id"] == connector_id
             assert spec["authorization"] == "ya29.token"
@@ -322,24 +371,23 @@ class TestConnectorTool:
 
 class TestNativeToolExecution:
     """Test that native tools raise NotImplementedError on execute()."""
-    
+
     @pytest.mark.asyncio
     async def test_native_tool_execute_raises_error(self):
         """Test that native tools raise NotImplementedError on execute()."""
         tool = OpenAITool.web_search()
-        
-        with pytest.raises(NotImplementedError, match="don't use execute"):
+
+        with pytest.raises(NotImplementedError, match="executed server-side"):
             await tool.execute()
-    
+
     @pytest.mark.asyncio
     async def test_native_tool_execute_async(self):
         """Test native tool execute() in async context."""
         tool = OpenAITool.code_interpreter()
-        
-        with pytest.raises(NotImplementedError, match="don't use execute"):
+
+        with pytest.raises(NotImplementedError, match="executed server-side"):
             await tool.execute()
 
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

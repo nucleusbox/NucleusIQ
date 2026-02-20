@@ -344,7 +344,7 @@ When researching:
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=15,
-            enable_memory=True,
+
             planning_max_tokens=2048,
             llm_max_tokens=2048
         )
@@ -432,7 +432,7 @@ Extract insights through systematic analysis:
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=15,
-            enable_memory=True
+
         )
     )
     
@@ -510,7 +510,7 @@ Provide realistic estimates and identify blockers.""",
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=12,
-            enable_memory=True
+
         )
     )
     
@@ -601,7 +601,7 @@ Provide actionable recommendations prioritized by impact.""",
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=12,
-            enable_memory=True
+
         )
     )
     
@@ -691,7 +691,7 @@ Now, let's execute each phase systematically."""
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=18,
-            enable_memory=True,
+
             planning_max_tokens=2048
         )
     )
@@ -794,7 +794,7 @@ internal metrics with industry benchmarks.""",
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=12,
-            enable_memory=True
+
         )
     )
     

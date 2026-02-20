@@ -217,14 +217,12 @@ async def example_autonomous_mode():
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,  # Gear 3
             verbose=True,
-            enable_memory=True,  # Memory enabled for autonomous mode
             max_iterations=10
         )
     )
     
     logger.info(f"✅ Agent created: {agent.name}")
     logger.info(f"   Execution Mode: {agent.config.execution_mode.value}")
-    logger.info(f"   Memory: {'Enabled' if agent.config.enable_memory else 'Disabled'}")
     logger.info(f"   ⚠️  Note: Currently falls back to STANDARD mode")
     
     # Execute tasks

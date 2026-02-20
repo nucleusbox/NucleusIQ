@@ -25,6 +25,8 @@ import logging
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState
 from nucleusiq.agents.task import Task
+from nucleusiq.agents.messaging.message_builder import MessageBuilder
+from nucleusiq.agents.planning.planner import Planner
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.llms.mock_llm import MockLLM
 
@@ -72,32 +74,38 @@ class TestAgentPromptPrecedence:
         """Test that prompt.system is used instead of role/objective."""
         task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
         
-        # Build messages
-        messages = agent_with_prompt._build_messages(task)
+        # Build messages (using MessageBuilder directly)
+        messages = MessageBuilder.build(
+            task, prompt=agent_with_prompt.prompt,
+            role=agent_with_prompt.role, objective=agent_with_prompt.objective,
+        )
         
         # Verify prompt.system is used
         assert len(messages) >= 1
-        system_msg = next((m for m in messages if m.get("role") == "system"), None)
+        system_msg = next((m for m in messages if m.role == "system"), None)
         assert system_msg is not None
-        assert system_msg["content"] == "You are a helpful calculator assistant."
-        assert "Calculator" not in system_msg["content"]  # role not used
-        assert "Perform calculations" not in system_msg["content"]  # objective not used
+        assert system_msg.content == "You are a helpful calculator assistant."
+        assert "Calculator" not in (system_msg.content or "")  # role not used
+        assert "Perform calculations" not in (system_msg.content or "")  # objective not used
     
     @pytest.mark.asyncio
     async def test_role_objective_used_when_no_prompt(self, agent_without_prompt):
         """Test that role/objective are used when prompt is None."""
         task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
         
-        # Build messages
-        messages = agent_without_prompt._build_messages(task)
+        # Build messages (using MessageBuilder directly)
+        messages = MessageBuilder.build(
+            task, prompt=agent_without_prompt.prompt,
+            role=agent_without_prompt.role, objective=agent_without_prompt.objective,
+        )
         
         # Verify role/objective are used
         assert len(messages) >= 1
-        system_msg = next((m for m in messages if m.get("role") == "system"), None)
+        system_msg = next((m for m in messages if m.role == "system"), None)
         assert system_msg is not None
-        assert "Calculator" in system_msg["content"]
-        assert "Perform calculations" in system_msg["content"]
-        assert "You are a Calculator" in system_msg["content"]
+        assert "Calculator" in (system_msg.content or "")
+        assert "Perform calculations" in (system_msg.content or "")
+        assert "You are a Calculator" in (system_msg.content or "")
     
     @pytest.mark.asyncio
     async def test_prompt_overrides_role_objective_in_system_message(self, agent_with_prompt):
@@ -108,15 +116,18 @@ class TestAgentPromptPrecedence:
         assert agent_with_prompt.role == "Calculator"
         assert agent_with_prompt.objective == "Perform calculations"
         
-        messages = agent_with_prompt._build_messages(task)
+        messages = MessageBuilder.build(
+            task, prompt=agent_with_prompt.prompt,
+            role=agent_with_prompt.role, objective=agent_with_prompt.objective,
+        )
         
         # When prompt overrides: system message uses prompt.system, not role/objective
-        system_msg = next((m for m in messages if m.get("role") == "system"), None)
+        system_msg = next((m for m in messages if m.role == "system"), None)
         assert system_msg is not None
-        assert system_msg["content"] == "You are a helpful calculator assistant."
+        assert system_msg.content == "You are a helpful calculator assistant."
         # Role and objective from agent are overridden (not in system content)
-        assert "Calculator" not in system_msg["content"]
-        assert "Perform calculations" not in system_msg["content"]
+        assert "Calculator" not in (system_msg.content or "")
+        assert "Perform calculations" not in (system_msg.content or "")
     
     @pytest.mark.asyncio
     async def test_no_warning_when_no_role_objective(self, mock_llm, caplog):
@@ -136,7 +147,10 @@ class TestAgentPromptPrecedence:
         task = Task.from_dict({"id": "task1", "objective": "Test"})
         
         with caplog.at_level(logging.INFO):
-            messages = agent._build_messages(task)
+            messages = MessageBuilder.build(
+                task, prompt=agent.prompt,
+                role=agent.role, objective=agent.objective,
+            )
         
         # Verify no warning was logged
         assert not any("overriding" in record.message.lower() for record in caplog.records)
@@ -146,8 +160,8 @@ class TestAgentPromptPrecedence:
         """Test that role/objective are still used for planning context."""
         task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
         
-        # Get context (used for planning)
-        context = await agent_with_prompt._get_context(task)
+        # Get context (used for planning) — via Planner directly
+        context = await Planner(agent_with_prompt).get_context(task)
         
         # Verify role/objective are in context
         assert context["agent_role"] == "Calculator"
@@ -158,14 +172,17 @@ class TestAgentPromptPrecedence:
         """Test that prompt.user is included in messages when provided."""
         task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
         
-        messages = agent_with_prompt._build_messages(task)
+        messages = MessageBuilder.build(
+            task, prompt=agent_with_prompt.prompt,
+            role=agent_with_prompt.role, objective=agent_with_prompt.objective,
+        )
         
         # Find user messages
-        user_messages = [m for m in messages if m.get("role") == "user"]
+        user_messages = [m for m in messages if m.role == "user"]
         
         # Verify prompt.user is included
         assert len(user_messages) >= 1
-        assert any("Answer questions accurately" in m["content"] for m in user_messages)
+        assert any("Answer questions accurately" in (m.content or "") for m in user_messages)
     
     @pytest.mark.asyncio
     async def test_prompt_without_system_falls_back_to_role(self, mock_llm):
@@ -198,16 +215,19 @@ class TestAgentPromptPrecedence:
         )
         
         task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
-        messages = agent._build_messages(task)
+        messages = MessageBuilder.build(
+            task, prompt=agent.prompt,
+            role=agent.role, objective=agent.objective,
+        )
         
         # Current implementation: if prompt exists but system is None/empty,
         # it won't add system message, but also won't fall back to role/objective
         # This is expected behavior - prompt takes precedence even if system is None
         # So we just verify that no system message is added when prompt.system is None
-        system_msg = next((m for m in messages if m.get("role") == "system"), None)
+        system_msg = next((m for m in messages if m.role == "system"), None)
         # If prompt.system is None, no system message is added (current behavior)
         # This test documents the current behavior
-        assert system_msg is None or "Calculator" not in system_msg.get("content", "")
+        assert system_msg is None or "Calculator" not in (system_msg.content or "")
     
     @pytest.mark.asyncio
     async def test_narrative_optional(self, mock_llm):

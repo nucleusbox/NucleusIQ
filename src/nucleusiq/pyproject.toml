@@ -88,8 +88,12 @@ packages = [
     "nucleusiq.agents.builder",
     "nucleusiq.agents.components",
     "nucleusiq.agents.config",
+    "nucleusiq.agents.messaging",
+    "nucleusiq.agents.modes",
+    "nucleusiq.agents.planning",
     "nucleusiq.agents.structured_output",
     "nucleusiq.llms",
+    "nucleusiq.memory",
     "nucleusiq.tools",
     "nucleusiq.prompts",
     "nucleusiq.utilities",
@@ -121,7 +125,7 @@ docstring-code-format = true
 # Pytest
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
-addopts = "--strict-markers --strict-config -vv"
+addopts = "--strict-markers --strict-config -vv --import-mode=importlib"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

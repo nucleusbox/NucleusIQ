@@ -311,14 +311,12 @@ async def test_autonomous_mode():
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=True,
-            enable_memory=True,  # Memory enabled for autonomous mode
             max_iterations=10
         )
     )
     
     logger.info(f"✅ Agent created: {agent.name}")
     logger.info(f"   Execution Mode: {agent.config.execution_mode.value}")
-    logger.info(f"   Memory: {'Enabled' if agent.config.enable_memory else 'Disabled'}")
     logger.info(f"   Max Iterations: {agent.config.max_iterations}")
     logger.info(f"   ⚠️  Note: Currently falls back to STANDARD mode")
     

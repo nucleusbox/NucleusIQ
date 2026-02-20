@@ -62,7 +62,7 @@ class BaseLLM(BaseLanguageModel, ABC):
         self,
         *,
         model: str,
-        messages: List[Dict[str, Any]], # change to pydentic model
+        messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[Any] = None,
         max_tokens: int = 150,
@@ -70,7 +70,8 @@ class BaseLLM(BaseLanguageModel, ABC):
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
-        stop: Optional[List[str]] = None
+        stop: Optional[List[str]] = None,
+        **kwargs: Any,
     ) -> Any:
         """
         Sends messages (and optional function specs) to the model and returns
@@ -78,6 +79,9 @@ class BaseLLM(BaseLanguageModel, ABC):
         `.message` attribute with:
           - `.content` (str) for normal completions,
           - or `.function_call` (dict) when the model decides to call a function.
+
+        Provider-specific parameters (from ``LLMParams`` subclasses) are
+        forwarded via ``**kwargs``.
         """
         raise NotImplementedError
 

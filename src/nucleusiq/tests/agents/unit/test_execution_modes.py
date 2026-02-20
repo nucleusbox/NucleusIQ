@@ -393,8 +393,11 @@ class TestModeRouting:
         
         await agent.initialize()
         
-        # Mock _run_direct to verify it's called
-        with patch.object(agent, '_run_direct', new_callable=AsyncMock) as mock_direct:
+        # Mock DirectMode.run to verify it's called via mode registry
+        with patch(
+            'nucleusiq.agents.modes.direct_mode.DirectMode.run',
+            new_callable=AsyncMock,
+        ) as mock_direct:
             mock_direct.return_value = "Direct result"
             
             task = Task(id="task1", objective="Test")
@@ -420,8 +423,11 @@ class TestModeRouting:
         
         await agent.initialize()
         
-        # Mock _run_standard to verify it's called
-        with patch.object(agent, '_run_standard', new_callable=AsyncMock) as mock_standard:
+        # Mock StandardMode.run to verify it's called via mode registry
+        with patch(
+            'nucleusiq.agents.modes.standard_mode.StandardMode.run',
+            new_callable=AsyncMock,
+        ) as mock_standard:
             mock_standard.return_value = "Standard result"
             
             task = Task(id="task1", objective="Test")
@@ -432,7 +438,7 @@ class TestModeRouting:
     
     @pytest.mark.asyncio
     async def test_mode_routing_autonomous(self):
-        """Test routing to autonomous mode calls _run_autonomous."""
+        """Test routing to autonomous mode calls AutonomousMode."""
         llm = MockLLM()
         agent = Agent(
             name="TestAgent",
@@ -447,8 +453,11 @@ class TestModeRouting:
         
         await agent.initialize()
         
-        # Mock _run_autonomous to verify routing (autonomous mode is now implemented)
-        with patch.object(agent, '_run_autonomous', new_callable=AsyncMock) as mock_autonomous:
+        # Mock AutonomousMode.run to verify routing via mode registry
+        with patch(
+            'nucleusiq.agents.modes.autonomous_mode.AutonomousMode.run',
+            new_callable=AsyncMock,
+        ) as mock_autonomous:
             mock_autonomous.return_value = "Autonomous result"
             
             task = Task(id="task1", objective="Test")

@@ -29,6 +29,9 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.plan import Plan, PlanStep, PlanResponse, PlanStepResponse
+from nucleusiq.agents.messaging.message_builder import MessageBuilder
+from nucleusiq.agents.planning.planner import Planner
+from nucleusiq.agents.planning.plan_parser import PlanParser
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.tools import BaseTool
 from nucleusiq.llms.mock_llm import MockLLM
@@ -347,7 +350,7 @@ class TestPlanExecutionCoverage:
         plan = Plan(task=task, steps=[
             PlanStep(step=1, action="execute", task=task),
         ])
-        result = await agent._execute_plan(task, plan)
+        result = await Planner(agent).execute_plan(task, plan)
         assert result is not None
         assert agent.state == AgentState.COMPLETED
 
@@ -368,7 +371,7 @@ class TestPlanExecutionCoverage:
         plan = Plan(task=task, steps=[
             PlanStep(step=1, action="add", args={"a": 10, "b": 20}, task=task),
         ])
-        result = await agent._execute_plan(task, plan)
+        result = await Planner(agent).execute_plan(task, plan)
         assert result == 30
         assert agent.state == AgentState.COMPLETED
 
@@ -391,7 +394,7 @@ class TestPlanExecutionCoverage:
             PlanStep(step=1, action="add", args={"a": 5, "b": 3}),
             PlanStep(step=2, action="multiply", args={"a": "$step_1", "b": 2}),
         ])
-        result = await agent._execute_plan(task, plan)
+        result = await Planner(agent).execute_plan(task, plan)
         assert result == 16
         assert agent.state == AgentState.COMPLETED
 
@@ -411,7 +414,7 @@ class TestPlanExecutionCoverage:
         plan = Plan(task=task, steps=[
             PlanStep(step=1, action="unknown_action", args={}),
         ])
-        result = await agent._execute_plan(task, plan)
+        result = await Planner(agent).execute_plan(task, plan)
         assert "Skipped unknown action" in str(result)
         assert agent.state == AgentState.COMPLETED
 
@@ -428,7 +431,7 @@ class TestPlanExecutionCoverage:
         await agent.initialize()
         task = {"id": "t1", "objective": "Test"}
         plan_list = [{"step": 1, "action": "execute", "task": task}]
-        result = await agent._execute_plan(task, plan_list)
+        result = await Planner(agent).execute_plan(task, plan_list)
         assert result is not None
 
 
@@ -465,7 +468,7 @@ class TestPlanningCoverage:
         )
         await agent.initialize()
         task = {"id": "t1", "objective": "Test"}
-        plan = await agent._create_basic_plan(task)
+        plan = await agent.plan(task)
         assert len(plan) == 1
         assert plan.steps[0].action == "execute"
 
@@ -480,7 +483,7 @@ class TestPlanningCoverage:
         )
         await agent.initialize()
         task = {"id": "t1", "objective": "5+3"}
-        context = await agent._get_context(task)
+        context = await Planner(agent).get_context(task)
         assert "task" in context
         assert context["agent_role"] == "Calculator"
         assert context["agent_objective"] == "Math"
@@ -497,7 +500,7 @@ class TestPlanningCoverage:
         )
         await agent.initialize()
         task = Task(id="t1", objective="Test")
-        context = await agent._get_context(task)
+        context = await Planner(agent).get_context(task)
         assert context["task"]["id"] == "t1"
         assert context["task"]["objective"] == "Test"
 
@@ -520,10 +523,12 @@ class TestMessageBuildingCoverage:
         )
         await agent.initialize()
         task = Task(id="t1", objective="Hello")
-        messages = agent._build_messages(task)
-        assert any(m.get("role") == "system" for m in messages)
-        assert any("Assistant" in m.get("content", "") for m in messages)
-        assert any("Hello" in m.get("content", "") for m in messages)
+        messages = MessageBuilder.build(
+            task, prompt=agent.prompt, role=agent.role, objective=agent.objective,
+        )
+        assert any(m.role == "system" for m in messages)
+        assert any("Assistant" in (m.content or "") for m in messages)
+        assert any("Hello" in (m.content or "") for m in messages)
 
     @pytest.mark.asyncio
     async def test_build_messages_with_plan_multi_step(self):
@@ -540,8 +545,10 @@ class TestMessageBuildingCoverage:
             PlanStep(step=1, action="a"),
             PlanStep(step=2, action="b"),
         ])
-        messages = agent._build_messages(task, plan)
-        assert any("Execution Plan" in m.get("content", "") for m in messages)
+        messages = MessageBuilder.build(
+            task, plan, prompt=agent.prompt, role=agent.role, objective=agent.objective,
+        )
+        assert any("Execution Plan" in (m.content or "") for m in messages)
 
     @pytest.mark.asyncio
     async def test_format_plan(self):
@@ -560,7 +567,7 @@ class TestMessageBuildingCoverage:
                 PlanStep(step=2, action="verify", details="Step 2"),
             ],
         )
-        formatted = agent._format_plan(plan)
+        formatted = MessageBuilder.format_plan(plan)
         assert "Step 1" in formatted
         assert "execute" in formatted
         assert "Step 2" in formatted
@@ -574,42 +581,24 @@ class TestMessageBuildingCoverage:
 
 class TestPlanParsingCoverage:
     def test_parse_plan_response_json(self):
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=None,
-            config=AgentConfig(verbose=False),
-        )
+        parser = PlanParser()
         response = '{"steps": [{"step": 1, "action": "add", "args": {"a": 1, "b": 2}, "details": "Add"}]}'
-        plan_resp = agent._parse_plan_response(response)
+        plan_resp = parser.parse(response)
         assert len(plan_resp.steps) == 1
         assert plan_resp.steps[0].action == "add"
         assert plan_resp.steps[0].args == {"a": 1, "b": 2}
 
     def test_parse_plan_response_markdown_json(self):
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=None,
-            config=AgentConfig(verbose=False),
-        )
+        parser = PlanParser()
         response = '```json\n{"steps": [{"step": 1, "action": "execute", "args": {}, "details": ""}]}\n```'
-        plan_resp = agent._parse_plan_response(response)
+        plan_resp = parser.parse(response)
         assert len(plan_resp.steps) == 1
         assert plan_resp.steps[0].action == "execute"
 
     def test_parse_plan_response_fallback_text(self):
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=None,
-            config=AgentConfig(verbose=False),
-        )
+        parser = PlanParser()
         response = "Step 1: add numbers\n  Use calculator\nStep 2: verify"
-        plan_resp = agent._parse_plan_response(response)
+        plan_resp = parser.parse(response)
         assert len(plan_resp.steps) >= 1
         assert plan_resp.steps[0].step == 1
 
@@ -766,28 +755,13 @@ class TestHelperMethodsCoverage:
         with pytest.raises(ValueError, match="Tool not found"):
             await agent._execute_tool("nonexistent", {})
 
-    @pytest.mark.asyncio
-    async def test_get_plan_schema(self):
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=None,
-            config=AgentConfig(verbose=False),
-        )
-        schema = agent._get_plan_schema()
+    def test_get_plan_schema(self):
+        schema = Planner.get_plan_schema()
         assert "steps" in schema.get("properties", {})
         assert "required" in schema
 
     def test_get_plan_function_spec(self):
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=None,
-            config=AgentConfig(verbose=False),
-        )
-        spec = agent._get_plan_function_spec()
+        spec = Planner.get_plan_function_spec()
         assert "function" in spec
         assert spec["function"]["name"] == "create_plan"
 
@@ -879,7 +853,7 @@ class TestStepFailureCoverage:
         plan = Plan(task=task, steps=[
             PlanStep(step=1, action="add", args={}),  # Missing a, b
         ])
-        result = await agent._execute_plan(task, plan)
+        result = await Planner(agent).execute_plan(task, plan)
         assert "Error:" in str(result)
         assert agent.state == AgentState.ERROR
 
@@ -932,15 +906,18 @@ class TestStructuredOutputCoverage:
 
 class TestDeprecatedCoverage:
     @pytest.mark.asyncio
-    async def test_execute_direct_deprecated(self):
+    async def test_standard_mode_execution(self):
+        """Test that standard mode execution works (replaces deprecated _execute_direct)."""
+        from nucleusiq.agents.modes.standard_mode import StandardMode
+
         llm = MockLLM()
         agent = Agent(
             name="Test",
             role="A",
             objective="B",
             llm=llm,
-            config=AgentConfig(verbose=False),
+            config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
         )
         await agent.initialize()
-        result = await agent._execute_direct(Task(id="t1", objective="Hi"))
+        result = await StandardMode().run(agent, Task(id="t1", objective="Hi"))
         assert result is not None

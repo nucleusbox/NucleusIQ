@@ -159,7 +159,7 @@ async def demonstrate_gear_selection():
         tools=tools,
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,  # Gear 3
-            enable_memory=True,
+
             max_iterations=10,
             verbose=False
         )

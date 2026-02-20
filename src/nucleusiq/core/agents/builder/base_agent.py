@@ -13,6 +13,7 @@ from nucleusiq.agents.task import Task
 from nucleusiq.agents.plan import Plan
 from nucleusiq.prompts.base import BasePrompt
 from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.memory.base import BaseMemory
 
 class BaseAgent(ABC, BaseModel):
     """
@@ -60,7 +61,7 @@ class BaseAgent(ABC, BaseModel):
     metrics: AgentMetrics = Field(default_factory=AgentMetrics)
     
     # Components
-    memory: Optional[Any] = Field(default=None)
+    memory: Optional[BaseMemory] = Field(default=None)
     prompt: Optional[BasePrompt] = Field(default=None)
 
     # Tooling
