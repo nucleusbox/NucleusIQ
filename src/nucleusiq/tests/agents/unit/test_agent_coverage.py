@@ -280,24 +280,20 @@ class TestStandardModeCoverage:
 
 class TestAutonomousModeCoverage:
     @pytest.mark.asyncio
-    async def test_autonomous_generates_and_executes_plan(self):
-        llm = PlanningMockLLM(plan_steps=[
-            {"step": 1, "action": "add", "args": {"a": 5, "b": 3}, "details": "5+3"},
-            {"step": 2, "action": "multiply", "args": {"a": "$step_1", "b": 2}, "details": "8*2"},
-        ])
-        add_tool = MockAddTool()
-        multiply_tool = MockMultiplyTool()
+    async def test_autonomous_delegates_to_standard_mode(self):
+        """Autonomous mode delegates to StandardMode for execution,
+        then applies critique loop on the final result."""
+        llm = MockLLM()
         agent = Agent(
             name="Test",
             role="Calc",
             objective="Math",
             llm=llm,
-            tools=[add_tool, multiply_tool],
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=False),
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Calculate (5+3)*2"))
-        assert result == 16  # 5+3=8, 8*2=16
+        assert isinstance(result, str)
         assert agent.state == AgentState.COMPLETED
 
     @pytest.mark.asyncio

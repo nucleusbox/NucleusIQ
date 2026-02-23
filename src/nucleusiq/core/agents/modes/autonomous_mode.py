@@ -1,180 +1,251 @@
 """
-AutonomousMode — Gear 3: Full reasoning loop with planning and self-correction.
+AutonomousMode — Gear 3: Structured orchestration over Standard mode.
 
-Logic: Input → Plan → Execute Plan → Self-Correct → Result
+Adds capabilities Standard mode cannot provide alone:
+- **Parallel execution** via isolated sub-agents (for independent sub-tasks)
+- **Plugin-based validation** with structured retry
+- **Progress tracking** per step
+- **Context curation** — each sub-agent sees only what it needs
 
-Use Cases: Complex multi-step tasks, research, analysis, problem-solving
+Task routing (via Decomposer's 3-gate checklist):
 
-Characteristics:
-- Automatic planning (calls plan() internally)
-- Multi-step execution following the plan
-- Context building across steps
-- Self-correction capabilities (future enhancement)
-- Memory enabled for context retention
-- Iterative refinement (future enhancement)
+**Simple tasks** → Standard mode + validate + retry
+**Parallel tasks** → Decompose → parallel Standard agents → synthesize + validate + retry
+
+Validation pipeline (3 layers, short-circuits on failure):
+    Layer 1: Tool output checks (free, deterministic)
+    Layer 2: Plugin validators (user-provided, via existing plugin system)
+    Layer 3: LLM review (opt-in only)
 """
 
-import asyncio
-from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
+from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.agents.task import Task
-from nucleusiq.agents.config.agent_config import AgentState
-from nucleusiq.agents.planning.planner import Planner
+from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
+from nucleusiq.agents.chat_models import ChatMessage
+from nucleusiq.agents.components.decomposer import Decomposer, TaskAnalysis
+from nucleusiq.agents.components.validation import ValidationPipeline, ValidationResult
+from nucleusiq.agents.components.progress import ExecutionProgress, StepRecord
+from nucleusiq.plugins.errors import PluginHalt
 
 
 class AutonomousMode(BaseExecutionMode):
-    """Gear 3: Autonomous mode — planning + execution loop."""
+    """Gear 3: Autonomous mode — structured orchestration over Standard mode.
 
-    def __init__(
-        self,
-        fallback_mode: Optional[BaseExecutionMode] = None,
-    ) -> None:
-        self._fallback = fallback_mode
+    For simple tasks: runs Standard mode directly, validates, retries if needed.
+    For parallel tasks: decomposes, runs sub-agents in parallel, synthesizes.
+    All paths: external validation (tool checks + plugins) with structured retry.
+    """
 
-    def _get_fallback(self) -> BaseExecutionMode:
-        if self._fallback is not None:
-            return self._fallback
-        from nucleusiq.agents.modes.standard_mode import StandardMode
-        return StandardMode()
+    async def run(self, agent: "Agent", task: Any) -> Any:
+        if isinstance(task, dict):
+            task = Task.from_dict(task)
 
-    async def run(self, agent: "Agent", task: Task) -> Any:
-        """Execute a task with automatic planning and multi-step execution."""
-        agent._logger.debug(
-            "Executing in AUTONOMOUS mode (planning + execution)"
-        )
-        agent.state = AgentState.PLANNING
+        agent._logger.debug("Executing in AUTONOMOUS mode")
 
-        # Check if LLM is available (required for planning)
         if not agent.llm:
-            agent._logger.warning(
-                "No LLM configured for autonomous mode, "
-                "falling back to standard mode"
-            )
-            return await self._get_fallback().run(agent, task)
+            agent._logger.warning("No LLM — falling back to standard mode")
+            return await StandardMode().run(agent, task)
 
-        try:
-            # Step 1: Generate plan automatically
+        decomposer = Decomposer(logger=agent._logger)
+        analysis = await decomposer.analyze(agent, task)
+
+        if analysis.is_complex and len(analysis.sub_tasks) >= 2:
             agent._logger.info(
-                "Autonomous mode: Generating execution plan..."
+                "Task classified as COMPLEX (%d sub-tasks) — decomposing",
+                len(analysis.sub_tasks),
+            )
+            return await self._run_complex(agent, task, decomposer, analysis)
+
+        agent._logger.info("Task classified as SIMPLE — standard + validate")
+        return await self._run_simple(agent, task)
+
+    # ------------------------------------------------------------------ #
+    # Simple path: Standard mode + validate + retry                        #
+    # ------------------------------------------------------------------ #
+
+    async def _run_simple(self, agent: "Agent", task: Task) -> Any:
+        """Execute via Standard mode with validation and structured retry."""
+        max_retries = getattr(agent.config, "max_retries", 3)
+        validation = ValidationPipeline(logger=agent._logger)
+        progress = ExecutionProgress(task_id=task.id)
+        std_mode = StandardMode()
+
+        std_mode._ensure_executor(agent)
+        tool_specs = std_mode._get_tool_specs(agent)
+        messages = std_mode.build_messages(agent, task)
+
+        step = progress.add_step("execute", task.objective)
+
+        result = None
+        for attempt in range(max_retries):
+            label = "EXECUTE" if attempt == 0 else "RETRY"
+            agent._logger.info(
+                "Attempt %d/%d [%s]", attempt + 1, max_retries, label,
             )
 
-            # Get timeout from config
-            planning_timeout = getattr(
-                agent.config, "planning_timeout", 120
-            )
-            max_retries = getattr(agent.config, "max_retries", 3)
+            step.mark_executing()
+            agent.state = AgentState.EXECUTING
 
-            planner = Planner(agent)
-            context = await planner.get_context(task)
-
-            # Try LLM-based planning with timeout and retry
-            plan = None
-            last_error = None
-            for attempt in range(max_retries):
-                try:
-                    plan = await asyncio.wait_for(
-                        planner.create_plan(task, context),
-                        timeout=planning_timeout,
-                    )
-                    agent._logger.info(
-                        "Generated plan with %d steps using LLM", len(plan)
-                    )
-                    break
-                except asyncio.TimeoutError:
-                    last_error = (
-                        f"Planning timed out after {planning_timeout}s "
-                        f"(attempt {attempt + 1}/{max_retries})"
-                    )
-                    agent._logger.warning(last_error)
-                    if attempt < max_retries - 1:
-                        agent._logger.info(
-                            "Retrying planning (attempt %d/%d)...",
-                            attempt + 2,
-                            max_retries,
-                        )
-                        await asyncio.sleep(1)
-                except Exception as e:
-                    last_error = str(e)
-                    agent._logger.warning(
-                        "LLM planning failed (attempt %d): %s",
-                        attempt + 1,
-                        e,
-                    )
-                    break  # Don't retry on non-timeout errors
-
-            # Fallback to basic plan if LLM planning failed
-            if plan is None:
-                agent._logger.warning(
-                    "LLM planning failed after retries: %s. "
-                    "Falling back to basic plan.",
-                    last_error,
+            try:
+                result = await std_mode._tool_call_loop(
+                    agent, task, messages, tool_specs,
                 )
-                plan = await agent.plan(task)
+            except PluginHalt:
+                raise
+            except Exception as e:
+                step.mark_failed(str(e))
+                agent._logger.error("Execution error: %s", e)
+                agent.state = AgentState.ERROR
+                return f"Error: {e}"
 
-            # Log plan details
-            if len(plan.steps) > 1:
-                agent._logger.info("Multi-step plan generated:")
-                for step in plan.steps:
-                    agent._logger.debug(
-                        "  Step %d: %s%s",
-                        step.step,
-                        step.action,
-                        f" - {step.details}" if step.details else "",
-                    )
-            else:
-                agent._logger.debug("Single-step plan (direct execution)")
+            agent._last_messages = messages
 
-            # Step 2: Execute the plan
-            agent._logger.info("Autonomous mode: Executing plan...")
-            result = await planner.execute_plan(task, plan)
-
-            # Check if plan execution failed
-            if isinstance(result, str) and result.strip().startswith(
-                "Error:"
-            ):
-                # State was already set to ERROR by execute_plan
+            if self._is_error(result):
+                step.mark_failed(str(result))
+                agent.state = AgentState.COMPLETED
                 return result
 
-            # Step 3: Store in memory
-            if agent.memory:
-                try:
-                    await agent.memory.aadd_message("assistant", result)
-                except Exception as e:
-                    agent._logger.warning(
-                        "Failed to store in memory: %s", e
-                    )
+            vr = await validation.validate(agent, result, messages)
+            agent._logger.info(
+                "Attempt %d/%d [VALIDATE]: valid=%s layer=%s",
+                attempt + 1, max_retries, vr.valid, vr.layer,
+            )
 
-            # Step 4: Wrap result with structured output if configured
-            output_config = agent._resolve_response_format()
-            if output_config is not None:
-                # For AUTONOMOUS mode, the result is already computed by
-                # tool execution.  We wrap it in structured output format
-                # for consistency.
+            if vr.valid:
+                step.mark_completed(str(result))
                 agent.state = AgentState.COMPLETED
-                return {
-                    "output": result,
-                    "schema": (
-                        output_config.schema_name
-                        if hasattr(output_config, "schema_name")
-                        else "Result"
-                    ),
-                    "mode": "autonomous",
-                }
+                agent._execution_progress = progress
+                return result
 
-            agent.state = AgentState.COMPLETED
-            return result
+            if attempt < max_retries - 1:
+                agent._logger.info(
+                    "Validation failed: %s — retrying with error context",
+                    vr.reason,
+                )
+                retry_msg = self._build_retry_message(vr)
+                messages.append(ChatMessage(role="user", content=retry_msg))
 
-        except Exception as e:
-            agent._logger.error(
-                "Error during autonomous execution: %s", str(e)
+        step.mark_completed(str(result))
+        agent.state = AgentState.COMPLETED
+        agent._execution_progress = progress
+        return result
+
+    # ------------------------------------------------------------------ #
+    # Complex path: Decompose → Parallel → Synthesize + validate           #
+    # ------------------------------------------------------------------ #
+
+    async def _run_complex(
+        self,
+        agent: "Agent",
+        task: Task,
+        decomposer: Decomposer,
+        analysis: TaskAnalysis,
+    ) -> Any:
+        """Decomposition: parallel sub-agents → synthesize → validate → retry."""
+        max_sub = getattr(agent.config, "max_sub_agents", 5)
+        max_retries = getattr(agent.config, "max_retries", 3)
+        validation = ValidationPipeline(logger=agent._logger)
+        progress = ExecutionProgress(task_id=task.id)
+        std_mode = StandardMode()
+        std_mode._ensure_executor(agent)
+
+        # Step 1: Run sub-tasks in parallel
+        sub_step = progress.add_step("decompose", "Run parallel sub-tasks")
+        sub_step.mark_executing()
+
+        findings = await decomposer.run_sub_tasks(
+            parent=agent,
+            sub_tasks=analysis.sub_tasks,
+            max_sub_agents=max_sub,
+        )
+
+        sub_step.mark_completed(f"{len(findings)} findings collected")
+        agent._logger.info(
+            "Decomposition complete: %d findings collected", len(findings),
+        )
+
+        # Step 2: Synthesize with validation + retry
+        synth_step = progress.add_step("synthesize", "Combine findings")
+        synth_prompt = decomposer.build_synthesis_prompt(
+            task.objective, findings,
+        )
+        tool_specs = std_mode._get_tool_specs(agent)
+        messages = std_mode.build_messages(
+            agent, Task(id=f"{task.id}-synth", objective=synth_prompt),
+        )
+
+        result = None
+        for attempt in range(max_retries):
+            label = "SYNTHESIZE" if attempt == 0 else "RETRY"
+            agent._logger.info(
+                "Synthesis attempt %d/%d [%s]",
+                attempt + 1, max_retries, label,
             )
-            agent.state = AgentState.ERROR
-            # Fallback to standard mode on error
-            agent._logger.warning(
-                "Falling back to standard mode due to error"
+
+            synth_step.mark_executing()
+            agent.state = AgentState.EXECUTING
+
+            try:
+                result = await std_mode._tool_call_loop(
+                    agent, task, messages, tool_specs,
+                )
+            except PluginHalt:
+                raise
+            except Exception as e:
+                synth_step.mark_failed(str(e))
+                agent._logger.error("Synthesis error: %s", e)
+                agent.state = AgentState.ERROR
+                return f"Error: {e}"
+
+            agent._last_messages = messages
+
+            vr = await validation.validate(agent, result, messages)
+            agent._logger.info(
+                "Synthesis attempt %d/%d [VALIDATE]: valid=%s layer=%s",
+                attempt + 1, max_retries, vr.valid, vr.layer,
             )
-            return await self._get_fallback().run(agent, task)
+
+            if vr.valid:
+                synth_step.mark_completed(str(result))
+                agent.state = AgentState.COMPLETED
+                agent._execution_progress = progress
+                return result
+
+            if attempt < max_retries - 1:
+                agent._logger.info(
+                    "Synthesis validation failed: %s — retrying",
+                    vr.reason,
+                )
+                retry_msg = self._build_retry_message(vr)
+                messages.append(ChatMessage(role="user", content=retry_msg))
+
+        synth_step.mark_completed(str(result))
+        agent.state = AgentState.COMPLETED
+        agent._execution_progress = progress
+        return result
+
+    # ------------------------------------------------------------------ #
+    # Helpers                                                              #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _build_retry_message(vr: ValidationResult) -> str:
+        """Build a retry message from a validation failure."""
+        parts = [f"Your previous answer had an issue: {vr.reason}"]
+        if vr.details:
+            parts.append(f"Details: {'; '.join(vr.details)}")
+        parts.append("Please fix the issue and provide a corrected answer.")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _is_error(result: Any) -> bool:
+        return isinstance(result, str) and result.strip().startswith("Error:")

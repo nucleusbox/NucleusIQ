@@ -30,7 +30,7 @@ from nucleusiq.plugins.errors import PluginHalt
 class StandardMode(BaseExecutionMode):
     """Gear 2: Standard mode — tool-enabled, linear execution."""
 
-    _MAX_TOOL_CALLS = 10  # Prevent infinite loops
+    _DEFAULT_MAX_TOOL_CALLS = 50
 
     async def run(self, agent: "Agent", task: Task) -> Any:
         """Execute a task with tool-calling loop."""
@@ -54,9 +54,11 @@ class StandardMode(BaseExecutionMode):
         messages = self.build_messages(agent, task)
 
         try:
-            return await self._tool_call_loop(
+            result = await self._tool_call_loop(
                 agent, task, messages, tool_specs
             )
+            agent._last_messages = messages
+            return result
         except PluginHalt:
             raise
         except Exception as e:
@@ -97,7 +99,7 @@ class StandardMode(BaseExecutionMode):
         tool_call_count = 0
         empty_retries_remaining = 1
 
-        while tool_call_count < self._MAX_TOOL_CALLS:
+        while tool_call_count < self._DEFAULT_MAX_TOOL_CALLS:
             call_kwargs = self.build_call_kwargs(
                 agent, messages, tool_specs or None, max_tokens=2048
             )
@@ -157,10 +159,10 @@ class StandardMode(BaseExecutionMode):
             )
 
         agent._logger.warning(
-            "Maximum tool calls (%d) reached", self._MAX_TOOL_CALLS
+            "Maximum tool calls (%d) reached", self._DEFAULT_MAX_TOOL_CALLS
         )
         agent.state = AgentState.ERROR
-        return f"Error: Maximum tool calls ({self._MAX_TOOL_CALLS}) reached"
+        return f"Error: Maximum tool calls ({self._DEFAULT_MAX_TOOL_CALLS}) reached"
 
     # ------------------------------------------------------------------ #
     # Tool-call extraction helpers                                       #

@@ -1,14 +1,18 @@
 """
-Agent Components - Specialized sub-systems for agent execution.
+Agent Components — internal building blocks for execution modes.
 
-Components:
-- Executor: Handles tool selection, validation, and execution
-- Planner: Creates and manages execution plans (Week 2)
-- Critic: Reviews output quality and goal alignment (Week 2)
+Public API:
+- Executor: Tool selection, validation, and execution (used by Agent and modes)
+- ValidationPipeline: Layered validation for autonomous mode results
+- ProgressTracker: Step-by-step execution tracking
+
+Internal (used only by AutonomousMode — not part of the public API):
+- Decomposer: Task analysis, sub-agent orchestration, synthesis
+- Critic, Refiner: Legacy components (kept for backward compatibility)
 """
 
 from nucleusiq.agents.components.executor import Executor
 
-__all__ = ["Executor"]
-
-
+__all__ = [
+    "Executor",
+]

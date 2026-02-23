@@ -13,6 +13,7 @@ from nucleusiq.plugins.builtin.human_approval import (
 )
 from nucleusiq.plugins.builtin.context_window import ContextWindowPlugin
 from nucleusiq.plugins.builtin.tool_guard import ToolGuardPlugin
+from nucleusiq.plugins.builtin.result_validator import ResultValidatorPlugin
 
 __all__ = [
     "ModelCallLimitPlugin",
@@ -26,4 +27,5 @@ __all__ = [
     "PolicyApprovalHandler",
     "ContextWindowPlugin",
     "ToolGuardPlugin",
+    "ResultValidatorPlugin",
 ]

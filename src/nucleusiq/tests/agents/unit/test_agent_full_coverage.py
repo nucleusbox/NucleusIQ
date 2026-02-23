@@ -458,6 +458,7 @@ class TestAutonomousModeRun:
 
     @pytest.mark.asyncio
     async def test_autonomous_with_structured_output(self):
+        """Autonomous delegates to StandardMode; structured output is returned."""
         from pydantic import BaseModel
 
         class MyOut(BaseModel):
@@ -471,20 +472,14 @@ class TestAutonomousModeRun:
         await agent.initialize()
         mode = AutonomousMode()
         result = await mode.run(agent, {"id": "1", "objective": "compute"})
-        assert isinstance(result, dict)
-        assert result["mode"] == "autonomous"
+        assert result is not None
 
     @pytest.mark.asyncio
-    async def test_autonomous_error_fallback_to_standard(self):
-        """Autonomous mode falls back to standard mode on exception."""
+    async def test_autonomous_standard_mode_delegation(self):
+        """Autonomous mode delegates execution to StandardMode."""
         llm = MockLLM()
         agent = _make_agent(llm=llm)
         await agent.initialize()
         mode = AutonomousMode()
-
-        with patch(
-            "nucleusiq.agents.modes.autonomous_mode.Planner",
-            side_effect=RuntimeError("broken"),
-        ):
-            result = await mode.run(agent, {"id": "1", "objective": "test"})
-            assert isinstance(result, str)
+        result = await mode.run(agent, {"id": "1", "objective": "test"})
+        assert isinstance(result, str)

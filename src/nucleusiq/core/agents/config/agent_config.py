@@ -68,7 +68,7 @@ class AgentConfig(BaseModel):
         default=2048,
         description="Token budget for per-step tool-argument inference during plan execution."
     )
-    
+
     # Timeout settings (in seconds)
     planning_timeout: int = Field(
         default=120,
@@ -85,6 +85,29 @@ class AgentConfig(BaseModel):
     step_max_retries: int = Field(
         default=2,
         description="Maximum retries for a failed step before giving up (0 = no retries)."
+    )
+
+    # Autonomous mode
+    critique_rounds: int = Field(
+        default=3,
+        description=(
+            "[DEPRECATED] Use max_retries instead. Kept for backward compatibility. "
+            "In the new architecture, max_retries controls validation retry cycles."
+        ),
+    )
+    max_sub_agents: int = Field(
+        default=5,
+        description=(
+            "Maximum parallel sub-agents for complex task decomposition "
+            "in autonomous mode."
+        ),
+    )
+    llm_review: bool = Field(
+        default=False,
+        description=(
+            "Enable LLM-based review as validation Layer 3 (autonomous mode). "
+            "Off by default — use plugin validators for reliable external checks."
+        ),
     )
 
     # Type-safe LLM parameter overrides for this agent.

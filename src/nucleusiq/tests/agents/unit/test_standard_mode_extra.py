@@ -119,7 +119,7 @@ class TestToolCallProcessing:
         await agent.initialize()
 
         mode = StandardMode()
-        mode._MAX_TOOL_CALLS = 2
+        mode._DEFAULT_MAX_TOOL_CALLS = 2
         result = await mode.run(agent, {"id": "1", "objective": "x"})
         assert "Maximum tool calls" in result
 
