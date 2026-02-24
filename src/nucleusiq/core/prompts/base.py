@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-import sys
 from typing import Any, Callable, Dict, List, Type, TypeVar
 
 if sys.version_info >= (3, 11):

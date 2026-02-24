@@ -26,7 +26,7 @@ ignore = [
 ]
 
 [lint.extend-per-file-ignores]
-"tests/**/*.py" = [
+"**/tests/**/*.py" = [
     "S101",    # assert allowed in tests
     "F841",    # unused variable — common in test assertions
     "B017",    # assert-raises-exception — acceptable in tests
