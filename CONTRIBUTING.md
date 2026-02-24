@@ -44,10 +44,21 @@ uv sync          # or: pip install -e ".[dev]"
 We use **GitHub Flow** -- simple and trunk-based.
 
 ```
-main        ── single source of truth, always releasable
-feature/*   ── new features (branch from main, PR into main)
-fix/*       ── bug fixes (branch from main, PR into main)
+main                           ── single source of truth, always releasable
+username/short-description     ── your working branch (PR into main)
 ```
+
+### Branch naming
+
+Use `username/short-description` format so it's clear who owns the branch:
+
+```
+brijesh/streaming-support
+brijesh/fix-validation-bug
+alice/add-gemini-provider
+```
+
+For release prep, use `release/vX.Y.Z` (e.g., `release/v0.2.0`).
 
 ### Workflow
 
@@ -56,7 +67,7 @@ fix/*       ── bug fixes (branch from main, PR into main)
    ```bash
    git checkout main
    git pull origin main
-   git checkout -b feature/my-feature
+   git checkout -b yourname/my-feature
    ```
 3. Make your changes
 4. Push and **open a PR into `main`**

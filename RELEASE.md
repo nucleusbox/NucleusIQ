@@ -5,10 +5,20 @@
 We use **GitHub Flow** -- a simple, trunk-based model used by most major open-source projects (Google ADK, LangChain, etc.).
 
 ```
-main          --- single source of truth, always releasable
-feature/*     --- new features (branch from main, PR into main)
-fix/*         --- bug fixes (branch from main, PR into main)
-release/*     --- release prep (branch from main, PR into main)
+main                           --- single source of truth, always releasable
+username/short-description     --- working branches (PR into main)
+release/vX.Y.Z                --- release prep (PR into main)
+```
+
+### Branch naming
+
+Use `username/short-description` so it's clear who owns the branch:
+
+```
+brijesh/streaming-support
+brijesh/fix-validation-bug
+alice/add-gemini-provider
+release/v0.2.0
 ```
 
 ### Rules
@@ -16,8 +26,7 @@ release/*     --- release prep (branch from main, PR into main)
 | Branch | Merge via | Protected |
 |--------|-----------|-----------|
 | `main` | PR with CI checks passing | Yes |
-| `feature/*` | PR into `main` | No |
-| `fix/*` | PR into `main` | No |
+| `username/*` | PR into `main` | No |
 | `release/*` | PR into `main` | No |
 
 Maintainers can push directly to `main` for small fixes. External contributors must use PRs.
@@ -28,10 +37,10 @@ Maintainers can push directly to `main` for small fixes. External contributors m
 ```bash
 git checkout main
 git pull origin main
-git checkout -b feature/streaming-support
+git checkout -b yourname/streaming-support
 # ... work ...
-git push -u origin feature/streaming-support
-# Open PR: feature/streaming-support -> main
+git push -u origin yourname/streaming-support
+# Open PR -> main
 ```
 
 **Prepare a release:**
@@ -41,7 +50,7 @@ git pull origin main
 git checkout -b release/v0.2.0
 # Bump versions, update changelog
 git push -u origin release/v0.2.0
-# Open PR: release/v0.2.0 -> main
+# Open PR -> main
 # After merge: create GitHub Release with tag v0.2.0
 ```
 
