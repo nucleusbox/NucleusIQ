@@ -22,25 +22,25 @@ Structured Output Support::
     response = await llm.call(
         model="gpt-4o",
         messages=[...],
-        response_format=MyPydanticModel  # Returns validated MyPydanticModel instance
+        response_format=MyPydanticModel,  # Returns validated MyPydanticModel instance
     )
 """
 
 from __future__ import annotations
 
-import os
 import asyncio
-import time
-import logging
-import httpx
-import json
 import dataclasses
-from typing import Any, Dict, List, Optional, Type, Union, get_type_hints
+import json
+import logging
+import os
+import time
+from typing import Any, Dict, List, Type, get_type_hints
 
-from pydantic import BaseModel
+import httpx
 import openai
-
 from nucleusiq.llms.base_llm import BaseLLM
+from pydantic import BaseModel
+
 from nucleusiq_openai.tools.openai_tool import NATIVE_TOOL_TYPES
 
 logger = logging.getLogger(__name__)
@@ -50,8 +50,10 @@ logger = logging.getLogger(__name__)
 # Lightweight response wrappers — match BaseLLM contract                    #
 # ======================================================================== #
 
+
 class _Choice(BaseModel):
     """Minimal wrapper so we match BaseLLM expectation."""
+
     message: Dict[str, Any]
 
 
@@ -62,6 +64,7 @@ class _LLMResponse(BaseModel):
 # ======================================================================== #
 # BaseOpenAI                                                                #
 # ======================================================================== #
+
 
 class BaseOpenAI(BaseLLM):
     """
@@ -123,13 +126,13 @@ class BaseOpenAI(BaseLLM):
     def __init__(
         self,
         model_name: str = "gpt-3.5-turbo",
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        organization: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        organization: str | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
         temperature: float = 0.7,
-        logit_bias: Optional[Dict[str, float]] = None,
+        logit_bias: Dict[str, float] | None = None,
         async_mode: bool = True,
     ) -> None:
         """
@@ -159,7 +162,7 @@ class BaseOpenAI(BaseLLM):
         self._logger = logging.getLogger("BaseOpenAI")
 
         # Conversation continuity for Responses API (multi-turn tool loops)
-        self._last_response_id: Optional[str] = None
+        self._last_response_id: str | None = None
 
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY is required")
@@ -189,6 +192,7 @@ class BaseOpenAI(BaseLLM):
     def estimate_tokens(self, text: str) -> int:
         """Estimate the number of tokens in a text string."""
         import tiktoken
+
         enc = tiktoken.encoding_for_model(self.model_name)
         return len(enc.encode(text))
 
@@ -220,33 +224,33 @@ class BaseOpenAI(BaseLLM):
         *,
         model: str,
         messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[Any] = None,
+        tools: List[Dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
         max_tokens: int = 1024,
         temperature: float | None = None,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
-        stop: Optional[List[str]] = None,
+        stop: List[str] | None = None,
         stream: bool = False,
-        response_format: Optional[Union[Type[BaseModel], Type, Dict[str, Any]]] = None,
+        response_format: Type[BaseModel] | Type | Dict[str, Any] | None = None,
         # --- New params (passed via LLMParams / AgentConfig / per-execute) ---
-        seed: Optional[int] = None,
-        n: Optional[int] = None,
-        reasoning_effort: Optional[str] = None,
-        service_tier: Optional[str] = None,
-        logprobs: Optional[bool] = None,
-        top_logprobs: Optional[int] = None,
-        parallel_tool_calls: Optional[bool] = None,
-        modalities: Optional[List[str]] = None,
-        audio: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, str]] = None,
-        store: Optional[bool] = None,
-        truncation: Optional[str] = None,
-        max_tool_calls: Optional[int] = None,
-        safety_identifier: Optional[str] = None,
-        prompt_cache_key: Optional[str] = None,
-        prompt_cache_retention: Optional[str] = None,
+        seed: int | None = None,
+        n: int | None = None,
+        reasoning_effort: str | None = None,
+        service_tier: str | None = None,
+        logprobs: bool | None = None,
+        top_logprobs: int | None = None,
+        parallel_tool_calls: bool | None = None,
+        modalities: List[str] | None = None,
+        audio: Dict[str, Any] | None = None,
+        metadata: Dict[str, str] | None = None,
+        store: bool | None = None,
+        truncation: str | None = None,
+        max_tool_calls: int | None = None,
+        safety_identifier: str | None = None,
+        prompt_cache_key: str | None = None,
+        prompt_cache_retention: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """
@@ -312,11 +316,19 @@ class BaseOpenAI(BaseLLM):
         # ---- 1b. Collect extra params (from LLMParams merge chain) ----
         extra: Dict[str, Any] = {}
         for _key, _val in [
-            ("seed", seed), ("n", n), ("reasoning_effort", reasoning_effort),
-            ("service_tier", service_tier), ("logprobs", logprobs),
-            ("top_logprobs", top_logprobs), ("parallel_tool_calls", parallel_tool_calls),
-            ("modalities", modalities), ("audio", audio), ("metadata", metadata),
-            ("store", store), ("truncation", truncation), ("max_tool_calls", max_tool_calls),
+            ("seed", seed),
+            ("n", n),
+            ("reasoning_effort", reasoning_effort),
+            ("service_tier", service_tier),
+            ("logprobs", logprobs),
+            ("top_logprobs", top_logprobs),
+            ("parallel_tool_calls", parallel_tool_calls),
+            ("modalities", modalities),
+            ("audio", audio),
+            ("metadata", metadata),
+            ("store", store),
+            ("truncation", truncation),
+            ("max_tool_calls", max_tool_calls),
             ("safety_identifier", safety_identifier),
             ("prompt_cache_key", prompt_cache_key),
             ("prompt_cache_retention", prompt_cache_retention),
@@ -374,16 +386,16 @@ class BaseOpenAI(BaseLLM):
         *,
         model: str,
         messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[Any] = None,
+        tools: List[Dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
         max_tokens: int = 1024,
         temperature: float | None = None,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
-        stop: Optional[List[str]] = None,
+        stop: List[str] | None = None,
         stream: bool = False,
-        response_format: Optional[Dict[str, Any]] = None,
+        response_format: Dict[str, Any] | None = None,
         **extra: Any,
     ) -> _LLMResponse:
         """
@@ -402,7 +414,9 @@ class BaseOpenAI(BaseLLM):
         if not self._is_strict_defaults_model(model):
             payload.update(
                 {
-                    "temperature": temperature if temperature is not None else self.temperature,
+                    "temperature": temperature
+                    if temperature is not None
+                    else self.temperature,
                     "top_p": top_p,
                     "frequency_penalty": frequency_penalty,
                     "presence_penalty": presence_penalty,
@@ -431,9 +445,19 @@ class BaseOpenAI(BaseLLM):
 
         # ---- New: pass through extra params from LLMParams ----
         _chat_keys = {
-            "seed", "n", "logprobs", "top_logprobs", "parallel_tool_calls",
-            "modalities", "audio", "metadata", "store", "service_tier",
-            "reasoning_effort", "safety_identifier", "prompt_cache_key",
+            "seed",
+            "n",
+            "logprobs",
+            "top_logprobs",
+            "parallel_tool_calls",
+            "modalities",
+            "audio",
+            "metadata",
+            "store",
+            "service_tier",
+            "reasoning_effort",
+            "safety_identifier",
+            "prompt_cache_key",
             "prompt_cache_retention",
         }
         for k, v in extra.items():
@@ -445,7 +469,9 @@ class BaseOpenAI(BaseLLM):
             try:
                 if self.async_mode:
                     if stream:
-                        async for chunk in self._client.chat.completions.create(**payload):
+                        async for chunk in self._client.chat.completions.create(
+                            **payload
+                        ):
                             first = chunk.choices[0].delta
                             return _LLMResponse(
                                 choices=[_Choice(message=first.model_dump())]
@@ -475,10 +501,18 @@ class BaseOpenAI(BaseLLM):
             except openai.RateLimitError as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    self._logger.error("Rate limit exceeded after %d retries: %s", self.max_retries, e)
+                    self._logger.error(
+                        "Rate limit exceeded after %d retries: %s", self.max_retries, e
+                    )
                     raise
-                backoff = 2 ** attempt
-                self._logger.warning("Rate limit hit (%s); retry %d/%d in %ds", e, attempt, self.max_retries, backoff)
+                backoff = 2**attempt
+                self._logger.warning(
+                    "Rate limit hit (%s); retry %d/%d in %ds",
+                    e,
+                    attempt,
+                    self.max_retries,
+                    backoff,
+                )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
                 else:
@@ -486,23 +520,35 @@ class BaseOpenAI(BaseLLM):
             except openai.APIConnectionError as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    self._logger.error("Connection error after %d retries: %s", self.max_retries, e)
+                    self._logger.error(
+                        "Connection error after %d retries: %s", self.max_retries, e
+                    )
                     raise
-                backoff = 2 ** attempt
-                self._logger.warning("Connection error (%s); retry %d/%d in %ds", e, attempt, self.max_retries, backoff)
+                backoff = 2**attempt
+                self._logger.warning(
+                    "Connection error (%s); retry %d/%d in %ds",
+                    e,
+                    attempt,
+                    self.max_retries,
+                    backoff,
+                )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
                 else:
                     time.sleep(backoff)
             except openai.AuthenticationError as e:
                 self._logger.error("Authentication failed: %s", e)
-                raise ValueError(f"Invalid API key or authentication failed: {e}") from e
+                raise ValueError(
+                    f"Invalid API key or authentication failed: {e}"
+                ) from e
             except openai.PermissionDeniedError as e:
                 self._logger.error("Permission denied: %s", e)
                 raise ValueError(f"Permission denied: {e}") from e
             except (openai.BadRequestError, openai.UnprocessableEntityError) as e:
                 if tool_choice is not None and "tool_choice" in payload:
-                    self._logger.warning("Invalid request (retrying without tool_choice): %s", e)
+                    self._logger.warning(
+                        "Invalid request (retrying without tool_choice): %s", e
+                    )
                     payload.pop("tool_choice", None)
                     tool_choice = None
                     continue
@@ -511,10 +557,18 @@ class BaseOpenAI(BaseLLM):
             except openai.APIError as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    self._logger.error("API error after %d retries: %s", self.max_retries, e)
+                    self._logger.error(
+                        "API error after %d retries: %s", self.max_retries, e
+                    )
                     raise
-                backoff = 2 ** attempt
-                self._logger.warning("API error (%s); retry %d/%d in %ds", e, attempt, self.max_retries, backoff)
+                backoff = 2**attempt
+                self._logger.warning(
+                    "API error (%s); retry %d/%d in %ds",
+                    e,
+                    attempt,
+                    self.max_retries,
+                    backoff,
+                )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
                 else:
@@ -522,16 +576,26 @@ class BaseOpenAI(BaseLLM):
             except httpx.HTTPError as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    self._logger.error("HTTP error after %d retries: %s", self.max_retries, e)
+                    self._logger.error(
+                        "HTTP error after %d retries: %s", self.max_retries, e
+                    )
                     raise
-                backoff = 2 ** attempt
-                self._logger.warning("HTTP error (%s); retry %d/%d in %ds", e, attempt, self.max_retries, backoff)
+                backoff = 2**attempt
+                self._logger.warning(
+                    "HTTP error (%s); retry %d/%d in %ds",
+                    e,
+                    attempt,
+                    self.max_retries,
+                    backoff,
+                )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
                 else:
                     time.sleep(backoff)
             except Exception as e:
-                self._logger.error("Unexpected error during OpenAI call: %s", e, exc_info=True)
+                self._logger.error(
+                    "Unexpected error during OpenAI call: %s", e, exc_info=True
+                )
                 raise
 
     # ================================================================== #
@@ -543,13 +607,13 @@ class BaseOpenAI(BaseLLM):
         *,
         model: str,
         messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[Any] = None,
+        tools: List[Dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
         max_tokens: int = 1024,
         temperature: float | None = None,
         top_p: float = 1.0,
         stream: bool = False,
-        response_format: Optional[Dict[str, Any]] = None,
+        response_format: Dict[str, Any] | None = None,
         **extra: Any,
     ) -> _LLMResponse:
         """
@@ -605,7 +669,9 @@ class BaseOpenAI(BaseLLM):
 
         # Sampling params
         if not self._is_strict_defaults_model(model):
-            effective_temp = temperature if temperature is not None else self.temperature
+            effective_temp = (
+                temperature if temperature is not None else self.temperature
+            )
             payload["temperature"] = effective_temp
             payload["top_p"] = top_p
 
@@ -625,9 +691,15 @@ class BaseOpenAI(BaseLLM):
 
         # ---- New: pass through extra params from LLMParams ----
         _resp_keys = {
-            "reasoning_effort", "service_tier", "metadata", "store",
-            "truncation", "max_tool_calls", "parallel_tool_calls",
-            "safety_identifier", "seed",
+            "reasoning_effort",
+            "service_tier",
+            "metadata",
+            "store",
+            "truncation",
+            "max_tool_calls",
+            "parallel_tool_calls",
+            "safety_identifier",
+            "seed",
         }
         # Responses API nests reasoning_effort under "reasoning" key
         if "reasoning_effort" in extra and extra["reasoning_effort"] is not None:
@@ -674,10 +746,18 @@ class BaseOpenAI(BaseLLM):
             except openai.RateLimitError as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    self._logger.error("Rate limit exceeded after %d retries: %s", self.max_retries, e)
+                    self._logger.error(
+                        "Rate limit exceeded after %d retries: %s", self.max_retries, e
+                    )
                     raise
-                backoff = 2 ** attempt
-                self._logger.warning("Rate limit hit (%s); retry %d/%d in %ds", e, attempt, self.max_retries, backoff)
+                backoff = 2**attempt
+                self._logger.warning(
+                    "Rate limit hit (%s); retry %d/%d in %ds",
+                    e,
+                    attempt,
+                    self.max_retries,
+                    backoff,
+                )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
                 else:
@@ -685,24 +765,36 @@ class BaseOpenAI(BaseLLM):
             except openai.APIConnectionError as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    self._logger.error("Connection error after %d retries: %s", self.max_retries, e)
+                    self._logger.error(
+                        "Connection error after %d retries: %s", self.max_retries, e
+                    )
                     raise
-                backoff = 2 ** attempt
-                self._logger.warning("Connection error (%s); retry %d/%d in %ds", e, attempt, self.max_retries, backoff)
+                backoff = 2**attempt
+                self._logger.warning(
+                    "Connection error (%s); retry %d/%d in %ds",
+                    e,
+                    attempt,
+                    self.max_retries,
+                    backoff,
+                )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
                 else:
                     time.sleep(backoff)
             except openai.AuthenticationError as e:
                 self._logger.error("Authentication failed: %s", e)
-                raise ValueError(f"Invalid API key or authentication failed: {e}") from e
+                raise ValueError(
+                    f"Invalid API key or authentication failed: {e}"
+                ) from e
             except openai.PermissionDeniedError as e:
                 self._logger.error("Permission denied: %s", e)
                 raise ValueError(f"Permission denied: {e}") from e
             except (openai.BadRequestError, openai.UnprocessableEntityError) as e:
                 # Retry once without tool_choice if the API rejects it
                 if tool_choice is not None and "tool_choice" in payload:
-                    self._logger.warning("Invalid request (retrying without tool_choice): %s", e)
+                    self._logger.warning(
+                        "Invalid request (retrying without tool_choice): %s", e
+                    )
                     payload.pop("tool_choice", None)
                     tool_choice = None
                     continue
@@ -711,10 +803,18 @@ class BaseOpenAI(BaseLLM):
             except openai.APIError as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    self._logger.error("API error after %d retries: %s", self.max_retries, e)
+                    self._logger.error(
+                        "API error after %d retries: %s", self.max_retries, e
+                    )
                     raise
-                backoff = 2 ** attempt
-                self._logger.warning("API error (%s); retry %d/%d in %ds", e, attempt, self.max_retries, backoff)
+                backoff = 2**attempt
+                self._logger.warning(
+                    "API error (%s); retry %d/%d in %ds",
+                    e,
+                    attempt,
+                    self.max_retries,
+                    backoff,
+                )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
                 else:
@@ -722,16 +822,26 @@ class BaseOpenAI(BaseLLM):
             except httpx.HTTPError as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    self._logger.error("HTTP error after %d retries: %s", self.max_retries, e)
+                    self._logger.error(
+                        "HTTP error after %d retries: %s", self.max_retries, e
+                    )
                     raise
-                backoff = 2 ** attempt
-                self._logger.warning("HTTP error (%s); retry %d/%d in %ds", e, attempt, self.max_retries, backoff)
+                backoff = 2**attempt
+                self._logger.warning(
+                    "HTTP error (%s); retry %d/%d in %ds",
+                    e,
+                    attempt,
+                    self.max_retries,
+                    backoff,
+                )
                 if self.async_mode:
                     await asyncio.sleep(backoff)
                 else:
                     time.sleep(backoff)
             except Exception as e:
-                self._logger.error("Unexpected error during Responses API call: %s", e, exc_info=True)
+                self._logger.error(
+                    "Unexpected error during Responses API call: %s", e, exc_info=True
+                )
                 raise
 
     # ================================================================== #
@@ -742,15 +852,15 @@ class BaseOpenAI(BaseLLM):
         self,
         *,
         model: str,
-        input: Union[str, List[Dict[str, Any]]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        instructions: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_output_tokens: Optional[int] = None,
-        previous_response_id: Optional[str] = None,
+        input: str | List[Dict[str, Any]],
+        tools: List[Dict[str, Any]] | None = None,
+        instructions: str | None = None,
+        temperature: float | None = None,
+        max_output_tokens: int | None = None,
+        previous_response_id: str | None = None,
         stream: bool = False,
-        include: Optional[List[str]] = None,
-        tool_choice: Optional[Any] = None,
+        include: List[str] | None = None,
+        tool_choice: Any | None = None,
         **kwargs: Any,
     ) -> Any:
         """
@@ -810,7 +920,7 @@ class BaseOpenAI(BaseLLM):
     # Routing helpers                                                     #
     # ================================================================== #
 
-    def _has_native_tools(self, tools: Optional[List[Dict[str, Any]]]) -> bool:
+    def _has_native_tools(self, tools: List[Dict[str, Any]] | None) -> bool:
         """
         Return ``True`` if *tools* contains at least one native OpenAI tool.
 
@@ -824,7 +934,11 @@ class BaseOpenAI(BaseLLM):
             if not isinstance(tool, dict):
                 continue
             tool_type = tool.get("type", "")
-            if tool_type and tool_type != "function" and tool_type in self.NATIVE_TOOL_TYPES:
+            if (
+                tool_type
+                and tool_type != "function"
+                and tool_type in self.NATIVE_TOOL_TYPES
+            ):
                 return True
         return False
 
@@ -835,7 +949,7 @@ class BaseOpenAI(BaseLLM):
     def _messages_to_responses_input(
         self,
         messages: List[Dict[str, Any]],
-    ) -> tuple[Optional[str], List[Dict[str, Any]]]:
+    ) -> tuple[str | None, List[Dict[str, Any]]]:
         """
         Convert Chat Completions ``messages`` to Responses API format.
 
@@ -851,7 +965,7 @@ class BaseOpenAI(BaseLLM):
         * ``tool`` messages → ``function_call_output`` items (for
           Responses API continuation after local tool execution).
         """
-        instructions: Optional[str] = None
+        instructions: str | None = None
         input_items: List[Dict[str, Any]] = []
 
         if self._last_response_id:
@@ -877,9 +991,13 @@ class BaseOpenAI(BaseLLM):
             if role == "system":
                 system_parts.append(str(content) if content else "")
             elif role == "user":
-                input_items.append({"role": "user", "content": str(content) if content else ""})
+                input_items.append(
+                    {"role": "user", "content": str(content) if content else ""}
+                )
             elif role == "assistant":
-                input_items.append({"role": "assistant", "content": str(content) if content else ""})
+                input_items.append(
+                    {"role": "assistant", "content": str(content) if content else ""}
+                )
             elif role == "tool":
                 # Tool results from a prior turn (unlikely on first call,
                 # but handled for completeness).
@@ -944,7 +1062,9 @@ class BaseOpenAI(BaseLLM):
                 # file_search_call, etc.) — keep as metadata.
                 try:
                     native_outputs.append(
-                        item.model_dump() if hasattr(item, "model_dump") else {"type": item_type}
+                        item.model_dump()
+                        if hasattr(item, "model_dump")
+                        else {"type": item_type}
                     )
                 except Exception:
                     native_outputs.append({"type": str(item_type)})
@@ -964,7 +1084,7 @@ class BaseOpenAI(BaseLLM):
     def _build_responses_text_config(
         self,
         response_format: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any] | None:
         """
         Convert a Chat Completions ``response_format`` dict into the
         Responses API ``text`` parameter.
@@ -1005,8 +1125,8 @@ class BaseOpenAI(BaseLLM):
 
     def _build_response_format(
         self,
-        schema: Union[Type[BaseModel], Type, Dict[str, Any]],
-    ) -> Optional[Dict[str, Any]]:
+        schema: Type[BaseModel] | Type | Dict[str, Any],
+    ) -> Dict[str, Any] | None:
         """
         Convert a schema type to OpenAI's response_format parameter.
 
@@ -1058,7 +1178,9 @@ class BaseOpenAI(BaseLLM):
                 },
             }
 
-        self._logger.warning("Unknown schema type: %s, skipping response_format", type(schema))
+        self._logger.warning(
+            "Unknown schema type: %s, skipping response_format", type(schema)
+        )
         return None
 
     def _clean_schema_for_openai(self, schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -1086,13 +1208,24 @@ class BaseOpenAI(BaseLLM):
 
         return schema
 
-    def _clean_property(self, prop: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+    def _clean_property(
+        self, prop: Dict[str, Any], defs: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Clean a property schema recursively."""
         import copy
 
         prop = copy.deepcopy(prop)
-        for key in ("title", "default", "description", "minimum", "maximum",
-                     "minLength", "maxLength", "ge", "le"):
+        for key in (
+            "title",
+            "default",
+            "description",
+            "minimum",
+            "maximum",
+            "minLength",
+            "maxLength",
+            "ge",
+            "le",
+        ):
             prop.pop(key, None)
 
         if "anyOf" in prop:
@@ -1169,7 +1302,8 @@ class BaseOpenAI(BaseLLM):
 
     def _type_to_schema(self, type_hint: Type) -> Dict[str, Any]:
         """Convert Python type hint to JSON Schema."""
-        from typing import get_origin, get_args, Union as UnionType
+        from typing import Union as UnionType
+        from typing import get_args, get_origin
 
         origin = get_origin(type_hint)
         args = get_args(type_hint)
@@ -1198,7 +1332,7 @@ class BaseOpenAI(BaseLLM):
     def _parse_structured_response(
         self,
         message: Dict[str, Any],
-        schema_type: Union[Type[BaseModel], Type, Dict[str, Any]],
+        schema_type: Type[BaseModel] | Type | Dict[str, Any],
     ) -> Any:
         """
         Parse LLM response into the requested structured type.

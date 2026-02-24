@@ -8,6 +8,7 @@ override, allowing concise plugin definitions::
     def log_calls(request: ModelRequest) -> None:
         print(f"LLM call #{request.call_count} to {request.model}")
 
+
     @wrap_model_call
     async def retry(request: ModelRequest, handler):
         try:
@@ -15,11 +16,13 @@ override, allowing concise plugin definitions::
         except Exception:
             return await handler(request.with_(model="gpt-4o-mini"))
 
+
     @wrap_tool_call
     async def approve_tools(request: ToolRequest, handler):
         if request.tool_name in DANGEROUS:
             return "Blocked"
         return await handler(request)
+
 
     agent = Agent(..., plugins=[log_calls, retry, approve_tools])
 """
@@ -28,15 +31,15 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from nucleusiq.plugins.base import (
-    BasePlugin,
     AgentContext,
-    ModelRequest,
-    ToolRequest,
+    BasePlugin,
     ModelHandler,
+    ModelRequest,
     ToolHandler,
+    ToolRequest,
 )
 
 
@@ -78,7 +81,7 @@ def before_agent(fn: Callable) -> BasePlugin:
         def name(self) -> str:
             return plugin_name
 
-        async def before_agent(self, ctx: AgentContext) -> Optional[AgentContext]:
+        async def before_agent(self, ctx: AgentContext) -> AgentContext | None:
             return await async_fn(ctx)
 
     instance = _Plugin()
@@ -133,6 +136,7 @@ def before_model(fn: Callable) -> BasePlugin:
         def log(request: ModelRequest) -> None:
             print(f"Call #{request.call_count} to {request.model}")
 
+
         @before_model
         def downgrade(request: ModelRequest) -> ModelRequest:
             if request.call_count > 5:
@@ -146,7 +150,7 @@ def before_model(fn: Callable) -> BasePlugin:
         def name(self) -> str:
             return plugin_name
 
-        async def before_model(self, request: ModelRequest) -> Optional[ModelRequest]:
+        async def before_model(self, request: ModelRequest) -> ModelRequest | None:
             return await async_fn(request)
 
     instance = _Plugin()
@@ -212,7 +216,9 @@ def wrap_model_call(fn: Callable) -> BasePlugin:
         def name(self) -> str:
             return plugin_name
 
-        async def wrap_model_call(self, request: ModelRequest, handler: ModelHandler) -> Any:
+        async def wrap_model_call(
+            self, request: ModelRequest, handler: ModelHandler
+        ) -> Any:
             return await async_fn(request, handler)
 
     instance = _Plugin()
@@ -243,7 +249,9 @@ def wrap_tool_call(fn: Callable) -> BasePlugin:
         def name(self) -> str:
             return plugin_name
 
-        async def wrap_tool_call(self, request: ToolRequest, handler: ToolHandler) -> Any:
+        async def wrap_tool_call(
+            self, request: ToolRequest, handler: ToolHandler
+        ) -> Any:
             return await async_fn(request, handler)
 
     instance = _Plugin()

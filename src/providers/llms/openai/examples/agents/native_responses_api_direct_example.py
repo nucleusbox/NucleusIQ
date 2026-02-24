@@ -13,10 +13,10 @@ Usage:
     python native_responses_api_direct_example.py
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 
 _src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
@@ -26,7 +26,9 @@ load_dotenv()
 
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 

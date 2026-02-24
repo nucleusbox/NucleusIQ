@@ -8,13 +8,12 @@ Covers:
 """
 
 from nucleusiq.agents.components.progress import (
-    StepRecord,
     ExecutionProgress,
+    StepRecord,
 )
 
 
 class TestStepRecord:
-
     def test_initial_state(self):
         step = StepRecord(step_id="s1", objective="Do something")
         assert step.status == "pending"
@@ -55,7 +54,6 @@ class TestStepRecord:
 
 
 class TestExecutionProgress:
-
     def test_add_step(self):
         progress = ExecutionProgress(task_id="t1")
         step = progress.add_step("s1", "Step 1")

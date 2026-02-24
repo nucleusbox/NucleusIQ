@@ -11,7 +11,6 @@ Tests cover:
 - _build_responses_text_config() structured output conversion
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -20,11 +19,11 @@ src_dir = Path(__file__).parent.parent.parent / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
+from typing import Any, Dict
+
 import pytest
-from typing import Dict, Any
-from nucleusiq_openai import BaseOpenAI
-from nucleusiq_openai import OpenAITool
 from nucleusiq.tools import BaseTool
+from nucleusiq_openai import BaseOpenAI, OpenAITool
 
 
 class MockBaseTool(BaseTool):
@@ -357,6 +356,7 @@ class TestMessagesToResponsesInput:
 
 class _MockContentBlock:
     """Simulate Responses API content block."""
+
     def __init__(self, type: str, text: str = ""):
         self.type = type
         self.text = text
@@ -364,6 +364,7 @@ class _MockContentBlock:
 
 class _MockOutputItem:
     """Simulate Responses API output item."""
+
     def __init__(self, type: str, **kwargs):
         self.type = type
         for k, v in kwargs.items():
@@ -375,6 +376,7 @@ class _MockOutputItem:
 
 class _MockResponse:
     """Simulate Responses API response."""
+
     def __init__(self, id: str, output: list):
         self.id = id
         self.output = output

@@ -10,4 +10,3 @@ from nucleusiq_openai.tools.openai_tool import OpenAITool
 __all__ = [
     "OpenAITool",
 ]
-

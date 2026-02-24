@@ -11,21 +11,23 @@ Covers:
 - Retry message construction
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.config.agent_config import (
-    AgentConfig, AgentState, ExecutionMode,
-)
+import pytest
 from nucleusiq.agents.components.decomposer import TaskAnalysis
 from nucleusiq.agents.components.validation import ValidationResult
-
+from nucleusiq.agents.config.agent_config import (
+    AgentConfig,
+    AgentState,
+    ExecutionMode,
+)
+from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
+from nucleusiq.agents.task import Task
 
 # ================================================================== #
 # Helpers                                                              #
 # ================================================================== #
+
 
 def _make_agent(
     tools=None,
@@ -49,9 +51,11 @@ def _make_agent(
 
     llm = MagicMock()
     llm.model_name = "test-model"
-    llm.call = AsyncMock(return_value=MagicMock(
-        choices=[MagicMock(message=MagicMock(content=execution_result))],
-    ))
+    llm.call = AsyncMock(
+        return_value=MagicMock(
+            choices=[MagicMock(message=MagicMock(content=execution_result))],
+        )
+    )
     llm.convert_tool_specs = MagicMock(return_value=[])
     agent.llm = llm
 
@@ -80,7 +84,9 @@ def _valid_result():
 
 def _invalid_result(reason="Tool error detected"):
     return ValidationResult(
-        valid=False, layer="tool_output", reason=reason,
+        valid=False,
+        layer="tool_output",
+        reason=reason,
         details=["Error executing tool: connection timeout"],
     )
 
@@ -89,12 +95,14 @@ def _invalid_result(reason="Tool error detected"):
 # Routing: Simple vs Complex                                           #
 # ================================================================== #
 
-class TestRouting:
 
+class TestRouting:
     @patch.object(AutonomousMode, "_run_simple", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.Decomposer")
     async def test_routes_to_simple_for_simple_task(
-        self, MockDecomposer, mock_simple,
+        self,
+        MockDecomposer,
+        mock_simple,
     ):
         mock_simple.return_value = "simple result"
         MockDecomposer.return_value.analyze = AsyncMock(
@@ -110,7 +118,9 @@ class TestRouting:
     @patch.object(AutonomousMode, "_run_complex", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.Decomposer")
     async def test_routes_to_complex_for_complex_task(
-        self, MockDecomposer, mock_complex,
+        self,
+        MockDecomposer,
+        mock_complex,
     ):
         mock_complex.return_value = "complex result"
         MockDecomposer.return_value.analyze = AsyncMock(
@@ -126,7 +136,9 @@ class TestRouting:
     @patch.object(AutonomousMode, "_run_simple", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.Decomposer")
     async def test_routes_to_simple_on_analysis_failure(
-        self, MockDecomposer, mock_simple,
+        self,
+        MockDecomposer,
+        mock_simple,
     ):
         """Analysis error → safe fallback to simple path."""
         mock_simple.return_value = "fallback result"
@@ -143,9 +155,7 @@ class TestRouting:
         agent = _make_agent()
         agent.llm = None
         mode = AutonomousMode()
-        with patch(
-            "nucleusiq.agents.modes.autonomous_mode.StandardMode"
-        ) as MockStd:
+        with patch("nucleusiq.agents.modes.autonomous_mode.StandardMode") as MockStd:
             MockStd.return_value.run = AsyncMock(return_value="std result")
             result = await mode.run(agent, Task(id="t1", objective="X"))
             assert result == "std result"
@@ -168,8 +178,8 @@ class TestRouting:
 # Simple Path: execute + validate + retry                              #
 # ================================================================== #
 
-class TestSimplePath:
 
+class TestSimplePath:
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_returns_on_valid_result(self, MockStd, MockValidation):
@@ -213,7 +223,9 @@ class TestSimplePath:
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_returns_last_result_after_max_retries(
-        self, MockStd, MockValidation,
+        self,
+        MockStd,
+        MockValidation,
     ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -235,7 +247,9 @@ class TestSimplePath:
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_progress_tracking_on_simple_path(
-        self, MockStd, MockValidation,
+        self,
+        MockStd,
+        MockValidation,
     ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -260,8 +274,8 @@ class TestSimplePath:
 # Complex Path: decompose + parallel + synthesize                      #
 # ================================================================== #
 
-class TestComplexPath:
 
+class TestComplexPath:
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_decompose_synthesize_valid(self, MockStd, MockValidation):
@@ -276,10 +290,12 @@ class TestComplexPath:
         )
 
         decomposer = MagicMock()
-        decomposer.run_sub_tasks = AsyncMock(return_value=[
-            {"id": "s1", "objective": "Part 1", "result": "Data A"},
-            {"id": "s2", "objective": "Part 2", "result": "Data B"},
-        ])
+        decomposer.run_sub_tasks = AsyncMock(
+            return_value=[
+                {"id": "s1", "objective": "Part 1", "result": "Data A"},
+                {"id": "s2", "objective": "Part 2", "result": "Data B"},
+            ]
+        )
         decomposer.build_synthesis_prompt = MagicMock(
             return_value="Synthesize A and B",
         )
@@ -287,8 +303,10 @@ class TestComplexPath:
         agent = _make_agent()
         mode = AutonomousMode()
         result = await mode._run_complex(
-            agent, Task(id="t1", objective="Compare A and B"),
-            decomposer, _complex_analysis(),
+            agent,
+            Task(id="t1", objective="Compare A and B"),
+            decomposer,
+            _complex_analysis(),
         )
         assert result == "synthesized answer"
         decomposer.run_sub_tasks.assert_awaited_once()
@@ -310,9 +328,11 @@ class TestComplexPath:
         )
 
         decomposer = MagicMock()
-        decomposer.run_sub_tasks = AsyncMock(return_value=[
-            {"id": "s1", "objective": "Part 1", "result": "Data A"},
-        ])
+        decomposer.run_sub_tasks = AsyncMock(
+            return_value=[
+                {"id": "s1", "objective": "Part 1", "result": "Data A"},
+            ]
+        )
         decomposer.build_synthesis_prompt = MagicMock(
             return_value="Synthesize",
         )
@@ -320,8 +340,10 @@ class TestComplexPath:
         agent = _make_agent(config=AgentConfig(max_retries=3))
         mode = AutonomousMode()
         result = await mode._run_complex(
-            agent, Task(id="t1", objective="Analyze"),
-            decomposer, _complex_analysis(),
+            agent,
+            Task(id="t1", objective="Analyze"),
+            decomposer,
+            _complex_analysis(),
         )
         assert result == "good synthesis"
         assert std._tool_call_loop.await_count == 2
@@ -329,7 +351,9 @@ class TestComplexPath:
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_complex_progress_has_two_steps(
-        self, MockStd, MockValidation,
+        self,
+        MockStd,
+        MockValidation,
     ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -348,8 +372,10 @@ class TestComplexPath:
         agent = _make_agent()
         mode = AutonomousMode()
         await mode._run_complex(
-            agent, Task(id="t1", objective="Compare"),
-            decomposer, _complex_analysis(),
+            agent,
+            Task(id="t1", objective="Compare"),
+            decomposer,
+            _complex_analysis(),
         )
         progress = agent._execution_progress
         assert progress is not None
@@ -362,8 +388,8 @@ class TestComplexPath:
 # Error Handling                                                       #
 # ================================================================== #
 
-class TestErrorHandling:
 
+class TestErrorHandling:
     def test_is_error_detects_error_strings(self):
         mode = AutonomousMode()
         assert mode._is_error("Error: something went wrong")
@@ -373,7 +399,9 @@ class TestErrorHandling:
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_returns_error_on_execution_exception(
-        self, MockStd, MockValidation,
+        self,
+        MockStd,
+        MockValidation,
     ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -390,7 +418,9 @@ class TestErrorHandling:
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_returns_error_result_directly(
-        self, MockStd, MockValidation,
+        self,
+        MockStd,
+        MockValidation,
     ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -424,11 +454,12 @@ class TestErrorHandling:
 # Retry message construction                                           #
 # ================================================================== #
 
-class TestRetryMessage:
 
+class TestRetryMessage:
     def test_builds_message_with_reason(self):
         vr = ValidationResult(
-            valid=False, layer="tool_output",
+            valid=False,
+            layer="tool_output",
             reason="Empty result",
         )
         msg = AutonomousMode._build_retry_message(vr)
@@ -437,7 +468,8 @@ class TestRetryMessage:
 
     def test_includes_details_when_present(self):
         vr = ValidationResult(
-            valid=False, layer="plugin",
+            valid=False,
+            layer="plugin",
             reason="Plugin failed",
             details=["Detail A", "Detail B"],
         )

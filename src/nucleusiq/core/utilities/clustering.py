@@ -1,9 +1,11 @@
 # src/nucleusiq/utilities/clustering.py
 
-from typing import List, Dict
+from typing import Dict, List
 
 
-def cluster_questions(questions: List[str], num_clusters: int = 5) -> Dict[int, List[str]]:
+def cluster_questions(
+    questions: List[str], num_clusters: int = 5
+) -> Dict[int, List[str]]:
     """
     Clusters questions into the specified number of clusters using KMeans.
 
@@ -18,8 +20,8 @@ def cluster_questions(questions: List[str], num_clusters: int = 5) -> Dict[int, 
         scikit-learn: pip install scikit-learn
     """
     try:
-        from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.cluster import KMeans
+        from sklearn.feature_extraction.text import TfidfVectorizer
     except ImportError:
         raise ImportError(
             "Auto Chain-of-Thought clustering requires scikit-learn. "
@@ -29,7 +31,7 @@ def cluster_questions(questions: List[str], num_clusters: int = 5) -> Dict[int, 
     if not questions:
         return {}
 
-    vectorizer = TfidfVectorizer(stop_words='english')
+    vectorizer = TfidfVectorizer(stop_words="english")
     X = vectorizer.fit_transform(questions)
 
     km = KMeans(n_clusters=num_clusters, random_state=42)

@@ -5,11 +5,11 @@ Extracted from ``Agent._build_messages()`` and ``Agent._format_plan()``.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.plan import Plan
 from nucleusiq.agents.chat_models import ChatMessage
+from nucleusiq.agents.plan import Plan
+from nucleusiq.agents.task import Task
 
 
 class MessageBuilder:
@@ -17,13 +17,13 @@ class MessageBuilder:
 
     @staticmethod
     def build(
-        task: Union[Task, Dict[str, Any]],
-        plan: Optional[Union[Plan, List[Dict[str, Any]]]] = None,
+        task: Task | Dict[str, Any],
+        plan: Plan | List[Dict[str, Any]] | None = None,
         *,
-        prompt: Optional[Any] = None,
-        role: Optional[str] = None,
-        objective: Optional[str] = None,
-        logger: Optional[logging.Logger] = None,
+        prompt: Any | None = None,
+        role: str | None = None,
+        objective: str | None = None,
+        logger: logging.Logger | None = None,
     ) -> List[ChatMessage]:
         """
         Build messages for an LLM call.
@@ -98,12 +98,14 @@ class MessageBuilder:
                     )
                 )
 
-        messages.append(ChatMessage(role="user", content=task_dict.get("objective", "")))
+        messages.append(
+            ChatMessage(role="user", content=task_dict.get("objective", ""))
+        )
 
         return messages
 
     @staticmethod
-    def format_plan(plan: Union[Plan, List[Dict[str, Any]]]) -> str:
+    def format_plan(plan: Plan | List[Dict[str, Any]]) -> str:
         """
         Format plan steps into a readable string.
 
@@ -130,7 +132,7 @@ class MessageBuilder:
         return "\n".join(plan_lines)
 
     @staticmethod
-    def content_to_text(content: Any) -> Optional[str]:
+    def content_to_text(content: Any) -> str | None:
         """
         Coerce OpenAI-style message content into plain text.
 

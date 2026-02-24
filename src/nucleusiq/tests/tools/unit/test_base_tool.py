@@ -1,17 +1,17 @@
 """Tests for tools/base_tool.py: BaseTool, FunctionTool, schema helpers."""
 
-import pytest
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from typing import List
 
+import pytest
 from nucleusiq.tools.base_tool import (
     BaseTool,
     _parse_annotation,
     _pydantic_model_to_json_schema,
 )
-
+from pydantic import BaseModel, Field
 
 # ── Fixture models ───────────────────────────────────────────────────────────
+
 
 class CalcArgs(BaseModel):
     a: int = Field(description="First number")
@@ -24,7 +24,6 @@ class CalcArgs(BaseModel):
 
 
 class TestParseAnnotation:
-
     def test_int(self):
         assert _parse_annotation(int) == "integer"
 
@@ -56,7 +55,6 @@ class TestParseAnnotation:
 
 
 class TestPydanticModelToJsonSchema:
-
     def test_valid_model(self):
         schema = _pydantic_model_to_json_schema(CalcArgs)
         assert schema["type"] == "object"
@@ -75,7 +73,6 @@ class TestPydanticModelToJsonSchema:
 
 
 class TestFromFunction:
-
     def test_basic(self):
         def add(a: int, b: int) -> int:
             """Add two numbers."""
@@ -153,10 +150,10 @@ class TestFromFunction:
 
 
 class TestBaseToolMethods:
-
     def _make_tool(self):
         def noop():
             pass
+
         return BaseTool.from_function(noop, name="test_tool", description="Test")
 
     def test_to_dict_without_version(self):

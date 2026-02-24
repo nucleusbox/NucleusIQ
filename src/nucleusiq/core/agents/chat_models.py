@@ -11,7 +11,7 @@ providing compile-time type safety and runtime validation via Pydantic.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, ConfigDict
 from typing_extensions import TypedDict
@@ -24,7 +24,7 @@ class ToolCallRequest(BaseModel):
     provider-specific wire format (OpenAI nests under ``function``).
     """
 
-    id: Optional[str] = None
+    id: str | None = None
     name: str
     arguments: str = "{}"
 
@@ -70,10 +70,10 @@ class ChatMessage(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     role: Literal["system", "user", "assistant", "tool", "function"]
-    content: Optional[str] = None
-    tool_calls: Optional[List[ToolCallRequest]] = None
-    tool_call_id: Optional[str] = None
-    name: Optional[str] = None
+    content: str | None = None
+    tool_calls: List[ToolCallRequest] | None = None
+    tool_call_id: str | None = None
+    name: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to the dict format expected by LLM providers."""
@@ -90,11 +90,7 @@ class ChatMessage(BaseModel):
     def from_dict(cls, d: Dict[str, Any]) -> ChatMessage:
         """Create from a plain dict (e.g. memory context)."""
         raw_tc = d.get("tool_calls")
-        tool_calls = (
-            [ToolCallRequest.from_raw(tc) for tc in raw_tc]
-            if raw_tc
-            else None
-        )
+        tool_calls = [ToolCallRequest.from_raw(tc) for tc in raw_tc] if raw_tc else None
         return cls(
             role=d.get("role", "user"),
             content=d.get("content"),
@@ -113,8 +109,8 @@ class LLMCallKwargs(TypedDict, total=False):
 
     model: str
     messages: List[Dict[str, Any]]
-    tools: Optional[List[Dict[str, Any]]]
-    max_tokens: Optional[int]
+    tools: List[Dict[str, Any]] | None
+    max_tokens: int | None
     response_format: Any
 
 

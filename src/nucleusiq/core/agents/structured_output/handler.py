@@ -6,7 +6,7 @@ Extracted from ``Agent`` to satisfy the Single Responsibility Principle.
 All execution modes call these through the Agent, which now delegates.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from nucleusiq.llms.base_llm import BaseLLM
 
@@ -21,20 +21,18 @@ class StructuredOutputHandler:
     def resolve_response_format(
         self,
         response_format: Any,
-        llm: Optional[BaseLLM],
+        llm: BaseLLM | None,
     ) -> Any:
         """Resolve ``response_format`` to an ``OutputSchema`` (or ``None``)."""
         if response_format is None:
             return None
 
         from nucleusiq.agents.structured_output import (
-            resolve_output_config,
             get_provider_from_llm,
+            resolve_output_config,
         )
 
-        model_name = (
-            getattr(llm, "model_name", "") if llm else ""
-        )
+        model_name = getattr(llm, "model_name", "") if llm else ""
         provider = get_provider_from_llm(llm)
 
         return resolve_output_config(
@@ -47,7 +45,7 @@ class StructuredOutputHandler:
         self,
         output_config: Any,
         response_format: Any,
-        llm: Optional[BaseLLM],
+        llm: BaseLLM | None,
     ) -> Dict[str, Any]:
         """Return LLM call kwargs for structured output (may be empty)."""
         if output_config is None:
@@ -61,6 +59,7 @@ class StructuredOutputHandler:
 
         if output_config._resolved_mode != OutputMode.NATIVE:
             from nucleusiq.agents.structured_output import OutputMode as OM
+
             OM.validate_mode(output_config._resolved_mode)
             return {}
 

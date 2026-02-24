@@ -12,6 +12,7 @@ Usage::
                 return False, "Result looks wrong because..."
             return True, ""
 
+
     agent = Agent(
         ...,
         config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),
@@ -22,7 +23,7 @@ Usage::
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from nucleusiq.plugins.base import BasePlugin
 

@@ -14,14 +14,15 @@ Run with: python plugin_api_showcase.py
 Requires OPENAI_API_KEY environment variable.
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 from typing import Any
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
@@ -31,31 +32,30 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
-from nucleusiq_openai import BaseOpenAI
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
-from nucleusiq.tools import BaseTool
-
 from nucleusiq.plugins import (
-    BasePlugin,
     AgentContext,
+    BasePlugin,
     ModelRequest,
     ToolRequest,
-    before_agent,
-    after_agent,
     before_model,
-    after_model,
     wrap_model_call,
     wrap_tool_call,
 )
 from nucleusiq.plugins.builtin import ModelCallLimitPlugin, ToolRetryPlugin
+from nucleusiq.tools import BaseTool
+from nucleusiq_openai import BaseOpenAI
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
 # Pattern 1: Observe (return None = just watching)
 # ============================================================================
+
 
 @before_model
 def log_calls(request: ModelRequest) -> None:
@@ -69,6 +69,7 @@ def log_calls(request: ModelRequest) -> None:
 # ============================================================================
 # Pattern 2: Modify request via .with_()
 # ============================================================================
+
 
 @before_model
 def use_cheap_model_after_3_calls(request: ModelRequest):
@@ -86,6 +87,7 @@ def use_cheap_model_after_3_calls(request: ModelRequest):
 # Pattern 3: Retry with model fallback (wrap hook)
 # ============================================================================
 
+
 @wrap_model_call
 async def retry_with_fallback(request: ModelRequest, handler):
     """Try the request. If it fails, retry with gpt-4o-mini."""
@@ -102,6 +104,7 @@ async def retry_with_fallback(request: ModelRequest, handler):
 
 BLOCKED_TOOLS = {"delete_file", "drop_table", "rm_rf"}
 
+
 @wrap_tool_call
 async def guard_tools(request: ToolRequest, handler):
     """Block dangerous tools, let safe ones through."""
@@ -115,6 +118,7 @@ async def guard_tools(request: ToolRequest, handler):
 # ============================================================================
 # Pattern 5: Class-based multi-hook audit plugin
 # ============================================================================
+
 
 class AuditPlugin(BasePlugin):
     """No need to define name — defaults to 'AuditPlugin' automatically."""
@@ -153,6 +157,7 @@ class AuditPlugin(BasePlugin):
 # Demo 1: Observe + Modify with conversation memory
 # ============================================================================
 
+
 async def demo_observe_and_modify():
     print("\n" + "=" * 70)
     print("  Demo 1: Observe + Modify (return None vs .with_())")
@@ -169,14 +174,16 @@ async def demo_observe_and_modify():
         memory=memory,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         plugins=[
-            log_calls,                        # Pattern 1: observe (returns None)
-            use_cheap_model_after_3_calls,    # Pattern 2: modify via .with_()
+            log_calls,  # Pattern 1: observe (returns None)
+            use_cheap_model_after_3_calls,  # Pattern 2: modify via .with_()
         ],
     )
     await agent.initialize()
 
     print("\n  Turn 1: Introduce myself")
-    r1 = await agent.execute({"id": "1", "objective": "Hi, I'm Brijesh. I created NucleusIQ."})
+    r1 = await agent.execute(
+        {"id": "1", "objective": "Hi, I'm Brijesh. I created NucleusIQ."}
+    )
     print(f"  Response: {r1}\n")
 
     print("  Turn 2: Ask recall question")
@@ -190,6 +197,7 @@ async def demo_observe_and_modify():
 # ============================================================================
 # Demo 2: Wrap hooks — retry, guard, audit
 # ============================================================================
+
 
 async def demo_wrap_hooks():
     print("\n" + "=" * 70)
@@ -205,7 +213,9 @@ async def demo_wrap_hooks():
         return a * b
 
     add_tool = BaseTool.from_function(add, name="add", description="Add two numbers")
-    mul_tool = BaseTool.from_function(multiply, name="multiply", description="Multiply two numbers")
+    mul_tool = BaseTool.from_function(
+        multiply, name="multiply", description="Multiply two numbers"
+    )
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
     audit = AuditPlugin()
@@ -218,11 +228,11 @@ async def demo_wrap_hooks():
         tools=[add_tool, mul_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
-            log_calls,                            # Pattern 1: observe
-            retry_with_fallback,                  # Pattern 3: retry
-            guard_tools,                          # Pattern 4: guard
-            audit,                                # Pattern 5: class-based audit
-            ModelCallLimitPlugin(max_calls=10),   # Built-in: safety limit
+            log_calls,  # Pattern 1: observe
+            retry_with_fallback,  # Pattern 3: retry
+            guard_tools,  # Pattern 4: guard
+            audit,  # Pattern 5: class-based audit
+            ModelCallLimitPlugin(max_calls=10),  # Built-in: safety limit
         ],
     )
     await agent.initialize()
@@ -237,6 +247,7 @@ async def demo_wrap_hooks():
 # ============================================================================
 # Demo 3: Everything combined — memory + plugins + tools
 # ============================================================================
+
 
 async def demo_full_stack():
     print("\n" + "=" * 70)
@@ -254,7 +265,9 @@ async def demo_full_stack():
                 return val
         return f"No results for: {query}"
 
-    search_tool = BaseTool.from_function(search, name="search", description="Search for information")
+    search_tool = BaseTool.from_function(
+        search, name="search", description="Search for information"
+    )
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
     memory = MemoryFactory.create_memory(MemoryStrategy.SLIDING_WINDOW, window_size=8)
@@ -279,11 +292,18 @@ async def demo_full_stack():
     await agent.initialize()
 
     print("\n  Turn 1: Search for NucleusIQ")
-    r1 = await agent.execute({"id": "1", "objective": "Search for NucleusIQ and tell me about it."})
+    r1 = await agent.execute(
+        {"id": "1", "objective": "Search for NucleusIQ and tell me about it."}
+    )
     print(f"  Response: {str(r1)[:200]}\n")
 
     print("  Turn 2: Recall from memory")
-    r2 = await agent.execute({"id": "2", "objective": "Based on what you found earlier, who built NucleusIQ?"})
+    r2 = await agent.execute(
+        {
+            "id": "2",
+            "objective": "Based on what you found earlier, who built NucleusIQ?",
+        }
+    )
     print(f"  Response: {str(r2)[:200]}\n")
 
     audit.print_trail()
@@ -292,6 +312,7 @@ async def demo_full_stack():
 # ============================================================================
 # Main
 # ============================================================================
+
 
 async def main():
     if not os.getenv("OPENAI_API_KEY"):
@@ -311,6 +332,7 @@ async def main():
         except Exception as e:
             print(f"  [FAIL] {name}: {e}\n")
             import traceback
+
             traceback.print_exc()
 
 

@@ -1,11 +1,9 @@
 """Extra coverage for standard_mode.py tool processing paths."""
 
-import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.config import AgentConfig
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
@@ -40,6 +38,7 @@ def _build_text_resp(content):
 
 def _make_calc_tool():
     """Create a real BaseTool that won't be flagged as native."""
+
     def calc(x: int) -> int:
         return x * 2
 
@@ -48,6 +47,7 @@ def _make_calc_tool():
 
 def _make_bad_tool():
     """Create a real tool that will raise on execution."""
+
     def bad_tool() -> str:
         raise RuntimeError("boom")
 
@@ -62,7 +62,6 @@ def _make_inc_tool():
 
 
 class TestToolCallProcessing:
-
     @pytest.mark.asyncio
     async def test_tool_call_then_final_answer(self):
         """LLM returns tool call first, then a final answer."""
@@ -74,10 +73,12 @@ class TestToolCallProcessing:
         }
 
         llm = MockLLM()
-        llm.call = AsyncMock(side_effect=[
-            _build_tool_resp([tc]),
-            _build_text_resp("The answer is 10"),
-        ])
+        llm.call = AsyncMock(
+            side_effect=[
+                _build_tool_resp([tc]),
+                _build_text_resp("The answer is 10"),
+            ]
+        )
 
         agent = _make_agent(llm=llm, tools=[tool])
         await agent.initialize()
@@ -128,10 +129,12 @@ class TestToolCallProcessing:
         tc = {"id": "call_1", "function": {"name": None, "arguments": "{}"}}
 
         llm = MockLLM()
-        llm.call = AsyncMock(side_effect=[
-            _build_tool_resp([tc]),
-            _build_text_resp("done"),
-        ])
+        llm.call = AsyncMock(
+            side_effect=[
+                _build_tool_resp([tc]),
+                _build_text_resp("done"),
+            ]
+        )
 
         agent = _make_agent(llm=llm)
         await agent.initialize()
@@ -142,7 +145,6 @@ class TestToolCallProcessing:
 
 
 class TestParseToolCall:
-
     def test_dict_format(self):
         tc = {"id": "c1", "function": {"name": "f", "arguments": '{"a":1}'}}
         tc_id, fn_name, args = StandardMode._parse_tool_call(tc)
@@ -162,7 +164,6 @@ class TestParseToolCall:
 
 
 class TestStoreInMemory:
-
     @pytest.mark.asyncio
     async def test_stores_successfully(self):
         mem = FullHistoryMemory()

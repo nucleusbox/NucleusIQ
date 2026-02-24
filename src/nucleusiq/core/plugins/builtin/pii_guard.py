@@ -30,9 +30,9 @@ Usage::
 
 from __future__ import annotations
 
-import re
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+import re
+from typing import Any, Dict, List, Sequence
 
 from nucleusiq.plugins.base import BasePlugin, ModelRequest
 from nucleusiq.plugins.errors import PluginHalt
@@ -82,17 +82,19 @@ class PIIGuardPlugin(BasePlugin):
 
     def __init__(
         self,
-        pii_types: Optional[Sequence[str]] = None,
-        custom_patterns: Optional[Dict[str, str]] = None,
+        pii_types: Sequence[str] | None = None,
+        custom_patterns: Dict[str, str] | None = None,
         strategy: str = "redact",
         apply_to_input: bool = True,
         apply_to_output: bool = False,
     ) -> None:
         if strategy not in ("redact", "mask", "block"):
-            raise ValueError(f"Invalid strategy: {strategy!r}. Use 'redact', 'mask', or 'block'.")
+            raise ValueError(
+                f"Invalid strategy: {strategy!r}. Use 'redact', 'mask', or 'block'."
+            )
 
         self._patterns: Dict[str, re.Pattern] = {}
-        for pii_type in (pii_types or []):
+        for pii_type in pii_types or []:
             if pii_type not in BUILTIN_PATTERNS:
                 raise ValueError(
                     f"Unknown PII type: {pii_type!r}. "
@@ -122,27 +124,32 @@ class PIIGuardPlugin(BasePlugin):
                 value = match.group()
                 if pii_type == "credit_card" and not _luhn_check(value):
                     continue
-                findings.append({
-                    "type": pii_type,
-                    "value": value,
-                    "start": match.start(),
-                    "end": match.end(),
-                })
+                findings.append(
+                    {
+                        "type": pii_type,
+                        "value": value,
+                        "start": match.start(),
+                        "end": match.end(),
+                    }
+                )
         return findings
 
     def _redact(self, text: str) -> str:
         """Replace PII with [REDACTED_TYPE] placeholders."""
         for pii_type, pattern in self._patterns.items():
+
             def replacer(m: re.Match) -> str:
                 if pii_type == "credit_card" and not _luhn_check(m.group()):
                     return m.group()
                 return f"[REDACTED_{pii_type.upper()}]"
+
             text = pattern.sub(replacer, text)
         return text
 
     def _mask(self, text: str) -> str:
         """Partially mask PII values."""
         for pii_type, pattern in self._patterns.items():
+
             def replacer(m: re.Match, _type: str = pii_type) -> str:
                 val = m.group()
                 if _type == "credit_card":
@@ -165,6 +172,7 @@ class PIIGuardPlugin(BasePlugin):
                     if len(val) > 4:
                         return val[:2] + "*" * (len(val) - 4) + val[-2:]
                     return "*" * len(val)
+
             text = pattern.sub(replacer, text)
         return text
 
@@ -184,7 +192,11 @@ class PIIGuardPlugin(BasePlugin):
                 if isinstance(content, str):
                     new_content = self._sanitize(content)
                     if new_content != content:
-                        msg = msg.model_copy(update={"content": new_content}) if hasattr(msg, "model_copy") else msg
+                        msg = (
+                            msg.model_copy(update={"content": new_content})
+                            if hasattr(msg, "model_copy")
+                            else msg
+                        )
                 cleaned.append(msg)
             elif isinstance(msg, dict) and "content" in msg:
                 content = msg["content"]
@@ -195,7 +207,7 @@ class PIIGuardPlugin(BasePlugin):
                 cleaned.append(msg)
         return cleaned
 
-    async def before_model(self, request: ModelRequest) -> Optional[ModelRequest]:
+    async def before_model(self, request: ModelRequest) -> ModelRequest | None:
         if not self._apply_to_input:
             return None
 
@@ -231,7 +243,7 @@ class PIIGuardPlugin(BasePlugin):
             if findings:
                 if self._strategy == "block":
                     raise PluginHalt(
-                        f"PII detected in model response. Blocked by PIIGuardPlugin."
+                        "PII detected in model response. Blocked by PIIGuardPlugin."
                     )
                 sanitized = self._sanitize(response.content)
                 if hasattr(response, "model_copy"):

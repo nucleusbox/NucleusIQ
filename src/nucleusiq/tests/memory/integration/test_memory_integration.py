@@ -13,9 +13,9 @@ Run with:
 Requires: OPENAI_API_KEY environment variable.
 """
 
+import asyncio
 import os
 import sys
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -24,11 +24,10 @@ _repo_root = Path(__file__).resolve().parents[5]
 _env_file = _repo_root / ".env"
 if _env_file.exists():
     from dotenv import load_dotenv
+
     load_dotenv(_env_file, override=False)
 
-_openai_dir = str(
-    Path(__file__).resolve().parents[3] / "providers" / "llms" / "openai"
-)
+_openai_dir = str(Path(__file__).resolve().parents[3] / "providers" / "llms" / "openai")
 if _openai_dir not in sys.path:
     sys.path.insert(0, _openai_dir)
 
@@ -36,9 +35,9 @@ from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.memory.full_history import FullHistoryMemory
 from nucleusiq.memory.sliding_window import SlidingWindowMemory
-from nucleusiq.memory.token_budget import TokenBudgetMemory
 from nucleusiq.memory.summary import SummaryMemory
 from nucleusiq.memory.summary_window import SummaryWindowMemory
+from nucleusiq.memory.token_budget import TokenBudgetMemory
 
 _HAS_KEY = bool(os.getenv("OPENAI_API_KEY"))
 
@@ -48,6 +47,7 @@ RECALL_MSG = "Who is the creator of NucleusIQ?"
 
 def _make_openai_llm():
     from nucleusiq_openai import BaseOpenAI
+
     return BaseOpenAI(model_name="gpt-4o-mini", temperature=0.0)
 
 
@@ -70,22 +70,27 @@ async def _run_two_turn_recall(memory, llm=None):
     )
     await agent.initialize()
 
-    result1 = await agent.execute({
-        "id": "intro",
-        "objective": INTRO_MSG,
-    })
+    result1 = await agent.execute(
+        {
+            "id": "intro",
+            "objective": INTRO_MSG,
+        }
+    )
     assert result1 is not None, "First turn returned None"
 
-    result2 = await agent.execute({
-        "id": "recall",
-        "objective": RECALL_MSG,
-    })
+    result2 = await agent.execute(
+        {
+            "id": "recall",
+            "objective": RECALL_MSG,
+        }
+    )
     assert result2 is not None, "Second turn returned None"
 
     return result1, result2, memory
 
 
 # ── 1. FullHistoryMemory ────────────────────────────────────────────────
+
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_KEY, reason="OPENAI_API_KEY not set")
@@ -108,6 +113,7 @@ async def test_full_history_memory_recall():
 
 # ── 2. SlidingWindowMemory ──────────────────────────────────────────────
 
+
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_KEY, reason="OPENAI_API_KEY not set")
 @pytest.mark.asyncio
@@ -126,6 +132,7 @@ async def test_sliding_window_memory_recall():
 
 # ── 3. TokenBudgetMemory ────────────────────────────────────────────────
 
+
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_KEY, reason="OPENAI_API_KEY not set")
 @pytest.mark.asyncio
@@ -143,6 +150,7 @@ async def test_token_budget_memory_recall():
 
 
 # ── 4. SummaryMemory ────────────────────────────────────────────────────
+
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_KEY, reason="OPENAI_API_KEY not set")
@@ -170,6 +178,7 @@ async def test_summary_memory_recall():
 
 # ── 5. SummaryWindowMemory ──────────────────────────────────────────────
 
+
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_KEY, reason="OPENAI_API_KEY not set")
 @pytest.mark.asyncio
@@ -192,6 +201,7 @@ async def test_summary_window_memory_recall():
 
 
 # ── 6. SummaryWindowMemory with overflow ─────────────────────────────────
+
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_KEY, reason="OPENAI_API_KEY not set")
@@ -218,6 +228,7 @@ async def test_summary_window_memory_with_overflow():
 
 # ── 7. SlidingWindowMemory with tight window ─────────────────────────────
 
+
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_KEY, reason="OPENAI_API_KEY not set")
 @pytest.mark.asyncio
@@ -241,6 +252,7 @@ async def test_sliding_window_memory_tight_window():
 
 # ── 8. MemoryFactory integration ─────────────────────────────────────────
 
+
 @pytest.mark.integration
 @pytest.mark.skipif(not _HAS_KEY, reason="OPENAI_API_KEY not set")
 @pytest.mark.asyncio
@@ -255,7 +267,10 @@ async def test_memory_factory_creates_all_strategies():
         (MemoryStrategy.SLIDING_WINDOW, {"window_size": 10}),
         (MemoryStrategy.TOKEN_BUDGET, {"max_tokens": 4096}),
         (MemoryStrategy.SUMMARY, {"llm": llm, "llm_model": "gpt-4o-mini"}),
-        (MemoryStrategy.SUMMARY_WINDOW, {"window_size": 10, "llm": llm, "llm_model": "gpt-4o-mini"}),
+        (
+            MemoryStrategy.SUMMARY_WINDOW,
+            {"window_size": 10, "llm": llm, "llm_model": "gpt-4o-mini"},
+        ),
     ]
 
     for strategy, kwargs in strategies:
@@ -269,6 +284,7 @@ async def test_memory_factory_creates_all_strategies():
 # ── Standalone runner ────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+
     async def _main():
         if not _HAS_KEY:
             print("SKIP: OPENAI_API_KEY not set")
@@ -280,9 +296,15 @@ if __name__ == "__main__":
             ("TokenBudgetMemory", test_token_budget_memory_recall),
             ("SummaryMemory", test_summary_memory_recall),
             ("SummaryWindowMemory", test_summary_window_memory_recall),
-            ("SummaryWindowMemory (overflow)", test_summary_window_memory_with_overflow),
+            (
+                "SummaryWindowMemory (overflow)",
+                test_summary_window_memory_with_overflow,
+            ),
             ("SlidingWindowMemory (tight)", test_sliding_window_memory_tight_window),
-            ("MemoryFactory (all strategies)", test_memory_factory_creates_all_strategies),
+            (
+                "MemoryFactory (all strategies)",
+                test_memory_factory_creates_all_strategies,
+            ),
         ]
 
         passed = 0

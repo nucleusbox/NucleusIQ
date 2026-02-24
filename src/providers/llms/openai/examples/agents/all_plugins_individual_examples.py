@@ -7,13 +7,14 @@ Run with: python all_plugins_individual_examples.py
 Requires OPENAI_API_KEY environment variable.
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
@@ -23,20 +24,19 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
-from nucleusiq_openai import BaseOpenAI
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
-from nucleusiq.tools import BaseTool
-
 from nucleusiq.plugins.builtin import (
+    ContextWindowPlugin,
+    HumanApprovalPlugin,
     ModelCallLimitPlugin,
-    ToolCallLimitPlugin,
-    ToolRetryPlugin,
     ModelFallbackPlugin,
     PIIGuardPlugin,
-    HumanApprovalPlugin,
-    ContextWindowPlugin,
+    ToolCallLimitPlugin,
     ToolGuardPlugin,
+    ToolRetryPlugin,
 )
+from nucleusiq.tools import BaseTool
+from nucleusiq_openai import BaseOpenAI
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 
@@ -47,13 +47,16 @@ SEPARATOR = "=" * 60
 # Shared tools
 # ====================================================================
 
+
 def add(a: int, b: int) -> int:
     """Add two numbers."""
     return a + b
 
+
 def multiply(a: int, b: int) -> int:
     """Multiply two numbers."""
     return a * b
+
 
 def search_contacts(query: str) -> str:
     """Search the company contact directory."""
@@ -67,9 +70,11 @@ def search_contacts(query: str) -> str:
             return val
     return f"No contact found for: {query}"
 
+
 def delete_file(path: str) -> str:
     """Delete a file from the system."""
     return f"Deleted: {path}"
+
 
 def flaky_tool(query: str) -> str:
     """A tool that fails sometimes."""
@@ -82,20 +87,27 @@ def flaky_tool(query: str) -> str:
 
 
 add_tool = BaseTool.from_function(add, name="add", description="Add two numbers")
-mul_tool = BaseTool.from_function(multiply, name="multiply", description="Multiply two numbers")
-search_tool = BaseTool.from_function(search_contacts, name="search_contacts", description="Search company contacts")
-delete_tool = BaseTool.from_function(delete_file, name="delete_file", description="Delete a file")
+mul_tool = BaseTool.from_function(
+    multiply, name="multiply", description="Multiply two numbers"
+)
+search_tool = BaseTool.from_function(
+    search_contacts, name="search_contacts", description="Search company contacts"
+)
+delete_tool = BaseTool.from_function(
+    delete_file, name="delete_file", description="Delete a file"
+)
 
 
 # ====================================================================
 # 1. ModelCallLimitPlugin
 # ====================================================================
 
+
 async def example_model_call_limit():
     print(f"\n{SEPARATOR}")
     print("  1. ModelCallLimitPlugin")
-    print(f"  Caps LLM calls to prevent runaway costs.")
-    print(f"  Config: max_calls=5")
+    print("  Caps LLM calls to prevent runaway costs.")
+    print("  Config: max_calls=5")
     print(SEPARATOR)
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
@@ -109,7 +121,9 @@ async def example_model_call_limit():
     )
     await agent.initialize()
 
-    result = await agent.execute({"id": "1", "objective": "What is the capital of France? One word."})
+    result = await agent.execute(
+        {"id": "1", "objective": "What is the capital of France? One word."}
+    )
     print(f"  Result: {result}")
     print("  (Agent limited to 5 LLM calls per execution)")
 
@@ -118,11 +132,12 @@ async def example_model_call_limit():
 # 2. ToolCallLimitPlugin
 # ====================================================================
 
+
 async def example_tool_call_limit():
     print(f"\n{SEPARATOR}")
     print("  2. ToolCallLimitPlugin")
-    print(f"  Caps tool calls to prevent infinite tool loops.")
-    print(f"  Config: max_calls=5")
+    print("  Caps tool calls to prevent infinite tool loops.")
+    print("  Config: max_calls=5")
     print(SEPARATOR)
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
@@ -149,11 +164,12 @@ async def example_tool_call_limit():
 # 3. ToolRetryPlugin
 # ====================================================================
 
+
 async def example_tool_retry():
     print(f"\n{SEPARATOR}")
     print("  3. ToolRetryPlugin")
-    print(f"  Retries failed tool calls with exponential backoff.")
-    print(f"  Config: max_retries=2, base_delay=0.5s")
+    print("  Retries failed tool calls with exponential backoff.")
+    print("  Config: max_retries=2, base_delay=0.5s")
     print(SEPARATOR)
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
@@ -180,11 +196,12 @@ async def example_tool_retry():
 # 4. ModelFallbackPlugin
 # ====================================================================
 
+
 async def example_model_fallback():
     print(f"\n{SEPARATOR}")
     print("  4. ModelFallbackPlugin")
-    print(f"  Automatically tries backup models when the primary fails.")
-    print(f"  Config: fallbacks=['gpt-4o-mini']")
+    print("  Automatically tries backup models when the primary fails.")
+    print("  Config: fallbacks=['gpt-4o-mini']")
     print(SEPARATOR)
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
@@ -204,7 +221,9 @@ async def example_model_fallback():
     )
     await agent.initialize()
 
-    result = await agent.execute({"id": "1", "objective": "Name three programming languages in one sentence."})
+    result = await agent.execute(
+        {"id": "1", "objective": "Name three programming languages in one sentence."}
+    )
     print(f"  Result: {result}")
     print("  (If primary model fails, gpt-4o-mini is tried automatically)")
 
@@ -213,11 +232,12 @@ async def example_model_fallback():
 # 5. PIIGuardPlugin
 # ====================================================================
 
+
 async def example_pii_guard():
     print(f"\n{SEPARATOR}")
     print("  5. PIIGuardPlugin")
-    print(f"  Detects and handles PII before the LLM sees it.")
-    print(f"  Config: types=[email, phone, ssn], strategy=redact")
+    print("  Detects and handles PII before the LLM sees it.")
+    print("  Config: types=[email, phone, ssn], strategy=redact")
     print(SEPARATOR)
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
@@ -240,10 +260,12 @@ async def example_pii_guard():
     await agent.initialize()
 
     print("\n  --- Redact mode ---")
-    result = await agent.execute({
-        "id": "1",
-        "objective": "Look up Alice in the contacts and tell me what you found.",
-    })
+    result = await agent.execute(
+        {
+            "id": "1",
+            "objective": "Look up Alice in the contacts and tell me what you found.",
+        }
+    )
     print(f"  Result: {result}")
     print("  (Email, phone, SSN were redacted with [REDACTED_*] before LLM saw them)")
 
@@ -265,10 +287,12 @@ async def example_pii_guard():
     )
     await agent2.initialize()
 
-    result2 = await agent2.execute({
-        "id": "2",
-        "objective": "Search for Alice and share what you found.",
-    })
+    result2 = await agent2.execute(
+        {
+            "id": "2",
+            "objective": "Search for Alice and share what you found.",
+        }
+    )
     print(f"  Result: {result2}")
     print("  (PII was partially masked: a***@..., ***-***-4567, ***-**-6789)")
 
@@ -289,10 +313,12 @@ async def example_pii_guard():
     )
     await agent3.initialize()
 
-    result3 = await agent3.execute({
-        "id": "3",
-        "objective": "My OpenAI key is sk-abc123def456ghi789jklmno. Is it valid?",
-    })
+    result3 = await agent3.execute(
+        {
+            "id": "3",
+            "objective": "My OpenAI key is sk-abc123def456ghi789jklmno. Is it valid?",
+        }
+    )
     print(f"  Result: {result3}")
     print("  (API key was redacted with [REDACTED_API_KEY] before LLM saw it)")
 
@@ -301,11 +327,12 @@ async def example_pii_guard():
 # 6. HumanApprovalPlugin
 # ====================================================================
 
+
 async def example_human_approval():
     print(f"\n{SEPARATOR}")
     print("  6. HumanApprovalPlugin")
-    print(f"  Gates tool execution behind a programmatic approval callback.")
-    print(f"  Config: auto_approve=[add, multiply], deny delete_file")
+    print("  Gates tool execution behind a programmatic approval callback.")
+    print("  Config: auto_approve=[add, multiply], deny delete_file")
     print(SEPARATOR)
 
     approval_log = []
@@ -345,11 +372,12 @@ async def example_human_approval():
 # 7. ContextWindowPlugin
 # ====================================================================
 
+
 async def example_context_window():
     print(f"\n{SEPARATOR}")
     print("  7. ContextWindowPlugin")
-    print(f"  Trims messages to prevent context window overflow.")
-    print(f"  Config: max_messages=20, keep_recent=5")
+    print("  Trims messages to prevent context window overflow.")
+    print("  Config: max_messages=20, keep_recent=5")
     print(SEPARATOR)
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
@@ -392,10 +420,11 @@ async def example_context_window():
 # 8. ToolGuardPlugin
 # ====================================================================
 
+
 async def example_tool_guard():
     print(f"\n{SEPARATOR}")
     print("  8. ToolGuardPlugin")
-    print(f"  Whitelist or blacklist tool access by name.")
+    print("  Whitelist or blacklist tool access by name.")
     print(SEPARATOR)
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
@@ -411,7 +440,9 @@ async def example_tool_guard():
         plugins=[
             ToolGuardPlugin(
                 blocked=["delete_file"],
-                on_deny=lambda name, args: f"SECURITY: '{name}' is forbidden by policy.",
+                on_deny=lambda name, args: (
+                    f"SECURITY: '{name}' is forbidden by policy."
+                ),
             ),
             ModelCallLimitPlugin(max_calls=10),
         ],
@@ -446,6 +477,7 @@ async def example_tool_guard():
 # Main
 # ====================================================================
 
+
 async def main():
     if not os.getenv("OPENAI_API_KEY"):
         print("ERROR: OPENAI_API_KEY not set!")
@@ -473,12 +505,13 @@ async def main():
         except Exception as e:
             print(f"\n  [FAIL] {name}: {e}\n")
             import traceback
+
             traceback.print_exc()
             failed += 1
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  RESULTS: {passed} passed, {failed} failed out of {len(examples)}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 if __name__ == "__main__":

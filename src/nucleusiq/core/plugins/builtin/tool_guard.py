@@ -26,9 +26,9 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Optional, Sequence, Union
+from typing import Any, Callable, Dict, Sequence
 
-from nucleusiq.plugins.base import BasePlugin, ToolRequest, ToolHandler
+from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +57,9 @@ class ToolGuardPlugin(BasePlugin):
 
     def __init__(
         self,
-        blocked: Optional[Sequence[str]] = None,
-        allowed: Optional[Sequence[str]] = None,
-        on_deny: Union[str, DenyHandler, None] = None,
+        blocked: Sequence[str] | None = None,
+        allowed: Sequence[str] | None = None,
+        on_deny: str | DenyHandler | None = None,
     ) -> None:
         if blocked and allowed:
             raise ValueError("Cannot specify both 'blocked' and 'allowed'")
@@ -87,9 +87,7 @@ class ToolGuardPlugin(BasePlugin):
             return tool_name in self._allowed
         return True
 
-    async def wrap_tool_call(
-        self, request: ToolRequest, handler: ToolHandler
-    ) -> Any:
+    async def wrap_tool_call(self, request: ToolRequest, handler: ToolHandler) -> Any:
         if self._is_allowed(request.tool_name):
             logger.debug("ToolGuard: ALLOWED '%s'", request.tool_name)
             return await handler(request)

@@ -1,11 +1,9 @@
 """Tests for llms/base.py — BaseLanguageModel and tokenizer helpers."""
 
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestBaseLanguageModel:
-
     def test_get_token_ids_custom(self):
         from nucleusiq.llms.base import BaseLanguageModel
 
@@ -44,6 +42,7 @@ class TestBaseLanguageModel:
 
     def test_get_tokenizer_import_error(self):
         from nucleusiq.llms.base import get_tokenizer
+
         get_tokenizer.cache_clear()
         try:
             result = get_tokenizer()

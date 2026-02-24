@@ -11,11 +11,10 @@ Pass a custom ``token_counter`` callable for accurate counts.
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Callable, Dict, List, Optional
-
-from pydantic import Field, ConfigDict
+from typing import Any, Callable, Dict, List
 
 from nucleusiq.memory.base import BaseMemory
+from pydantic import ConfigDict, Field
 
 
 def _default_token_counter(text: str) -> int:
@@ -59,7 +58,7 @@ class TokenBudgetMemory(BaseMemory):
         self._evict()
 
     def get_context(
-        self, query: Optional[str] = None, **kwargs: Any
+        self, query: str | None = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         return list(self._messages)
 

@@ -9,18 +9,16 @@ Covers:
 - All layers passing
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from nucleusiq.agents.components.validation import (
     ValidationPipeline,
-    ValidationResult,
 )
-
 
 # ================================================================== #
 # Helpers                                                              #
 # ================================================================== #
+
 
 def _make_agent(validators=None):
     agent = MagicMock()
@@ -44,8 +42,8 @@ def _msg(role="assistant", content="Result"):
 # Layer 1: Tool output checks                                         #
 # ================================================================== #
 
-class TestLayer1ToolOutputChecks:
 
+class TestLayer1ToolOutputChecks:
     def test_empty_result_fails(self):
         vr = ValidationPipeline._check_tool_outputs("", [])
         assert not vr.valid
@@ -83,8 +81,8 @@ class TestLayer1ToolOutputChecks:
 # Layer 2: Plugin validators                                           #
 # ================================================================== #
 
-class TestLayer2PluginValidators:
 
+class TestLayer2PluginValidators:
     async def test_no_validators_passes(self):
         agent = _make_agent(validators=[])
         vr = await ValidationPipeline._run_plugin_validators(agent, "result")
@@ -139,13 +137,15 @@ class TestLayer2PluginValidators:
 # Layer 3: LLM review (opt-in)                                        #
 # ================================================================== #
 
-class TestLayer3LLMReview:
 
+class TestLayer3LLMReview:
     async def test_llm_review_pass(self):
         agent = _make_agent()
-        agent.llm.call = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(content="PASS"))],
-        ))
+        agent.llm.call = AsyncMock(
+            return_value=MagicMock(
+                choices=[MagicMock(message=MagicMock(content="PASS"))],
+            )
+        )
 
         pipeline = ValidationPipeline(llm_review=True)
         vr = await pipeline._run_llm_review(agent, "result", [_msg("system", "task")])
@@ -154,9 +154,13 @@ class TestLayer3LLMReview:
 
     async def test_llm_review_fail(self):
         agent = _make_agent()
-        agent.llm.call = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(content="FAIL: wrong calculation"))],
-        ))
+        agent.llm.call = AsyncMock(
+            return_value=MagicMock(
+                choices=[
+                    MagicMock(message=MagicMock(content="FAIL: wrong calculation"))
+                ],
+            )
+        )
 
         pipeline = ValidationPipeline(llm_review=True)
         vr = await pipeline._run_llm_review(agent, "result", [_msg("system", "task")])
@@ -184,8 +188,8 @@ class TestLayer3LLMReview:
 # Full pipeline integration                                            #
 # ================================================================== #
 
-class TestFullPipeline:
 
+class TestFullPipeline:
     async def test_all_layers_pass(self):
         agent = _make_agent()
         pipeline = ValidationPipeline()
@@ -220,9 +224,11 @@ class TestFullPipeline:
 
     async def test_layer3_opt_in_runs(self):
         agent = _make_agent()
-        agent.llm.call = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(content="FAIL: wrong"))],
-        ))
+        agent.llm.call = AsyncMock(
+            return_value=MagicMock(
+                choices=[MagicMock(message=MagicMock(content="FAIL: wrong"))],
+            )
+        )
 
         pipeline = ValidationPipeline(llm_review=True)
         vr = await pipeline.validate(agent, "some result", [])

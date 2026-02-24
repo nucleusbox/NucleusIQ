@@ -23,14 +23,14 @@ Run:  python plugin_comprehensive_demo.py
 Requires: OPENAI_API_KEY environment variable
 """
 
-import os
-import sys
 import asyncio
 import logging
-from typing import Any
+import os
+import sys
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
@@ -40,22 +40,20 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
-from nucleusiq_openai import BaseOpenAI
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
-from nucleusiq.tools import BaseTool
-
 from nucleusiq.plugins.builtin import (
+    ContextWindowPlugin,
+    HumanApprovalPlugin,
     ModelCallLimitPlugin,
-    ToolCallLimitPlugin,
-    ToolRetryPlugin,
     ModelFallbackPlugin,
     PIIGuardPlugin,
-    HumanApprovalPlugin,
-    ApprovalHandler,
     PolicyApprovalHandler,
-    ContextWindowPlugin,
+    ToolCallLimitPlugin,
     ToolGuardPlugin,
+    ToolRetryPlugin,
 )
+from nucleusiq.tools import BaseTool
+from nucleusiq_openai import BaseOpenAI
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("demo")
@@ -68,13 +66,16 @@ SUBSEP = "-" * 65
 # TOOL DEFINITIONS (all using BaseTool.from_function)
 # ====================================================================
 
+
 def add(a: int, b: int) -> int:
     """Add two numbers together."""
     return a + b
 
+
 def multiply(a: int, b: int) -> int:
     """Multiply two numbers together."""
     return a * b
+
 
 def search_contacts(query: str) -> str:
     """Search the company contact directory for a person."""
@@ -88,23 +89,30 @@ def search_contacts(query: str) -> str:
             return val
     return f"No contact found for: {query}"
 
+
 def delete_file(path: str) -> str:
     """Permanently delete a file from the filesystem."""
     return f"DELETED: {path}"
+
 
 def send_email(to: str, subject: str, body: str) -> str:
     """Send an email to a recipient."""
     return f"Email sent to {to} with subject '{subject}'"
 
+
 def deploy_to_production(service: str, version: str) -> str:
     """Deploy a service to production environment."""
     return f"Deployed {service} v{version} to PRODUCTION"
+
 
 def restart_server(server_name: str) -> str:
     """Restart a server by name."""
     return f"Server '{server_name}' restarted successfully"
 
+
 _flaky_counter = {"n": 0}
+
+
 def flaky_api_call(query: str) -> str:
     """Call an external API that is unreliable."""
     _flaky_counter["n"] += 1
@@ -112,9 +120,11 @@ def flaky_api_call(query: str) -> str:
         raise ConnectionError(f"API timeout on attempt #{_flaky_counter['n']}")
     return f"API result for '{query}': 42 records found"
 
+
 def read_file(path: str) -> str:
     """Read contents of a file."""
     return f"Contents of {path}: [sample data]"
+
 
 def get_weather(city: str) -> str:
     """Get current weather for a city."""
@@ -149,7 +159,9 @@ def header(num, title, hook, description):
 async def demo_1_model_call_limit():
     """ModelCallLimitPlugin [before_model] -- caps total LLM calls."""
     header(
-        1, "ModelCallLimitPlugin", "before_model",
+        1,
+        "ModelCallLimitPlugin",
+        "before_model",
         "Prevents runaway costs by capping LLM calls to max_calls=3",
     )
 
@@ -165,18 +177,19 @@ async def demo_1_model_call_limit():
     )
     await agent.initialize()
 
-    result = await agent.execute({
-        "id": "1",
-        "objective": "What is 10 + 20? Then what is 5 * 6?"
-    })
+    result = await agent.execute(
+        {"id": "1", "objective": "What is 10 + 20? Then what is 5 * 6?"}
+    )
     print(f"\n  Result: {str(result)[:150]}")
-    print(f"  (Agent was limited to 3 LLM calls max)")
+    print("  (Agent was limited to 3 LLM calls max)")
 
 
 async def demo_2_tool_call_limit():
     """ToolCallLimitPlugin [wrap_tool_call] -- caps total tool calls."""
     header(
-        2, "ToolCallLimitPlugin", "wrap_tool_call",
+        2,
+        "ToolCallLimitPlugin",
+        "wrap_tool_call",
         "Limits tool executions to max_calls=2. Extra calls are blocked.",
     )
 
@@ -195,18 +208,19 @@ async def demo_2_tool_call_limit():
     )
     await agent.initialize()
 
-    result = await agent.execute({
-        "id": "2",
-        "objective": "Calculate: 10+20, then 5*6, then 100+200"
-    })
+    result = await agent.execute(
+        {"id": "2", "objective": "Calculate: 10+20, then 5*6, then 100+200"}
+    )
     print(f"\n  Result: {str(result)[:200]}")
-    print(f"  (Only first 2 tool calls executed, 3rd was blocked)")
+    print("  (Only first 2 tool calls executed, 3rd was blocked)")
 
 
 async def demo_3_tool_retry():
     """ToolRetryPlugin [wrap_tool_call] -- retries failed tool calls."""
     header(
-        3, "ToolRetryPlugin", "wrap_tool_call",
+        3,
+        "ToolRetryPlugin",
+        "wrap_tool_call",
         "Retries flaky tools with exponential backoff. max_retries=3, base_delay=0.1s",
     )
     _flaky_counter["n"] = 0
@@ -226,10 +240,9 @@ async def demo_3_tool_retry():
     )
     await agent.initialize()
 
-    result = await agent.execute({
-        "id": "3",
-        "objective": "Search the API for 'python frameworks'"
-    })
+    result = await agent.execute(
+        {"id": "3", "objective": "Search the API for 'python frameworks'"}
+    )
     print(f"\n  Result: {str(result)[:200]}")
     print(f"  Flaky tool was called {_flaky_counter['n']} times (retried on failures)")
 
@@ -237,7 +250,9 @@ async def demo_3_tool_retry():
 async def demo_4_model_fallback():
     """ModelFallbackPlugin [wrap_model_call] -- falls back to another model on failure."""
     header(
-        4, "ModelFallbackPlugin", "wrap_model_call",
+        4,
+        "ModelFallbackPlugin",
+        "wrap_model_call",
         "If primary model fails, automatically tries fallback models.",
     )
 
@@ -256,18 +271,17 @@ async def demo_4_model_fallback():
     )
     await agent.initialize()
 
-    result = await agent.execute({
-        "id": "4",
-        "objective": "What is 7 + 13?"
-    })
+    result = await agent.execute({"id": "4", "objective": "What is 7 + 13?"})
     print(f"\n  Result: {str(result)[:150]}")
-    print(f"  (If gpt-4o-mini failed, it would try gpt-3.5-turbo next)")
+    print("  (If gpt-4o-mini failed, it would try gpt-3.5-turbo next)")
 
 
 async def demo_5_pii_guard():
     """PIIGuardPlugin [before_model + after_model] -- redacts PII from LLM traffic."""
     header(
-        5, "PIIGuardPlugin", "before_model + after_model",
+        5,
+        "PIIGuardPlugin",
+        "before_model + after_model",
         "Detects and redacts emails, phones, SSNs, credit cards, IPs.",
     )
 
@@ -291,18 +305,17 @@ async def demo_5_pii_guard():
     )
     await agent.initialize()
 
-    result = await agent.execute({
-        "id": "5",
-        "objective": "Look up Alice's contact information"
-    })
+    result = await agent.execute(
+        {"id": "5", "objective": "Look up Alice's contact information"}
+    )
     print(f"\n  Result: {str(result)[:250]}")
-    print(f"  (PII like emails, SSNs, phones should be redacted in the response)")
+    print("  (PII like emails, SSNs, phones should be redacted in the response)")
 
     print(f"\n  {SUBSEP}")
-    print(f"  PIIGuardPlugin strategies:")
-    print(f"    'redact' -> alice@company.com becomes [EMAIL_REDACTED]")
-    print(f"    'mask'   -> alice@company.com becomes a****@c******.com")
-    print(f"    'block'  -> raises PluginHalt if PII detected")
+    print("  PIIGuardPlugin strategies:")
+    print("    'redact' -> alice@company.com becomes [EMAIL_REDACTED]")
+    print("    'mask'   -> alice@company.com becomes a****@c******.com")
+    print("    'block'  -> raises PluginHalt if PII detected")
 
 
 async def demo_6_human_approval():
@@ -313,7 +326,9 @@ async def demo_6_human_approval():
       6B: PolicyApprovalHandler class (structured, with audit log)
     """
     header(
-        6, "HumanApprovalPlugin", "wrap_tool_call",
+        6,
+        "HumanApprovalPlugin",
+        "wrap_tool_call",
         "Two ways: callback function OR ApprovalHandler class",
     )
 
@@ -321,7 +336,7 @@ async def demo_6_human_approval():
     # 6A: Simple callback function
     # ------------------------------------------------------------------
     print(f"\n  {SUBSEP}")
-    print(f"  6A: Using approval_callback (simple function)")
+    print("  6A: Using approval_callback (simple function)")
     print(f"  {SUBSEP}")
 
     def approval_policy(tool_name: str, tool_args: dict) -> bool:
@@ -347,20 +362,22 @@ async def demo_6_human_approval():
     )
     await agent_a.initialize()
 
-    print(f"\n  Config: approval_callback=approval_policy")
-    print(f"          auto_approve=['add'], require_approval=['delete_file']")
+    print("\n  Config: approval_callback=approval_policy")
+    print("          auto_approve=['add'], require_approval=['delete_file']")
 
     result = await agent_a.execute({"id": "6a1", "objective": "What is 25 + 17?"})
     print(f"\n  Task: 'What is 25+17?' -> {str(result)[:100]}")
 
-    result = await agent_a.execute({"id": "6a2", "objective": "Delete /tmp/secrets.txt"})
+    result = await agent_a.execute(
+        {"id": "6a2", "objective": "Delete /tmp/secrets.txt"}
+    )
     print(f"  Task: 'Delete file'     -> {str(result)[:150]}")
 
     # ------------------------------------------------------------------
     # 6B: PolicyApprovalHandler (class-based with audit log)
     # ------------------------------------------------------------------
     print(f"\n  {SUBSEP}")
-    print(f"  6B: Using PolicyApprovalHandler (class with audit log)")
+    print("  6B: Using PolicyApprovalHandler (class with audit log)")
     print(f"  {SUBSEP}")
 
     policy_handler = PolicyApprovalHandler(
@@ -383,10 +400,10 @@ async def demo_6_human_approval():
     )
     await agent_b.initialize()
 
-    print(f"\n  Config: approval_handler=PolicyApprovalHandler(")
-    print(f"            safe_tools=['add', 'multiply', 'get_weather'],")
-    print(f"            dangerous_tools=['delete_file', 'deploy_to_production'],")
-    print(f"          )")
+    print("\n  Config: approval_handler=PolicyApprovalHandler(")
+    print("            safe_tools=['add', 'multiply', 'get_weather'],")
+    print("            dangerous_tools=['delete_file', 'deploy_to_production'],")
+    print("          )")
 
     result = await agent_b.execute({"id": "6b1", "objective": "What is 50 + 50?"})
     print(f"\n  Task: 'What is 50+50?' -> {str(result)[:100]}")
@@ -394,16 +411,20 @@ async def demo_6_human_approval():
     result = await agent_b.execute({"id": "6b2", "objective": "Delete /etc/passwd"})
     print(f"  Task: 'Delete file'     -> {str(result)[:150]}")
 
-    print(f"\n  Audit log from PolicyApprovalHandler:")
+    print("\n  Audit log from PolicyApprovalHandler:")
     for entry in policy_handler.audit_log:
         status = "APPROVED" if entry["approved"] else "DENIED"
-        print(f"    [{status}] {entry['tool']} (reason: {entry['reason']}, time: {entry['timestamp'][:19]})")
+        print(
+            f"    [{status}] {entry['tool']} (reason: {entry['reason']}, time: {entry['timestamp'][:19]})"
+        )
 
 
 async def demo_7_context_window():
     """ContextWindowPlugin [before_model] -- trims messages to fit context window."""
     header(
-        7, "ContextWindowPlugin", "before_model",
+        7,
+        "ContextWindowPlugin",
+        "before_model",
         "Trims older messages to prevent context overflow. max_messages=15, keep_recent=5",
     )
 
@@ -441,14 +462,16 @@ async def demo_7_context_window():
         result = await agent.execute({"id": f"7-{i}", "objective": msg})
         print(f"  Response: {str(result)[:120]}...")
 
-    print(f"\n  (ContextWindowPlugin kept the conversation within 15 messages)")
-    print(f"  (Oldest messages get replaced with placeholder when limit hit)")
+    print("\n  (ContextWindowPlugin kept the conversation within 15 messages)")
+    print("  (Oldest messages get replaced with placeholder when limit hit)")
 
 
 async def demo_8_tool_guard():
     """ToolGuardPlugin [wrap_tool_call] -- blocks/allows tools by name."""
     header(
-        8, "ToolGuardPlugin", "wrap_tool_call",
+        8,
+        "ToolGuardPlugin",
+        "wrap_tool_call",
         "Whitelist/blacklist tools. blocked=['delete_file','restart_server']",
     )
 
@@ -470,18 +493,18 @@ async def demo_8_tool_guard():
     )
     await agent.initialize()
 
-    print(f"\n  Config:")
-    print(f"    blocked = ['delete_file', 'restart_server']")
-    print(f"    allowed = everything else (add, read_file)")
+    print("\n  Config:")
+    print("    blocked = ['delete_file', 'restart_server']")
+    print("    allowed = everything else (add, read_file)")
 
-    print(f"\n  --- Task A: Allowed tool (add) ---")
+    print("\n  --- Task A: Allowed tool (add) ---")
     result = await agent.execute({"id": "8a", "objective": "What is 100 + 200?"})
     print(f"  Result: {str(result)[:150]}")
 
-    print(f"\n  --- Task B: Blocked tool (delete_file) ---")
+    print("\n  --- Task B: Blocked tool (delete_file) ---")
     result = await agent.execute({"id": "8b", "objective": "Delete /var/log/syslog"})
     print(f"  Result: {str(result)[:200]}")
-    print(f"  (delete_file was blocked, agent got deny message)")
+    print("  (delete_file was blocked, agent got deny message)")
 
 
 # ====================================================================
@@ -492,7 +515,9 @@ async def demo_8_tool_guard():
 async def demo_9_secure_agent():
     """COMPLEX: Secure Agent = PIIGuard + HumanApproval + ToolGuard."""
     header(
-        9, "Secure Agent (3 plugins)", "wrap_tool_call + before_model",
+        9,
+        "Secure Agent (3 plugins)",
+        "wrap_tool_call + before_model",
         "PIIGuard + HumanApproval + ToolGuard = defense in depth",
     )
 
@@ -526,33 +551,26 @@ async def demo_9_secure_agent():
     )
     await agent.initialize()
 
-    print(f"\n  Security layers:")
-    print(f"    Layer 1 - PIIGuard:        Redacts PII from all LLM traffic")
-    print(f"    Layer 2 - PolicyApproval:  safe=['add','get_weather'], dangerous=['delete_file','send_email']")
-    print(f"    Layer 3 - ToolGuard:       Blocks restart_server entirely")
+    print("\n  Security layers:")
+    print("    Layer 1 - PIIGuard:        Redacts PII from all LLM traffic")
+    print(
+        "    Layer 2 - PolicyApproval:  safe=['add','get_weather'], dangerous=['delete_file','send_email']"
+    )
+    print("    Layer 3 - ToolGuard:       Blocks restart_server entirely")
 
-    print(f"\n  --- Scenario: Look up contact (PII gets redacted) ---")
-    result = await agent.execute({
-        "id": "9a",
-        "objective": "Find Alice's contact info"
-    })
+    print("\n  --- Scenario: Look up contact (PII gets redacted) ---")
+    result = await agent.execute({"id": "9a", "objective": "Find Alice's contact info"})
     print(f"  Result: {str(result)[:200]}")
 
-    print(f"\n  --- Scenario: Try to delete (PolicyApprovalHandler denies) ---")
-    result = await agent.execute({
-        "id": "9b",
-        "objective": "Delete /tmp/data.csv"
-    })
+    print("\n  --- Scenario: Try to delete (PolicyApprovalHandler denies) ---")
+    result = await agent.execute({"id": "9b", "objective": "Delete /tmp/data.csv"})
     print(f"  Result: {str(result)[:200]}")
 
-    print(f"\n  --- Scenario: Safe math (auto-approved, handler not called) ---")
-    result = await agent.execute({
-        "id": "9c",
-        "objective": "What is 42 + 58?"
-    })
+    print("\n  --- Scenario: Safe math (auto-approved, handler not called) ---")
+    result = await agent.execute({"id": "9c", "objective": "What is 42 + 58?"})
     print(f"  Result: {str(result)[:120]}")
 
-    print(f"\n  Audit trail from PolicyApprovalHandler:")
+    print("\n  Audit trail from PolicyApprovalHandler:")
     for entry in security_handler.audit_log:
         status = "APPROVED" if entry["approved"] else "DENIED"
         print(f"    [{status}] {entry['tool']} -> {entry['reason']}")
@@ -561,7 +579,9 @@ async def demo_9_secure_agent():
 async def demo_10_resilient_agent():
     """COMPLEX: Resilient Agent = ModelFallback + ModelCallLimit + ContextWindow + ToolRetry."""
     header(
-        10, "Resilient Agent (4 plugins)", "wrap_model_call + before_model + wrap_tool_call",
+        10,
+        "Resilient Agent (4 plugins)",
+        "wrap_model_call + before_model + wrap_tool_call",
         "ModelFallback + ModelCallLimit + ContextWindow + ToolRetry",
     )
     _flaky_counter["n"] = 0
@@ -586,17 +606,16 @@ async def demo_10_resilient_agent():
     )
     await agent.initialize()
 
-    print(f"\n  Resilience layers:")
-    print(f"    ModelFallback:  If primary model fails -> try gpt-4o-mini")
-    print(f"    ModelCallLimit: Max 10 LLM calls per task")
-    print(f"    ContextWindow:  Keep conversation under 20 messages")
-    print(f"    ToolRetry:      Retry flaky tools up to 3 times")
+    print("\n  Resilience layers:")
+    print("    ModelFallback:  If primary model fails -> try gpt-4o-mini")
+    print("    ModelCallLimit: Max 10 LLM calls per task")
+    print("    ContextWindow:  Keep conversation under 20 messages")
+    print("    ToolRetry:      Retry flaky tools up to 3 times")
 
-    print(f"\n  --- Task: Use flaky API (will retry automatically) ---")
-    result = await agent.execute({
-        "id": "10",
-        "objective": "Search the API for 'machine learning trends'"
-    })
+    print("\n  --- Task: Use flaky API (will retry automatically) ---")
+    result = await agent.execute(
+        {"id": "10", "objective": "Search the API for 'machine learning trends'"}
+    )
     print(f"  Result: {str(result)[:200]}")
     print(f"  Flaky tool attempts: {_flaky_counter['n']}")
 
@@ -604,13 +623,21 @@ async def demo_10_resilient_agent():
 async def demo_11_fortress_agent():
     """COMPLEX: Fortress Agent = ALL 8 plugins together."""
     header(
-        11, "Fortress Agent (ALL 8 plugins)", "ALL hooks active",
+        11,
+        "Fortress Agent (ALL 8 plugins)",
+        "ALL hooks active",
         "Every plugin running simultaneously - the ultimate protected agent",
     )
     _flaky_counter["n"] = 0
 
     fortress_handler = PolicyApprovalHandler(
-        safe_tools=["add", "multiply", "search_contacts", "get_weather", "flaky_api_call"],
+        safe_tools=[
+            "add",
+            "multiply",
+            "search_contacts",
+            "get_weather",
+            "flaky_api_call",
+        ],
         dangerous_tools=["delete_file"],
         default_allow=False,
     )
@@ -648,70 +675,73 @@ async def demo_11_fortress_agent():
     )
     await agent.initialize()
 
-    print(f"\n  All 8 plugins active:")
-    print(f"    [before_model]    ModelCallLimitPlugin   max=10")
-    print(f"    [wrap_model_call] ModelFallbackPlugin    fallback=gpt-4o-mini")
-    print(f"    [before+after]    PIIGuardPlugin         strategy=redact")
-    print(f"    [before_model]    ContextWindowPlugin    max_messages=20")
-    print(f"    [wrap_tool_call]  ToolCallLimitPlugin    max=5")
-    print(f"    [wrap_tool_call]  ToolRetryPlugin        retries=2")
-    print(f"    [wrap_tool_call]  HumanApprovalPlugin    PolicyApprovalHandler")
-    print(f"    [wrap_tool_call]  ToolGuardPlugin        blocks restart,deploy")
+    print("\n  All 8 plugins active:")
+    print("    [before_model]    ModelCallLimitPlugin   max=10")
+    print("    [wrap_model_call] ModelFallbackPlugin    fallback=gpt-4o-mini")
+    print("    [before+after]    PIIGuardPlugin         strategy=redact")
+    print("    [before_model]    ContextWindowPlugin    max_messages=20")
+    print("    [wrap_tool_call]  ToolCallLimitPlugin    max=5")
+    print("    [wrap_tool_call]  ToolRetryPlugin        retries=2")
+    print("    [wrap_tool_call]  HumanApprovalPlugin    PolicyApprovalHandler")
+    print("    [wrap_tool_call]  ToolGuardPlugin        blocks restart,deploy")
 
-    print(f"\n  --- Task A: Safe math (auto-approved, handler not called) ---")
+    print("\n  --- Task A: Safe math (auto-approved, handler not called) ---")
     result = await agent.execute({"id": "11a", "objective": "What is 33 + 67?"})
     print(f"  Result: {str(result)[:120]}")
 
-    print(f"\n  --- Task B: Contact lookup (PII redacted) ---")
-    result = await agent.execute({
-        "id": "11b",
-        "objective": "Look up Bob's contact information"
-    })
+    print("\n  --- Task B: Contact lookup (PII redacted) ---")
+    result = await agent.execute(
+        {"id": "11b", "objective": "Look up Bob's contact information"}
+    )
     print(f"  Result: {str(result)[:200]}")
 
-    print(f"\n  --- Task C: Delete attempt (PolicyApprovalHandler denies) ---")
-    result = await agent.execute({
-        "id": "11c",
-        "objective": "Delete the file /etc/passwd"
-    })
+    print("\n  --- Task C: Delete attempt (PolicyApprovalHandler denies) ---")
+    result = await agent.execute(
+        {"id": "11c", "objective": "Delete the file /etc/passwd"}
+    )
     print(f"  Result: {str(result)[:200]}")
 
-    print(f"\n  Fortress audit trail:")
+    print("\n  Fortress audit trail:")
     for entry in fortress_handler.audit_log:
         status = "APPROVED" if entry["approved"] else "DENIED"
         print(f"    [{status}] {entry['tool']} -> {entry['reason']}")
     print(f"  Flaky tool attempts: {_flaky_counter['n']}")
 
-    print(f"\n  Plugin execution order for a tool call:")
-    print(f"    Request -> ToolCallLimit -> ToolRetry -> HumanApproval -> ToolGuard -> Tool")
-    print(f"  Plugin execution order for a model call:")
-    print(f"    Request -> ModelCallLimit -> PIIGuard -> ContextWindow -> ModelFallback -> LLM")
+    print("\n  Plugin execution order for a tool call:")
+    print(
+        "    Request -> ToolCallLimit -> ToolRetry -> HumanApproval -> ToolGuard -> Tool"
+    )
+    print("  Plugin execution order for a model call:")
+    print(
+        "    Request -> ModelCallLimit -> PIIGuard -> ContextWindow -> ModelFallback -> LLM"
+    )
 
 
 # ====================================================================
 # RUNNER
 # ====================================================================
 
+
 async def main():
-    print(f"\n{'#'*65}")
-    print(f"  NucleusIQ Plugin System -- Comprehensive Demo")
-    print(f"  8 built-in plugins x 11 scenarios")
-    print(f"{'#'*65}")
+    print(f"\n{'#' * 65}")
+    print("  NucleusIQ Plugin System -- Comprehensive Demo")
+    print("  8 built-in plugins x 11 scenarios")
+    print(f"{'#' * 65}")
 
     demos = [
         ("PART A: Individual Plugin Demos", None),
-        ("1. ModelCallLimitPlugin",  demo_1_model_call_limit),
-        ("2. ToolCallLimitPlugin",   demo_2_tool_call_limit),
-        ("3. ToolRetryPlugin",       demo_3_tool_retry),
-        ("4. ModelFallbackPlugin",   demo_4_model_fallback),
-        ("5. PIIGuardPlugin",        demo_5_pii_guard),
-        ("6. HumanApprovalPlugin",   demo_6_human_approval),
-        ("7. ContextWindowPlugin",   demo_7_context_window),
-        ("8. ToolGuardPlugin",       demo_8_tool_guard),
+        ("1. ModelCallLimitPlugin", demo_1_model_call_limit),
+        ("2. ToolCallLimitPlugin", demo_2_tool_call_limit),
+        ("3. ToolRetryPlugin", demo_3_tool_retry),
+        ("4. ModelFallbackPlugin", demo_4_model_fallback),
+        ("5. PIIGuardPlugin", demo_5_pii_guard),
+        ("6. HumanApprovalPlugin", demo_6_human_approval),
+        ("7. ContextWindowPlugin", demo_7_context_window),
+        ("8. ToolGuardPlugin", demo_8_tool_guard),
         ("PART B: Complex Multi-Plugin Scenarios", None),
-        ("9. Secure Agent",          demo_9_secure_agent),
-        ("10. Resilient Agent",      demo_10_resilient_agent),
-        ("11. Fortress Agent",       demo_11_fortress_agent),
+        ("9. Secure Agent", demo_9_secure_agent),
+        ("10. Resilient Agent", demo_10_resilient_agent),
+        ("11. Fortress Agent", demo_11_fortress_agent),
     ]
 
     passed = 0
@@ -720,9 +750,9 @@ async def main():
 
     for name, fn in demos:
         if fn is None:
-            print(f"\n\n{'#'*65}")
+            print(f"\n\n{'#' * 65}")
             print(f"  {name}")
-            print(f"{'#'*65}")
+            print(f"{'#' * 65}")
             continue
 
         try:
@@ -732,17 +762,18 @@ async def main():
         except Exception as e:
             print(f"\n  [FAIL] {name}: {e}")
             import traceback
+
             traceback.print_exc()
             failed += 1
             errors.append(f"{name}: {e}")
 
-    print(f"\n\n{'#'*65}")
+    print(f"\n\n{'#' * 65}")
     print(f"  FINAL RESULTS: {passed} passed, {failed} failed out of 11")
     if errors:
-        print(f"\n  Errors:")
+        print("\n  Errors:")
         for err in errors:
             print(f"    - {err}")
-    print(f"{'#'*65}\n")
+    print(f"{'#' * 65}\n")
 
 
 if __name__ == "__main__":

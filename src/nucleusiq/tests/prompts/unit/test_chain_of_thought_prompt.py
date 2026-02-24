@@ -1,6 +1,5 @@
 # tests/test_chain_of_thought_prompt.py
 
-import os
 import sys
 from pathlib import Path
 
@@ -12,6 +11,7 @@ if str(src_dir) not in sys.path:
 import pytest
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 
+
 class TestChainOfThoughtPrompt:
     def test_chain_of_thought_minimal_success(self):
         """
@@ -19,14 +19,12 @@ class TestChainOfThoughtPrompt:
         - use_cot defaults True
         - cot_instruction defaults to "Let's think step by step."
         """
-        cot_prompt = (
-            PromptFactory
-            .create_prompt(PromptTechnique.CHAIN_OF_THOUGHT)
-            .configure(
-                system="You are an analytical assistant.",
-                user="Is the following statement correct?"
-                # no cot_instruction => default
-            )
+        cot_prompt = PromptFactory.create_prompt(
+            PromptTechnique.CHAIN_OF_THOUGHT
+        ).configure(
+            system="You are an analytical assistant.",
+            user="Is the following statement correct?",
+            # no cot_instruction => default
         )
         prompt_text = cot_prompt.format_prompt()
         expected_prompt = (
@@ -41,14 +39,12 @@ class TestChainOfThoughtPrompt:
         Provide a custom CoT instruction, keep use_cot=True => final prompt uses that instruction.
         """
         custom_instr = "Please provide a thorough reasoning process."
-        cot_prompt = (
-            PromptFactory
-            .create_prompt(PromptTechnique.CHAIN_OF_THOUGHT)
-            .configure(
-                system="You are an AI reasoner.",
-                user="What is the capital of France?",
-                cot_instruction=custom_instr
-            )
+        cot_prompt = PromptFactory.create_prompt(
+            PromptTechnique.CHAIN_OF_THOUGHT
+        ).configure(
+            system="You are an AI reasoner.",
+            user="What is the capital of France?",
+            cot_instruction=custom_instr,
         )
         prompt_text = cot_prompt.format_prompt()
         expected_prompt = (
@@ -64,9 +60,7 @@ class TestChainOfThoughtPrompt:
         """
         with pytest.raises(ValueError) as exc:
             (
-                PromptFactory
-                .create_prompt(PromptTechnique.CHAIN_OF_THOUGHT)
-                .configure(
+                PromptFactory.create_prompt(PromptTechnique.CHAIN_OF_THOUGHT).configure(
                     system="System text.",
                     user="User text.",
                     use_cot=False,  # This is disallowed
@@ -78,14 +72,12 @@ class TestChainOfThoughtPrompt:
         """
         'system' is in input_variables => if missing or empty => raises ValueError at format_prompt time.
         """
-        cot_prompt = (
-            PromptFactory
-            .create_prompt(PromptTechnique.CHAIN_OF_THOUGHT)
-            .configure(
-                system="",  # empty
-                user="Should I invest in stocks?",
-                cot_instruction="Analyze carefully."
-            )
+        cot_prompt = PromptFactory.create_prompt(
+            PromptTechnique.CHAIN_OF_THOUGHT
+        ).configure(
+            system="",  # empty
+            user="Should I invest in stocks?",
+            cot_instruction="Analyze carefully.",
         )
         with pytest.raises(ValueError) as exc_info:
             cot_prompt.format_prompt()
@@ -95,14 +87,12 @@ class TestChainOfThoughtPrompt:
         """
         'user' is also in input_variables => if missing or empty => ValueError at format.
         """
-        cot_prompt = (
-            PromptFactory
-            .create_prompt(PromptTechnique.CHAIN_OF_THOUGHT)
-            .configure(
-                system="You are a logic engine.",
-                user=None,  # or blank
-                cot_instruction="Think step by step."
-            )
+        cot_prompt = PromptFactory.create_prompt(
+            PromptTechnique.CHAIN_OF_THOUGHT
+        ).configure(
+            system="You are a logic engine.",
+            user=None,  # or blank
+            cot_instruction="Think step by step.",
         )
         with pytest.raises(ValueError) as exc_info:
             cot_prompt.format_prompt()
@@ -113,14 +103,9 @@ class TestChainOfThoughtPrompt:
         If user doesn't set cot_instruction, we fallback to default "Let's think step by step."
         at pre-validation if it's empty.
         """
-        cot_prompt = (
-            PromptFactory
-            .create_prompt(PromptTechnique.CHAIN_OF_THOUGHT)
-            .configure(
-                system="System instructions.",
-                user="What is 2+2?"
-            )
-        )
+        cot_prompt = PromptFactory.create_prompt(
+            PromptTechnique.CHAIN_OF_THOUGHT
+        ).configure(system="System instructions.", user="What is 2+2?")
         # remove any existing instructions
         cot_prompt.cot_instruction = ""
         prompt_text = cot_prompt.format_prompt()
@@ -132,14 +117,12 @@ class TestChainOfThoughtPrompt:
         Even if user sets cot_instruction = '' in configure, we default to "Let's think step by step."
         during _pre_format_validation.
         """
-        cot_prompt = (
-            PromptFactory
-            .create_prompt(PromptTechnique.CHAIN_OF_THOUGHT)
-            .configure(
-                system="You are a reasoner.",
-                user="How many planets are in the Solar System?",
-                cot_instruction=""
-            )
+        cot_prompt = PromptFactory.create_prompt(
+            PromptTechnique.CHAIN_OF_THOUGHT
+        ).configure(
+            system="You are a reasoner.",
+            user="How many planets are in the Solar System?",
+            cot_instruction="",
         )
         prompt_text = cot_prompt.format_prompt()
         assert "Let's think step by step." in prompt_text
@@ -148,17 +131,15 @@ class TestChainOfThoughtPrompt:
 
     def test_chain_of_thought_all_fields_working(self):
         """
-        Provide system, user, and a non-empty custom CoT. 
+        Provide system, user, and a non-empty custom CoT.
         Valid scenario => no errors, CoT is appended.
         """
-        cot_prompt = (
-            PromptFactory
-            .create_prompt(PromptTechnique.CHAIN_OF_THOUGHT)
-            .configure(
-                system="System: You are an advanced reasoning model.",
-                user="What is the next prime after 10?",
-                cot_instruction="Deduce carefully step by step."
-            )
+        cot_prompt = PromptFactory.create_prompt(
+            PromptTechnique.CHAIN_OF_THOUGHT
+        ).configure(
+            system="System: You are an advanced reasoning model.",
+            user="What is the next prime after 10?",
+            cot_instruction="Deduce carefully step by step.",
         )
         prompt_text = cot_prompt.format_prompt()
         # Check final structure

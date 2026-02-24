@@ -3,30 +3,24 @@ Full coverage tests for agent.py, base_agent.py, message_builder.py,
 standard_mode.py, autonomous_mode.py — targeting every uncovered line.
 """
 
-import asyncio
-import inspect
-import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Any, Dict, List
 
+import pytest
 from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.plan import Plan, PlanStep, PlanResponse
-from nucleusiq.agents.config import AgentConfig, AgentMetrics, AgentState, ExecutionMode
-from nucleusiq.agents.modes.standard_mode import StandardMode
-from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
-from nucleusiq.agents.modes.direct_mode import DirectMode
+from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
+from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
+from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
-from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 
 
 def _make_agent(**overrides):
     defaults = dict(
-        name="TestAgent", role="Assistant",
-        objective="Help users", narrative="Test agent",
+        name="TestAgent",
+        role="Assistant",
+        objective="Help users",
+        narrative="Test agent",
     )
     defaults.update(overrides)
     return Agent(**defaults)
@@ -36,8 +30,8 @@ def _make_agent(**overrides):
 # Agent.register_mode (line 101)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestRegisterMode:
 
+class TestRegisterMode:
     def test_register_custom_mode(self):
         class CustomMode:
             async def run(self, agent, task):
@@ -54,8 +48,8 @@ class TestRegisterMode:
 # Agent._wrap_structured_output_result (lines 380-401)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestStructuredOutputOnAgent:
 
+class TestStructuredOutputOnAgent:
     def test_resolve_response_format_none(self):
         agent = _make_agent()
         assert agent._resolve_response_format() is None
@@ -76,8 +70,6 @@ class TestStructuredOutputOnAgent:
 
     def test_get_structured_output_kwargs_native_simple_schema(self):
         from pydantic import BaseModel
-        from nucleusiq.agents.structured_output.config import OutputSchema
-        from nucleusiq.agents.structured_output.types import OutputMode
 
         class MyOutput(BaseModel):
             answer: str
@@ -88,9 +80,9 @@ class TestStructuredOutputOnAgent:
         assert "response_format" in kwargs
 
     def test_get_structured_output_kwargs_with_output_schema(self):
-        from pydantic import BaseModel
         from nucleusiq.agents.structured_output.config import OutputSchema
         from nucleusiq.agents.structured_output.types import OutputMode
+        from pydantic import BaseModel
 
         class MyOutput(BaseModel):
             answer: str
@@ -158,8 +150,8 @@ class TestStructuredOutputOnAgent:
 # Agent._process_result with prompt (lines 421, 427-429)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestProcessResultWithPrompt:
 
+class TestProcessResultWithPrompt:
     @pytest.mark.asyncio
     async def test_prompt_with_sync_process_result(self):
         """Prompt that has a sync process_result method."""
@@ -230,8 +222,8 @@ class TestProcessResultWithPrompt:
 # base_agent._execute_step (lines 190, 205-207)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestExecuteWithRetry:
 
+class TestExecuteWithRetry:
     @pytest.mark.asyncio
     async def test_execute_with_retry_max_retries_reached(self):
         """_execute_with_retry raises after max retries."""
@@ -239,7 +231,9 @@ class TestExecuteWithRetry:
         agent = _make_agent(llm=llm, config=AgentConfig(max_retries=2))
         await agent.initialize()
 
-        with patch.object(Agent, 'execute', new_callable=AsyncMock, side_effect=RuntimeError("fail")):
+        with patch.object(
+            Agent, "execute", new_callable=AsyncMock, side_effect=RuntimeError("fail")
+        ):
             with pytest.raises(RuntimeError):
                 await agent._execute_with_retry({"id": "1", "objective": "x"})
 
@@ -249,8 +243,8 @@ class TestExecuteWithRetry:
         agent = _make_agent(llm=llm)
         await agent.initialize()
 
-        with patch.object(Agent, 'execute', new_callable=AsyncMock, return_value="ok"):
-            with patch.object(Agent, '_validate_result', return_value=True):
+        with patch.object(Agent, "execute", new_callable=AsyncMock, return_value="ok"):
+            with patch.object(Agent, "_validate_result", return_value=True):
                 result = await agent._execute_with_retry({"id": "1", "objective": "x"})
                 assert result == "ok"
 
@@ -271,7 +265,9 @@ class TestExecuteWithRetry:
         await agent.initialize()
         agent._start_time = 9999999999
 
-        with patch.object(Agent, 'execute', new_callable=AsyncMock, side_effect=ValueError("bad")):
+        with patch.object(
+            Agent, "execute", new_callable=AsyncMock, side_effect=ValueError("bad")
+        ):
             with pytest.raises(ValueError):
                 await agent._execute_step({"id": "1", "objective": "test"})
 
@@ -291,8 +287,8 @@ class TestExecuteWithRetry:
 # MessageBuilder.content_to_text (lines 150-161)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestMessageBuilderContentToText:
 
+class TestMessageBuilderContentToText:
     def test_none_returns_none(self):
         assert MessageBuilder.content_to_text(None) is None
 
@@ -336,8 +332,8 @@ class TestMessageBuilderContentToText:
 # StandardMode tool-call paths (lines 79, 110, 119-121, 140-168)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestStandardModeToolPaths:
 
+class TestStandardModeToolPaths:
     @pytest.mark.asyncio
     async def test_ensure_executor_no_llm(self):
         agent = _make_agent(llm=None)
@@ -411,8 +407,6 @@ class TestStandardModeToolPaths:
     async def test_run_structured_output_shortcircuit(self):
         """Structured output response is returned directly."""
         from pydantic import BaseModel
-        from nucleusiq.agents.structured_output.config import OutputSchema
-        from nucleusiq.agents.structured_output.types import OutputMode
 
         class Out(BaseModel):
             val: int
@@ -432,8 +426,8 @@ class TestStandardModeToolPaths:
 # AutonomousMode paths (lines 79-90, 135-138, 148-149, 162-171)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestAutonomousModeRun:
 
+class TestAutonomousModeRun:
     @pytest.mark.asyncio
     async def test_no_llm_echo(self):
         agent = _make_agent(llm=None)
@@ -446,7 +440,8 @@ class TestAutonomousModeRun:
         mem = FullHistoryMemory()
         llm = MockLLM()
         agent = _make_agent(
-            llm=llm, memory=mem,
+            llm=llm,
+            memory=mem,
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),
         )
         await agent.initialize()
@@ -466,7 +461,8 @@ class TestAutonomousModeRun:
 
         llm = MockLLM()
         agent = _make_agent(
-            llm=llm, response_format=MyOut,
+            llm=llm,
+            response_format=MyOut,
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),
         )
         await agent.initialize()

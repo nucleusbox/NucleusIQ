@@ -1,9 +1,11 @@
 # src/nucleusiq/prompts/auto_chain_of_thought.py
 
-from typing import List, Dict, Optional, Any
-from pydantic import Field, field_validator
-from nucleusiq.prompts.base import BasePrompt
+from typing import Any, Dict, List
+
 from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.prompts.base import BasePrompt
+from pydantic import Field, field_validator
+
 
 class AutoChainOfThoughtPrompt(BasePrompt):
     """
@@ -13,26 +15,25 @@ class AutoChainOfThoughtPrompt(BasePrompt):
 
     # Primary fields controlling clustering / CoT
     num_clusters: int = Field(
-        default=5,
-        description="Number of clusters for question grouping (>=1)."
+        default=5, description="Number of clusters for question grouping (>=1)."
     )
     max_questions_per_cluster: int = Field(
         default=1,
-        description="Number of questions to pick per cluster in each cluster (>=1)."
+        description="Number of questions to pick per cluster in each cluster (>=1).",
     )
     instruction: str = Field(
         default="Let's think step by step.",
-        description="Default CoT instruction if user doesn't supply a custom one."
+        description="Default CoT instruction if user doesn't supply a custom one.",
     )
 
     # We'll consider 'task' + 'questions' as required input_variables
     template: str = Field(
         default="{system}\n\n{context}\n\n{task}\n\n{examples}\n\n{user}\n\n{cot_instruction}",
-        description="Default template for Auto-CoT Prompting."
+        description="Default template for Auto-CoT Prompting.",
     )
     input_variables: List[str] = Field(
         default_factory=lambda: ["task", "questions"],
-        description="Mandatory fields for Auto-CoT: 'task' (str) and 'questions' (list)."
+        description="Mandatory fields for Auto-CoT: 'task' (str) and 'questions' (list).",
     )
     optional_variables: List[str] = Field(
         default_factory=lambda: [
@@ -45,21 +46,27 @@ class AutoChainOfThoughtPrompt(BasePrompt):
             "num_clusters",
             "max_questions_per_cluster",
             "instruction",
-            "llm"  # We'll check usage of llm in a hook
+            "llm",  # We'll check usage of llm in a hook
         ],
-        description="Other optional fields recognized by the base class."
+        description="Other optional fields recognized by the base class.",
     )
 
     # Subclass fields (some optional)
-    system: Optional[str] = None
-    context: Optional[str] = None
-    task_prompt: Optional[str] = Field(default="", description="Optional final task text if desired.")
-    user: Optional[str] = None
-    examples: Optional[str] = Field(default="", description="Auto-generated examples text.")
-    cot_instruction: Optional[str] = Field(default="", description="Extra CoT text appended at the end.")
-    llm: Optional[BaseLLM] = Field(
+    system: str | None = None
+    context: str | None = None
+    task_prompt: str | None = Field(
+        default="", description="Optional final task text if desired."
+    )
+    user: str | None = None
+    examples: str | None = Field(
+        default="", description="Auto-generated examples text."
+    )
+    cot_instruction: str | None = Field(
+        default="", description="Extra CoT text appended at the end."
+    )
+    llm: BaseLLM | None = Field(
         default=None,
-        description="Language Model used to generate reasoning chains (must be non-None to run)."
+        description="Language Model used to generate reasoning chains (must be non-None to run).",
     )
 
     @property
@@ -89,17 +96,23 @@ class AutoChainOfThoughtPrompt(BasePrompt):
         Ensures 'llm' is set, 'task' is non-empty, 'questions' is a non-empty list, etc.
         """
         if self.llm is None:
-            raise ValueError("AutoChainOfThoughtPrompt requires 'llm' to be set (non-None).")
+            raise ValueError(
+                "AutoChainOfThoughtPrompt requires 'llm' to be set (non-None)."
+            )
 
         # Check 'task' is a non-empty string
         task_val = combined_vars.get("task", "")
         if not isinstance(task_val, str) or not task_val.strip():
-            raise ValueError("AutoChainOfThoughtPrompt requires 'task' be a non-empty string.")
+            raise ValueError(
+                "AutoChainOfThoughtPrompt requires 'task' be a non-empty string."
+            )
 
         # Check 'questions' is a non-empty list
         questions_val = combined_vars.get("questions", [])
         if not isinstance(questions_val, list) or len(questions_val) == 0:
-            raise ValueError("AutoChainOfThoughtPrompt requires a non-empty list of 'questions'.")
+            raise ValueError(
+                "AutoChainOfThoughtPrompt requires a non-empty list of 'questions'."
+            )
 
     def _construct_prompt(self, **kwargs) -> str:
         """
@@ -110,6 +123,7 @@ class AutoChainOfThoughtPrompt(BasePrompt):
         questions = kwargs["questions"]
 
         from nucleusiq.utilities.clustering import cluster_questions
+
         clusters = cluster_questions(questions, num_clusters=self.num_clusters)
 
         # Collect representative questions
@@ -164,7 +178,7 @@ class AutoChainOfThoughtPrompt(BasePrompt):
         sys_prompt = self.system or "You are a helpful assistant."
         messages = [
             {"role": "system", "content": sys_prompt},
-            {"role": "user",   "content": f"{question}\n{self.instruction}"}
+            {"role": "user", "content": f"{question}\n{self.instruction}"},
         ]
         return self.llm.create_completion(
             messages=messages,
@@ -173,5 +187,5 @@ class AutoChainOfThoughtPrompt(BasePrompt):
             top_p=1.0,
             frequency_penalty=0.0,
             presence_penalty=0.0,
-            stop=["\nA:"]
+            stop=["\nA:"],
         )

@@ -13,16 +13,16 @@ Responsibilities:
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
 
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.plan import Plan, PlanStep
-from nucleusiq.agents.config.agent_config import AgentState
-from nucleusiq.agents.planning.prompt_strategy import (
-    PlanPromptStrategy,
-    DefaultPlanPromptStrategy,
-)
 from nucleusiq.agents.chat_models import ToolCallRequest
+from nucleusiq.agents.config.agent_config import AgentState
+from nucleusiq.agents.plan import Plan, PlanStep
+from nucleusiq.agents.planning.prompt_strategy import (
+    DefaultPlanPromptStrategy,
+    PlanPromptStrategy,
+)
+from nucleusiq.agents.task import Task
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -33,9 +33,9 @@ class PlanExecutor:
 
     def __init__(
         self,
-        logger: Optional[logging.Logger] = None,
-        prompt_strategy: Optional[PlanPromptStrategy] = None,
-        step_runner: Optional[Any] = None,
+        logger: logging.Logger | None = None,
+        prompt_strategy: PlanPromptStrategy | None = None,
+        step_runner: Any | None = None,
     ):
         self._logger = logger or logging.getLogger(__name__)
         self._prompt_strategy = prompt_strategy or DefaultPlanPromptStrategy()
@@ -48,8 +48,8 @@ class PlanExecutor:
     async def execute_plan(
         self,
         agent: "Agent",
-        task: Union[Task, Dict[str, Any]],
-        plan: Union[Plan, List[Dict[str, Any]]],
+        task: Task | Dict[str, Any],
+        plan: Plan | List[Dict[str, Any]],
     ) -> Any:
         """Execute a task following a multi-step plan.
 
@@ -82,16 +82,21 @@ class PlanExecutor:
             step_task = self._resolve_step_task(step, task)
             step_details = step.details or ""
 
-            self._logger.info(
-                "Executing plan step %d: %s", step_num, action
-            )
+            self._logger.info("Executing plan step %d: %s", step_num, action)
             if step_details:
                 self._logger.debug("Step details: %s", step_details)
 
             step_result, step_error = await self._run_with_retries(
-                agent, step, step_num, action, step_task,
-                step_details, context, task,
-                step_timeout, step_max_retries,
+                agent,
+                step,
+                step_num,
+                action,
+                step_task,
+                step_details,
+                context,
+                task,
+                step_timeout,
+                step_max_retries,
             )
 
             if step_result is not None:
@@ -100,10 +105,7 @@ class PlanExecutor:
                 context[f"step_{step_num}_action"] = action
             elif step_error:
                 agent.state = AgentState.ERROR
-                return (
-                    f"Error: Step {step_num} ({action}) failed: "
-                    f"{step_error}"
-                )
+                return f"Error: Step {step_num} ({action}) failed: {step_error}"
 
         final_result = results[-1] if results else None
         agent.state = AgentState.COMPLETED
@@ -118,6 +120,7 @@ class PlanExecutor:
         if self._step_runner is not None:
             return self._step_runner
         from nucleusiq.agents.modes.standard_mode import StandardMode
+
         return StandardMode()
 
     async def _execute_step(
@@ -129,24 +132,28 @@ class PlanExecutor:
         step_task: Dict[str, Any],
         step_details: str,
         context: Dict[str, Any],
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
     ) -> Any:
         """Execute a single plan step."""
         if action == "execute":
             return await self._get_step_runner().run(agent, step_task)
 
-        tool_names = [
-            t.name for t in (agent.tools or []) if hasattr(t, "name")
-        ]
+        tool_names = [t.name for t in (agent.tools or []) if hasattr(t, "name")]
         if action in tool_names:
             return await self._execute_tool_step(
-                agent, step, step_num, action,
-                step_details, context, task,
+                agent,
+                step,
+                step_num,
+                action,
+                step_details,
+                context,
+                task,
             )
 
         self._logger.warning(
             "Unknown action '%s' in plan step %d, skipping",
-            action, step_num,
+            action,
+            step_num,
         )
         return f"Skipped unknown action: {action}"
 
@@ -158,7 +165,7 @@ class PlanExecutor:
         action: str,
         step_details: str,
         context: Dict[str, Any],
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
     ) -> Any:
         """Execute a plan step that calls a tool."""
         if hasattr(agent, "_executor") and agent._executor:
@@ -167,7 +174,12 @@ class PlanExecutor:
             # If args are empty, try to infer them via LLM
             if (not resolved_args) and agent.llm:
                 resolved_args = await self._infer_tool_args(
-                    agent, action, step_num, step_details, context, task,
+                    agent,
+                    action,
+                    step_num,
+                    step_details,
+                    context,
+                    task,
                 )
 
             fn_call = ToolCallRequest(
@@ -187,13 +199,10 @@ class PlanExecutor:
         step_num: int,
         step_details: str,
         context: Dict[str, Any],
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
     ) -> Dict[str, Any]:
         """Ask the LLM to infer tool arguments for a step."""
-        tool_specs = (
-            agent.llm.convert_tool_specs(agent.tools)
-            if agent.tools else []
-        )
+        tool_specs = agent.llm.convert_tool_specs(agent.tools) if agent.tools else []
         if not tool_specs:
             raise ValueError(
                 f"Plan step {step_num} requires tool '{action}' "
@@ -201,28 +210,29 @@ class PlanExecutor:
             )
 
         required_keys = self._get_required_keys(tool_specs, action)
-        task_obj = (
-            task.to_dict() if isinstance(task, Task) else task
-        ).get("objective", "")
+        task_obj = (task.to_dict() if isinstance(task, Task) else task).get(
+            "objective", ""
+        )
 
         step_prompt = self._prompt_strategy.build_step_inference_prompt(
-            action, required_keys, task_obj, context, step_num, step_details,
+            action,
+            required_keys,
+            task_obj,
+            context,
+            step_num,
+            step_details,
         )
 
         step_kwargs: Dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": step_prompt}],
             "tools": tool_specs,
-            "max_tokens": getattr(
-                agent.config, "step_inference_max_tokens", 2048
-            ),
+            "max_tokens": getattr(agent.config, "step_inference_max_tokens", 2048),
         }
         step_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
 
         step_resp = await agent.llm.call(**step_kwargs)
-        return self._extract_args_from_response(
-            step_resp, action, step_num
-        )
+        return self._extract_args_from_response(step_resp, action, step_num)
 
     # ------------------------------------------------------------------ #
     # Retry and timeout                                                   #
@@ -237,7 +247,7 @@ class PlanExecutor:
         step_task: Dict[str, Any],
         step_details: str,
         context: Dict[str, Any],
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
         timeout: int,
         max_retries: int,
     ) -> tuple:
@@ -252,32 +262,33 @@ class PlanExecutor:
             try:
                 step_result = await asyncio.wait_for(
                     self._execute_step(
-                        agent, step, step_num, action,
-                        step_task, step_details, context, task,
+                        agent,
+                        step,
+                        step_num,
+                        action,
+                        step_task,
+                        step_details,
+                        context,
+                        task,
                     ),
                     timeout=timeout,
                 )
                 return step_result, None
             except asyncio.TimeoutError:
-                step_error = (
-                    f"Step {step_num} ({action}) timed out after "
-                    f"{timeout}s"
-                )
+                step_error = f"Step {step_num} ({action}) timed out after {timeout}s"
                 if attempt < max_retries:
                     self._logger.warning(
                         "%s (attempt %d/%d)",
-                        step_error, attempt + 1, max_retries + 1,
+                        step_error,
+                        attempt + 1,
+                        max_retries + 1,
                     )
                     await asyncio.sleep(1)
                 else:
-                    self._logger.error(
-                        "%s - max retries exceeded", step_error
-                    )
+                    self._logger.error("%s - max retries exceeded", step_error)
             except Exception as e:
                 step_error = str(e)
-                self._logger.error(
-                    "Error in step %d: %s", step_num, step_error
-                )
+                self._logger.error("Error in step %d: %s", step_num, step_error)
                 break
 
         return None, step_error
@@ -293,9 +304,7 @@ class PlanExecutor:
             s = val.strip()
             for prefix, suffix in [("$", ""), ("${", "}"), ("{{", "}}")]:
                 if s.startswith(prefix) and s.endswith(suffix):
-                    key = s[
-                        len(prefix): len(s) - (len(suffix) if suffix else 0)
-                    ]
+                    key = s[len(prefix) : len(s) - (len(suffix) if suffix else 0)]
                     key = key.strip()
                     if key in context:
                         return context[key]
@@ -303,27 +312,21 @@ class PlanExecutor:
                 return context[s]
         if isinstance(val, dict):
             return {
-                k: PlanExecutor._resolve_arg_value(v, context)
-                for k, v in val.items()
+                k: PlanExecutor._resolve_arg_value(v, context) for k, v in val.items()
             }
         if isinstance(val, list):
-            return [
-                PlanExecutor._resolve_arg_value(v, context) for v in val
-            ]
+            return [PlanExecutor._resolve_arg_value(v, context) for v in val]
         return val
 
     @staticmethod
     def _resolve_args(
-        args: Optional[Dict[str, Any]],
+        args: Dict[str, Any] | None,
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Resolve all ``$step_N`` references in an args dict."""
         if not args:
             return {}
-        return {
-            k: PlanExecutor._resolve_arg_value(v, context)
-            for k, v in args.items()
-        }
+        return {k: PlanExecutor._resolve_arg_value(v, context) for k, v in args.items()}
 
     # ------------------------------------------------------------------ #
     # Helpers                                                             #
@@ -332,7 +335,7 @@ class PlanExecutor:
     @staticmethod
     def _resolve_step_task(
         step: PlanStep,
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
     ) -> Dict[str, Any]:
         """Normalise the task for a given plan step."""
         step_task = step.task if step.task else task
@@ -350,18 +353,11 @@ class PlanExecutor:
         """Extract required parameter keys for a tool from its spec."""
         for spec in tool_specs:
             try:
-                fn = (
-                    spec.get("function", {})
-                    if isinstance(spec, dict) else {}
-                )
+                fn = spec.get("function", {}) if isinstance(spec, dict) else {}
                 if fn.get("name") == action:
-                    params = (
-                        fn.get("parameters", {})
-                        if isinstance(fn, dict) else {}
-                    )
+                    params = fn.get("parameters", {}) if isinstance(fn, dict) else {}
                     return (
-                        params.get("required", [])
-                        if isinstance(params, dict) else []
+                        params.get("required", []) if isinstance(params, dict) else []
                     )
             except Exception:
                 continue
@@ -374,10 +370,7 @@ class PlanExecutor:
         step_num: int,
     ) -> Dict[str, Any]:
         """Extract tool arguments from an LLM inference response."""
-        msg = (
-            response.choices[0].message
-            if response and response.choices else {}
-        )
+        msg = response.choices[0].message if response and response.choices else {}
         tool_calls = (
             msg.get("tool_calls")
             if isinstance(msg, dict)

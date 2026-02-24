@@ -1,10 +1,10 @@
 """Additional tests for base_tool.py — Pydantic schema edge cases."""
 
-import pytest
-from typing import Optional, List, Literal
-from pydantic import BaseModel, Field
+from typing import Literal
 
-from nucleusiq.tools.base_tool import _pydantic_model_to_json_schema, BaseTool
+import pytest
+from nucleusiq.tools.base_tool import BaseTool, _pydantic_model_to_json_schema
+from pydantic import BaseModel, Field
 
 
 class ToolWithEnum(BaseModel):
@@ -14,11 +14,10 @@ class ToolWithEnum(BaseModel):
 
 class ToolWithDefault(BaseModel):
     name: str = Field(description="Name")
-    optional_field: Optional[str] = Field(default=None, description="Optional")
+    optional_field: str | None = Field(default=None, description="Optional")
 
 
 class TestPydanticSchemaEdgeCases:
-
     def test_enum_field(self):
         schema = _pydantic_model_to_json_schema(ToolWithEnum)
         color_prop = schema["properties"]["color"]

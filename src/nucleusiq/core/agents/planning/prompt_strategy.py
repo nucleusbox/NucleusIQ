@@ -69,9 +69,7 @@ class DefaultPlanPromptStrategy:
                 f"{task_objective}"
             )
         else:
-            base = (
-                f"Create a plan for the following task:\n{task_objective}"
-            )
+            base = f"Create a plan for the following task:\n{task_objective}"
 
         return base + self._json_instructions(tools_str)
 
@@ -80,9 +78,7 @@ class DefaultPlanPromptStrategy:
         task_objective: str,
         tool_param_lines: List[str],
     ) -> str:
-        tools_block = (
-            "\n".join(tool_param_lines) if tool_param_lines else "- None"
-        )
+        tools_block = "\n".join(tool_param_lines) if tool_param_lines else "- None"
         return (
             "Create a step-by-step execution plan for the task below. "
             "You MUST call the create_plan tool with the plan.\n\n"
@@ -93,7 +89,7 @@ class DefaultPlanPromptStrategy:
             "parameters filled in.\n"
             "2. For the first steps, extract CONCRETE VALUES from the "
             "task (e.g., numbers, strings).\n"
-            '3. For later steps that need results from previous steps, '
+            "3. For later steps that need results from previous steps, "
             'use "$step_N" references.\n\n'
             "Now create the plan for the given task. Extract actual "
             "values from the task text.\n"

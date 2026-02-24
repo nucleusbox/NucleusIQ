@@ -18,7 +18,9 @@ class PluginHalt(Exception):
 
     def __init__(self, result: Any = None) -> None:
         self.result = result
-        super().__init__(str(result) if result is not None else "Plugin halted execution")
+        super().__init__(
+            str(result) if result is not None else "Plugin halted execution"
+        )
 
 
 class PluginError(Exception):

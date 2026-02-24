@@ -16,12 +16,12 @@ Migration path:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Protocol, runtime_checkable
 
+from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
 from nucleusiq.llms.base_llm import BaseLLM
 from nucleusiq.memory.base import BaseMemory
 from nucleusiq.prompts.base import BasePrompt
-from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
 
 
 @runtime_checkable
@@ -32,15 +32,15 @@ class ExecutionContext(Protocol):
     Agent implements this structurally.
     """
 
-    llm: Optional[BaseLLM]
+    llm: BaseLLM | None
     tools: List[Any]
-    memory: Optional[BaseMemory]
-    prompt: Optional[BasePrompt]
+    memory: BaseMemory | None
+    prompt: BasePrompt | None
     config: AgentConfig
     role: str
     objective: str
     state: AgentState
-    response_format: Optional[Any]
+    response_format: Any | None
 
     @property
     def _logger(self) -> Any: ...
@@ -55,4 +55,6 @@ class ExecutionContext(Protocol):
 
     def _get_structured_output_kwargs(self, output_config: Any) -> Dict[str, Any]: ...
 
-    def _wrap_structured_output_result(self, response: Any, output_config: Any) -> Any: ...
+    def _wrap_structured_output_result(
+        self, response: Any, output_config: Any
+    ) -> Any: ...

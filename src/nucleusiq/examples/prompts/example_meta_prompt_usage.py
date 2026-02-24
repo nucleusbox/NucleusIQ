@@ -4,51 +4,46 @@ import os
 import sys
 
 # Add src directory to path so we can import nucleusiq
-_src_dir = os.path.join(os.path.dirname(__file__), '../..')
+_src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.meta_prompt import MetaPrompt
 
+
 def initialize_meta_prompt() -> MetaPrompt:
     """
     Initializes the MetaPrompt instance with primary instructions.
-    
+
     Returns:
         MetaPrompt: Configured MetaPrompt instance.
     """
     # Define the primary instruction for generating a blog post prompt
-    primary_instruction = (
-        "You are an expert technical writer. Create an effective prompt for writing a technical blog post."
-    )
-    
+    primary_instruction = "You are an expert technical writer. Create an effective prompt for writing a technical blog post."
+
     # Define initial feedback instruction for refining the prompt
-    feedback_instruction = (
-        "Ensure the prompt requests inclusion of introduction, key concepts, practical examples, and a conclusion."
-    )
-    
+    feedback_instruction = "Ensure the prompt requests inclusion of introduction, key concepts, practical examples, and a conclusion."
+
     # Create and configure the MetaPrompt instance
-    meta_prompt = (
-        PromptFactory
-        .create_prompt(PromptTechnique.META_PROMPTING)
-        .configure(
-            primary_instruction=primary_instruction,
-            feedback_instruction=feedback_instruction
-        )
+    meta_prompt = PromptFactory.create_prompt(PromptTechnique.META_PROMPTING).configure(
+        primary_instruction=primary_instruction,
+        feedback_instruction=feedback_instruction,
     )
-    
+
     return meta_prompt
+
 
 # Initialize the MetaPrompt
 meta_prompt = initialize_meta_prompt()
 
+
 def generate_initial_blog_prompt(meta_prompt: MetaPrompt) -> str:
     """
     Generates the initial prompt for writing a technical blog post.
-    
+
     Args:
         meta_prompt (MetaPrompt): The MetaPrompt instance.
-    
+
     Returns:
         str: The generated prompt.
     """
@@ -56,55 +51,56 @@ def generate_initial_blog_prompt(meta_prompt: MetaPrompt) -> str:
     initial_prompt = meta_prompt.format_prompt(
         generated_prompt="Write a detailed technical blog post about the latest advancements in renewable energy."
     )
-    
+
     print("=== Initial Generated Blog Prompt ===")
     print(initial_prompt)
     print("\n")
-    
+
     return initial_prompt
+
 
 # Generate and display the initial blog prompt
 initial_blog_prompt = generate_initial_blog_prompt(meta_prompt)
 
+
 def refine_blog_prompt(meta_prompt: MetaPrompt, current_prompt: str) -> str:
     """
     Refines the generated blog post prompt based on feedback.
-    
+
     Args:
         meta_prompt (MetaPrompt): The MetaPrompt instance.
         current_prompt (str): The current generated prompt.
-    
+
     Returns:
         str: The refined prompt.
     """
     # Define feedback to improve the prompt
-    feedback = (
-        "Emphasize the inclusion of practical examples and real-world applications to enhance understanding."
-    )
-    
+    feedback = "Emphasize the inclusion of practical examples and real-world applications to enhance understanding."
+
     # Refine the prompt using the feedback
     refined_prompt = meta_prompt.refine_prompt(
-        feedback=feedback,
-        current_prompt=current_prompt
+        feedback=feedback, current_prompt=current_prompt
     )
-    
+
     print("=== Refined Blog Prompt ===")
     print(refined_prompt)
     print("\n")
-    
+
     return refined_prompt
+
 
 # Refine the generated blog prompt based on feedback
 refined_blog_prompt = refine_blog_prompt(meta_prompt, initial_blog_prompt)
 
+
 def generate_blog_post(meta_prompt: MetaPrompt, topic: str) -> str:
     """
     Generates a technical blog post using the refined prompt.
-    
+
     Args:
         meta_prompt (MetaPrompt): The MetaPrompt instance.
         topic (str): The topic of the blog post.
-    
+
     Returns:
         str: The generated blog post.
     """
@@ -112,35 +108,36 @@ def generate_blog_post(meta_prompt: MetaPrompt, topic: str) -> str:
     blog_prompt = meta_prompt.format_prompt(
         generated_prompt=f"Write a detailed technical blog post about {topic}."
     )
-    
+
     print("=== Generated Blog Prompt ===")
     print(blog_prompt)
     print("\n")
-    
+
     # Simulate sending the prompt to an LLM (e.g., OpenAI's GPT-4)
     # Here, we'll mock the LLM's response
     llm_response = mock_llm_response(blog_prompt, topic)
-    
+
     # Optionally, apply the output parser if defined
     if meta_prompt.output_parser:
         parsed_output = meta_prompt.output_parser(llm_response)
     else:
         parsed_output = llm_response
-    
+
     print("=== Generated Blog Post ===")
     print(parsed_output)
     print("\n")
-    
+
     return parsed_output
+
 
 def mock_llm_response(prompt: str, topic: str) -> str:
     """
     Mocks the response from an LLM based on the given prompt and topic.
-    
+
     Args:
         prompt (str): The prompt sent to the LLM.
         topic (str): The topic of the blog post.
-    
+
     Returns:
         str: Mocked blog post content.
     """
@@ -164,49 +161,52 @@ def mock_llm_response(prompt: str, topic: str) -> str:
         "Continued innovation and investment in this sector are essential for meeting global energy demands while preserving our planet."
     )
 
+
 # Generate and display the technical blog post
 topic = "the latest advancements in renewable energy"
 blog_post = generate_blog_post(meta_prompt, topic)
 
+
 def further_refine_blog_prompt(meta_prompt: MetaPrompt, refined_prompt: str) -> str:
     """
     Further refines the generated blog post prompt based on additional feedback.
-    
+
     Args:
         meta_prompt (MetaPrompt): The MetaPrompt instance.
         refined_prompt (str): The current refined prompt.
-    
+
     Returns:
         str: The further refined prompt.
     """
     # Define additional feedback to enhance the prompt
-    additional_feedback = (
-        "Ensure that the prompt requests detailed explanations of the methodologies and technologies behind the advancements."
-    )
-    
+    additional_feedback = "Ensure that the prompt requests detailed explanations of the methodologies and technologies behind the advancements."
+
     # Refine the prompt using the additional feedback
     further_refined_prompt = meta_prompt.refine_prompt(
-        feedback=additional_feedback,
-        current_prompt=refined_prompt
+        feedback=additional_feedback, current_prompt=refined_prompt
     )
-    
+
     print("=== Further Refined Blog Prompt ===")
     print(further_refined_prompt)
     print("\n")
-    
+
     return further_refined_prompt
 
+
 # Apply further refinement based on additional feedback
-further_refined_blog_prompt = further_refine_blog_prompt(meta_prompt, refined_blog_prompt)
+further_refined_blog_prompt = further_refine_blog_prompt(
+    meta_prompt, refined_blog_prompt
+)
+
 
 def generate_enhanced_blog_post(meta_prompt: MetaPrompt, topic: str) -> str:
     """
     Generates an enhanced technical blog post using the further refined prompt.
-    
+
     Args:
         meta_prompt (MetaPrompt): The MetaPrompt instance.
         topic (str): The topic of the blog post.
-    
+
     Returns:
         str: The generated blog post.
     """
@@ -214,35 +214,36 @@ def generate_enhanced_blog_post(meta_prompt: MetaPrompt, topic: str) -> str:
     blog_prompt = meta_prompt.format_prompt(
         generated_prompt=f"Write a detailed technical blog post about {topic}."
     )
-    
+
     print("=== Generated Enhanced Blog Prompt ===")
     print(blog_prompt)
     print("\n")
-    
+
     # Simulate sending the prompt to an LLM (e.g., OpenAI's GPT-4)
     # Here, we'll mock the LLM's response
     llm_response = mock_llm_response_enhanced(blog_prompt, topic)
-    
+
     # Optionally, apply the output parser if defined
     if meta_prompt.output_parser:
         parsed_output = meta_prompt.output_parser(llm_response)
     else:
         parsed_output = llm_response
-    
+
     print("=== Generated Enhanced Blog Post ===")
     print(parsed_output)
     print("\n")
-    
+
     return parsed_output
+
 
 def mock_llm_response_enhanced(prompt: str, topic: str) -> str:
     """
     Mocks the response from an LLM based on the given prompt and topic, including methodologies.
-    
+
     Args:
         prompt (str): The prompt sent to the LLM.
         topic (str): The topic of the blog post.
-    
+
     Returns:
         str: Mocked blog post content with detailed methodologies.
     """
@@ -275,68 +276,64 @@ def mock_llm_response_enhanced(prompt: str, topic: str) -> str:
         "Ongoing research and investment in these areas will further accelerate the transition towards a green economy."
     )
 
+
 # Generate and display the enhanced technical blog post
 enhanced_blog_post = generate_enhanced_blog_post(meta_prompt, topic)
+
 
 def format_section_header(section_title: str) -> str:
     """
     Formats a section header in Markdown.
-    
+
     Args:
         section_title (str): The title of the section.
-    
+
     Returns:
         str: Formatted Markdown header.
     """
     return f"#### {section_title}\n\n"
 
+
 def generate_summary(paragraph: str) -> str:
     """
     Generates a concise summary of a given paragraph.
-    
+
     Args:
         paragraph (str): The paragraph to summarize.
-    
+
     Returns:
         str: Summary of the paragraph.
     """
     # Mock summary for demonstration
     return paragraph[:150] + "..."
 
+
 def initialize_meta_prompt_with_functions() -> MetaPrompt:
     """
     Initializes the MetaPrompt instance with primary instructions and function mappings.
-    
+
     Returns:
         MetaPrompt: Configured MetaPrompt instance with function mappings.
     """
-    primary_instruction = (
-        "You are an expert technical writer. Create an effective prompt for writing a technical blog post."
-    )
-    
-    feedback_instruction = (
-        "Ensure the prompt requests inclusion of introduction, key concepts, practical examples, methodologies, technologies, and a conclusion."
-    )
-    
+    primary_instruction = "You are an expert technical writer. Create an effective prompt for writing a technical blog post."
+
+    feedback_instruction = "Ensure the prompt requests inclusion of introduction, key concepts, practical examples, methodologies, technologies, and a conclusion."
+
     # Define function mappings
     func_mappings = {
         "format_section_header": format_section_header,
-        "generate_summary": generate_summary
+        "generate_summary": generate_summary,
     }
-    
+
     # Create and configure the MetaPrompt instance
-    meta_prompt = (
-        PromptFactory
-        .create_prompt(PromptTechnique.META_PROMPTING)
-        .configure(
-            primary_instruction=primary_instruction,
-            feedback_instruction=feedback_instruction,
-            function_mappings=func_mappings
-        )
+    meta_prompt = PromptFactory.create_prompt(PromptTechnique.META_PROMPTING).configure(
+        primary_instruction=primary_instruction,
+        feedback_instruction=feedback_instruction,
+        function_mappings=func_mappings,
     )
-    
+
     return meta_prompt
+
 
 # Initialize the MetaPrompt with function mappings
 meta_prompt_functions = initialize_meta_prompt_with_functions()
-

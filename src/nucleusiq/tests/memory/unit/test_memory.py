@@ -9,25 +9,24 @@ Covers:
   - State export / import round-trips
 """
 
-import asyncio
-import pytest
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
+import pytest
 from nucleusiq.memory import (
     BaseMemory,
+    FullHistoryMemory,
     MemoryFactory,
     MemoryStrategy,
-    FullHistoryMemory,
     SlidingWindowMemory,
-    TokenBudgetMemory,
     SummaryMemory,
     SummaryWindowMemory,
+    TokenBudgetMemory,
 )
-
 
 # ===================================================================
 # BaseMemory — abstract contract
 # ===================================================================
+
 
 class TestBaseMemoryContract:
     """Verify BaseMemory cannot be instantiated directly."""
@@ -50,8 +49,8 @@ class TestBaseMemoryContract:
 # FullHistoryMemory
 # ===================================================================
 
-class TestFullHistoryMemory:
 
+class TestFullHistoryMemory:
     def test_add_and_get(self):
         mem = FullHistoryMemory()
         mem.add_message("user", "Hello")
@@ -90,9 +89,7 @@ class TestFullHistoryMemory:
         assert await mem.aget_context() == []
 
     def test_user_session_metadata(self):
-        mem = FullHistoryMemory(
-            user_id="u1", session_id="s1", metadata={"env": "test"}
-        )
+        mem = FullHistoryMemory(user_id="u1", session_id="s1", metadata={"env": "test"})
         assert mem.user_id == "u1"
         assert mem.session_id == "s1"
         assert mem.metadata["env"] == "test"
@@ -108,8 +105,8 @@ class TestFullHistoryMemory:
 # SlidingWindowMemory
 # ===================================================================
 
-class TestSlidingWindowMemory:
 
+class TestSlidingWindowMemory:
     def test_window_limit(self):
         mem = SlidingWindowMemory(window_size=3)
         for i in range(5):
@@ -149,18 +146,18 @@ class TestSlidingWindowMemory:
 # TokenBudgetMemory
 # ===================================================================
 
-class TestTokenBudgetMemory:
 
+class TestTokenBudgetMemory:
     def test_eviction(self):
         mem = TokenBudgetMemory(
             max_tokens=10,
             token_counter=lambda t: len(t),  # 1 char = 1 token
         )
-        mem.add_message("user", "12345")      # 5 tokens
-        mem.add_message("user", "67890")      # 5 tokens  -> 10 total
+        mem.add_message("user", "12345")  # 5 tokens
+        mem.add_message("user", "67890")  # 5 tokens  -> 10 total
         assert len(mem.get_context()) == 2
 
-        mem.add_message("user", "ab")          # 2 tokens -> 12 -> evict first
+        mem.add_message("user", "ab")  # 2 tokens -> 12 -> evict first
         ctx = mem.get_context()
         assert len(ctx) == 2
         assert ctx[0]["content"] == "67890"
@@ -192,15 +189,15 @@ class TestTokenBudgetMemory:
             token_counter=lambda t: len(t),
         )
         mem.add_message("user", "toolong")  # 7 tokens > 3
-        assert mem.get_context() == []       # evicts itself
+        assert mem.get_context() == []  # evicts itself
 
 
 # ===================================================================
 # SummaryMemory (no LLM)
 # ===================================================================
 
-class TestSummaryMemoryNoLLM:
 
+class TestSummaryMemoryNoLLM:
     def test_fallback_without_llm(self):
         mem = SummaryMemory()
         mem.add_message("user", "Hello world")
@@ -231,8 +228,8 @@ class TestSummaryMemoryNoLLM:
 # SummaryWindowMemory (no LLM)
 # ===================================================================
 
-class TestSummaryWindowMemoryNoLLM:
 
+class TestSummaryWindowMemoryNoLLM:
     def test_basic_windowing(self):
         mem = SummaryWindowMemory(window_size=3)
         for i in range(3):
@@ -277,23 +274,19 @@ class TestSummaryWindowMemoryNoLLM:
 # MemoryFactory
 # ===================================================================
 
-class TestMemoryFactory:
 
+class TestMemoryFactory:
     def test_create_full_history(self):
         mem = MemoryFactory.create_memory(MemoryStrategy.FULL_HISTORY)
         assert isinstance(mem, FullHistoryMemory)
 
     def test_create_sliding_window(self):
-        mem = MemoryFactory.create_memory(
-            MemoryStrategy.SLIDING_WINDOW, window_size=5
-        )
+        mem = MemoryFactory.create_memory(MemoryStrategy.SLIDING_WINDOW, window_size=5)
         assert isinstance(mem, SlidingWindowMemory)
         assert mem.window_size == 5
 
     def test_create_token_budget(self):
-        mem = MemoryFactory.create_memory(
-            MemoryStrategy.TOKEN_BUDGET, max_tokens=1024
-        )
+        mem = MemoryFactory.create_memory(MemoryStrategy.TOKEN_BUDGET, max_tokens=1024)
         assert isinstance(mem, TokenBudgetMemory)
 
     def test_create_summary(self):
@@ -301,9 +294,7 @@ class TestMemoryFactory:
         assert isinstance(mem, SummaryMemory)
 
     def test_create_summary_window(self):
-        mem = MemoryFactory.create_memory(
-            MemoryStrategy.SUMMARY_WINDOW, window_size=5
-        )
+        mem = MemoryFactory.create_memory(MemoryStrategy.SUMMARY_WINDOW, window_size=5)
         assert isinstance(mem, SummaryWindowMemory)
 
     def test_register_custom_strategy(self):
@@ -315,7 +306,9 @@ class TestMemoryFactory:
             def add_message(self, role: str, content: str, **kw: Any) -> None:
                 pass
 
-            def get_context(self, query: Optional[str] = None, **kw: Any) -> List[Dict[str, str]]:
+            def get_context(
+                self, query: str | None = None, **kw: Any
+            ) -> List[Dict[str, str]]:
                 return []
 
             def clear(self) -> None:
@@ -343,8 +336,8 @@ class TestMemoryFactory:
 # MemoryStrategy enum
 # ===================================================================
 
-class TestMemoryStrategy:
 
+class TestMemoryStrategy:
     def test_all_values(self):
         values = {s.value for s in MemoryStrategy}
         assert values == {
@@ -364,8 +357,8 @@ class TestMemoryStrategy:
 # Async state round-trip
 # ===================================================================
 
-class TestAsyncStateRoundTrip:
 
+class TestAsyncStateRoundTrip:
     @pytest.mark.asyncio
     async def test_async_export_import(self):
         mem = SlidingWindowMemory(window_size=3)

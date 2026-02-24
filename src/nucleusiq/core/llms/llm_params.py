@@ -14,9 +14,9 @@ Design:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMParams(BaseModel):
@@ -38,41 +38,52 @@ class LLMParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # --- Sampling ---
-    temperature: Optional[float] = Field(
-        None, ge=0.0, le=2.0,
+    temperature: float | None = Field(
+        None,
+        ge=0.0,
+        le=2.0,
         description="Sampling temperature. 0 = deterministic, 2 = max randomness.",
     )
-    max_tokens: Optional[int] = Field(
-        None, ge=1,
+    max_tokens: int | None = Field(
+        None,
+        ge=1,
         description="Maximum tokens to generate.",
     )
-    top_p: Optional[float] = Field(
-        None, ge=0.0, le=1.0,
+    top_p: float | None = Field(
+        None,
+        ge=0.0,
+        le=1.0,
         description="Nucleus sampling. 0.1 = only top 10% probability mass.",
     )
-    frequency_penalty: Optional[float] = Field(
-        None, ge=-2.0, le=2.0,
+    frequency_penalty: float | None = Field(
+        None,
+        ge=-2.0,
+        le=2.0,
         description="Penalize repeated tokens based on frequency.",
     )
-    presence_penalty: Optional[float] = Field(
-        None, ge=-2.0, le=2.0,
+    presence_penalty: float | None = Field(
+        None,
+        ge=-2.0,
+        le=2.0,
         description="Penalize tokens that appear at all in text so far.",
     )
 
     # --- Control ---
-    seed: Optional[int] = Field(
+    seed: int | None = Field(
         None,
         description="Fixed seed for deterministic/reproducible outputs.",
     )
-    stop: Optional[List[str]] = Field(
+    stop: List[str] | None = Field(
         None,
         description="Stop sequences — generation halts when any of these appear.",
     )
-    n: Optional[int] = Field(
-        None, ge=1, le=128,
+    n: int | None = Field(
+        None,
+        ge=1,
+        le=128,
         description="Number of completions to generate.",
     )
-    stream: Optional[bool] = Field(
+    stream: bool | None = Field(
         None,
         description="Enable streaming (async generator of chunks).",
     )
@@ -90,7 +101,7 @@ class LLMParams(BaseModel):
         """
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
-    def merge(self, override: "LLMParams | None") -> "LLMParams":
+    def merge(self, override: LLMParams | None) -> LLMParams:
         """
         Return a **new** instance with *override* values taking precedence.
 

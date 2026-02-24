@@ -1,12 +1,9 @@
 """Tests for utilities/clustering.py."""
 
-import pytest
-
 from nucleusiq.utilities.clustering import cluster_questions
 
 
 class TestClusterQuestions:
-
     def test_empty_list(self):
         assert cluster_questions([]) == {}
 

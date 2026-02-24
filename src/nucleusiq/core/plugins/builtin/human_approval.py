@@ -32,13 +32,13 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Awaitable, Callable, Dict, List, Sequence
 
-from nucleusiq.plugins.base import BasePlugin, ToolRequest, ToolHandler
+from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
 
 logger = logging.getLogger(__name__)
 
-ApprovalCallback = Callable[[str, Dict[str, Any]], Union[bool, Awaitable[bool]]]
+ApprovalCallback = Callable[[str, Dict[str, Any]], bool | Awaitable[bool]]
 
 
 # ------------------------------------------------------------------ #
@@ -92,11 +92,11 @@ class ConsoleApprovalHandler(ApprovalHandler):
     """
 
     async def decide(self, tool_name: str, tool_args: Dict[str, Any]) -> bool:
-        print(f"\n{'='*50}")
-        print(f"  Tool approval required")
+        print(f"\n{'=' * 50}")
+        print("  Tool approval required")
         print(f"  Tool:  {tool_name}")
         print(f"  Args:  {tool_args}")
-        print(f"{'='*50}")
+        print(f"{'=' * 50}")
         response = input("  Approve? (y/n): ").strip().lower()
         return response in ("y", "yes")
 
@@ -128,8 +128,8 @@ class PolicyApprovalHandler(ApprovalHandler):
 
     def __init__(
         self,
-        safe_tools: Optional[Sequence[str]] = None,
-        dangerous_tools: Optional[Sequence[str]] = None,
+        safe_tools: Sequence[str] | None = None,
+        dangerous_tools: Sequence[str] | None = None,
         default_allow: bool = False,
     ) -> None:
         self._safe = set(safe_tools or [])
@@ -142,14 +142,18 @@ class PolicyApprovalHandler(ApprovalHandler):
         """Read-only access to the audit trail."""
         return list(self._audit_log)
 
-    def _record(self, tool_name: str, tool_args: Dict[str, Any], approved: bool, reason: str) -> None:
-        self._audit_log.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "tool": tool_name,
-            "args": tool_args,
-            "approved": approved,
-            "reason": reason,
-        })
+    def _record(
+        self, tool_name: str, tool_args: Dict[str, Any], approved: bool, reason: str
+    ) -> None:
+        self._audit_log.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "tool": tool_name,
+                "args": tool_args,
+                "approved": approved,
+                "reason": reason,
+            }
+        )
 
     async def decide(self, tool_name: str, tool_args: Dict[str, Any]) -> bool:
         if tool_name in self._safe:
@@ -212,10 +216,10 @@ class HumanApprovalPlugin(BasePlugin):
 
     def __init__(
         self,
-        approval_handler: Optional[ApprovalHandler] = None,
-        approval_callback: Optional[ApprovalCallback] = None,
-        require_approval: Optional[Sequence[str]] = None,
-        auto_approve: Optional[Sequence[str]] = None,
+        approval_handler: ApprovalHandler | None = None,
+        approval_callback: ApprovalCallback | None = None,
+        require_approval: Sequence[str] | None = None,
+        auto_approve: Sequence[str] | None = None,
         deny_message: str = "Tool execution denied by human reviewer.",
     ) -> None:
         if approval_handler and approval_callback:
@@ -224,8 +228,8 @@ class HumanApprovalPlugin(BasePlugin):
                 "'approval_callback' (function), not both."
             )
 
-        self._handler: Optional[ApprovalHandler] = approval_handler
-        self._callback: Optional[ApprovalCallback] = approval_callback
+        self._handler: ApprovalHandler | None = approval_handler
+        self._callback: ApprovalCallback | None = approval_callback
 
         if not approval_handler and not approval_callback:
             self._handler = ConsoleApprovalHandler()
@@ -255,9 +259,7 @@ class HumanApprovalPlugin(BasePlugin):
             return await result
         return result
 
-    async def wrap_tool_call(
-        self, request: ToolRequest, handler: ToolHandler
-    ) -> Any:
+    async def wrap_tool_call(self, request: ToolRequest, handler: ToolHandler) -> Any:
         if not self._needs_approval(request.tool_name):
             return await handler(request)
 

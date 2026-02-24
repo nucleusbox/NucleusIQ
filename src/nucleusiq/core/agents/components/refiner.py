@@ -35,14 +35,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
-from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.chat_models import ToolCallRequest
 from nucleusiq.agents.components.critic import CritiqueResult
+from nucleusiq.agents.plan import Plan, PlanStep
 
 
 class Refiner:
@@ -52,11 +52,16 @@ class Refiner:
 
         refiner = Refiner()
         corrected = await refiner.refine_step(
-            agent, task_objective, step, bad_result, critique, context,
+            agent,
+            task_objective,
+            step,
+            bad_result,
+            critique,
+            context,
         )
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(self, logger: logging.Logger | None = None) -> None:
         self._logger = logger or logging.getLogger(__name__)
 
     # ------------------------------------------------------------------ #
@@ -79,12 +84,16 @@ class Refiner:
         Returns:
             A user-role message string for conversation injection.
         """
-        issues = "\n".join(
-            f"- {i}" for i in critique.issues
-        ) if critique.issues else "- error detected in your answer"
-        suggestions = "\n".join(
-            f"- {s}" for s in critique.suggestions
-        ) if critique.suggestions else ""
+        issues = (
+            "\n".join(f"- {i}" for i in critique.issues)
+            if critique.issues
+            else "- error detected in your answer"
+        )
+        suggestions = (
+            "\n".join(f"- {s}" for s in critique.suggestions)
+            if critique.suggestions
+            else ""
+        )
 
         msg = (
             "VERIFICATION FOUND A SPECIFIC ERROR in your answer.\n\n"
@@ -104,7 +113,7 @@ class Refiner:
 
     async def refine_step(
         self,
-        agent: "Agent",
+        agent: Agent,
         task_objective: str,
         step: PlanStep,
         previous_result: Any,
@@ -128,21 +137,27 @@ class Refiner:
         Returns:
             Corrected result (or original if revision fails)
         """
-        tool_names = {
-            t.name for t in (agent.tools or []) if hasattr(t, "name")
-        }
+        tool_names = {t.name for t in (agent.tools or []) if hasattr(t, "name")}
         is_tool_step = step.action in tool_names
 
         try:
             if is_tool_step and agent.llm:
                 return await self._refine_tool_step(
-                    agent, task_objective, step, previous_result,
-                    critique, context,
+                    agent,
+                    task_objective,
+                    step,
+                    previous_result,
+                    critique,
+                    context,
                 )
             elif agent.llm:
                 return await self._refine_llm_step(
-                    agent, task_objective, step, previous_result,
-                    critique, context,
+                    agent,
+                    task_objective,
+                    step,
+                    previous_result,
+                    critique,
+                    context,
                 )
             else:
                 self._logger.warning(
@@ -151,15 +166,15 @@ class Refiner:
                 return previous_result
         except Exception as e:
             self._logger.warning(
-                "Refiner failed for step %d: %s. "
-                "Returning original result.",
-                step.step, e,
+                "Refiner failed for step %d: %s. Returning original result.",
+                step.step,
+                e,
             )
             return previous_result
 
     async def refine_final(
         self,
-        agent: "Agent",
+        agent: Agent,
         task_objective: str,
         plan: Plan,
         results: List[Any],
@@ -184,14 +199,19 @@ class Refiner:
 
         try:
             prompt = self._build_final_revision_prompt(
-                task_objective, plan, results, final_result, critique,
+                task_objective,
+                plan,
+                results,
+                final_result,
+                critique,
             )
             response = await self._call_llm(agent, prompt)
             content = self._extract_content(response)
             return content if content else final_result
         except Exception as e:
             self._logger.warning(
-                "Final refinement failed: %s. Returning original.", e,
+                "Final refinement failed: %s. Returning original.",
+                e,
             )
             return final_result
 
@@ -201,7 +221,7 @@ class Refiner:
 
     async def _refine_tool_step(
         self,
-        agent: "Agent",
+        agent: Agent,
         task_objective: str,
         step: PlanStep,
         previous_result: Any,
@@ -211,24 +231,29 @@ class Refiner:
         """Re-infer tool arguments based on critique, then re-execute."""
         self._logger.info(
             "Refiner: re-inferring args for tool '%s' (step %d)",
-            step.action, step.step,
+            step.action,
+            step.step,
         )
 
         prompt = self._build_tool_arg_revision_prompt(
-            task_objective, step, previous_result, critique, context, agent,
+            task_objective,
+            step,
+            previous_result,
+            critique,
+            context,
+            agent,
         )
 
-        tool_specs = (
-            agent.llm.convert_tool_specs(agent.tools)
-            if agent.tools else []
-        )
+        tool_specs = agent.llm.convert_tool_specs(agent.tools) if agent.tools else []
 
         call_kwargs: Dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": prompt}],
             "tools": tool_specs if tool_specs else None,
             "max_tokens": getattr(
-                agent.config, "step_inference_max_tokens", 2048,
+                agent.config,
+                "step_inference_max_tokens",
+                2048,
             ),
         }
         call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
@@ -248,12 +273,16 @@ class Refiner:
             return await agent._executor.execute(fn_call)
 
         self._logger.warning(
-            "Refiner: could not infer new args for '%s', "
-            "falling back to LLM revision",
+            "Refiner: could not infer new args for '%s', falling back to LLM revision",
             step.action,
         )
         return await self._refine_llm_step(
-            agent, task_objective, step, previous_result, critique, context,
+            agent,
+            task_objective,
+            step,
+            previous_result,
+            critique,
+            context,
         )
 
     # ------------------------------------------------------------------ #
@@ -262,7 +291,7 @@ class Refiner:
 
     async def _refine_llm_step(
         self,
-        agent: "Agent",
+        agent: Agent,
         task_objective: str,
         step: PlanStep,
         previous_result: Any,
@@ -272,11 +301,16 @@ class Refiner:
         """Ask the LLM to produce a corrected result from the critique."""
         self._logger.info(
             "Refiner: LLM revision for step %d (%s)",
-            step.step, step.action,
+            step.step,
+            step.action,
         )
 
         prompt = self._build_llm_revision_prompt(
-            task_objective, step, previous_result, critique, context,
+            task_objective,
+            step,
+            previous_result,
+            critique,
+            context,
         )
         response = await self._call_llm(agent, prompt)
         content = self._extract_content(response)
@@ -293,23 +327,24 @@ class Refiner:
         previous_result: Any,
         critique: CritiqueResult,
         context: Dict[str, Any],
-        agent: "Agent",
+        agent: Agent,
     ) -> str:
-        issues_list = "\n".join(
-            f"  - {i}" for i in critique.issues
-        ) or "  (none specified)"
-        suggestions_list = "\n".join(
-            f"  - {s}" for s in critique.suggestions
-        ) or "  (none specified)"
-        ctx_str = json.dumps(
-            {k: str(v)[:200] for k, v in context.items()},
-            indent=2,
-        ) if context else "{}"
-
-        tool_specs = (
-            agent.llm.convert_tool_specs(agent.tools)
-            if agent.tools else []
+        issues_list = (
+            "\n".join(f"  - {i}" for i in critique.issues) or "  (none specified)"
         )
+        suggestions_list = (
+            "\n".join(f"  - {s}" for s in critique.suggestions) or "  (none specified)"
+        )
+        ctx_str = (
+            json.dumps(
+                {k: str(v)[:200] for k, v in context.items()},
+                indent=2,
+            )
+            if context
+            else "{}"
+        )
+
+        tool_specs = agent.llm.convert_tool_specs(agent.tools) if agent.tools else []
         target_spec = ""
         for spec in tool_specs:
             fn = spec.get("function", {}) if isinstance(spec, dict) else {}
@@ -345,12 +380,12 @@ class Refiner:
         context: Dict[str, Any],
     ) -> str:
         step_details = step.details or step.action
-        issues_list = "\n".join(
-            f"  - {i}" for i in critique.issues
-        ) or "  (none specified)"
-        suggestions_list = "\n".join(
-            f"  - {s}" for s in critique.suggestions
-        ) or "  (none specified)"
+        issues_list = (
+            "\n".join(f"  - {i}" for i in critique.issues) or "  (none specified)"
+        )
+        suggestions_list = (
+            "\n".join(f"  - {s}" for s in critique.suggestions) or "  (none specified)"
+        )
         ctx_summary = ""
         if context:
             lines = []
@@ -401,12 +436,12 @@ class Refiner:
             results_lines.append(f"  Step {i}: {str(r)[:500]}")
         results_summary = "\n".join(results_lines)
 
-        issues_list = "\n".join(
-            f"  - {i}" for i in critique.issues
-        ) or "  (none specified)"
-        suggestions_list = "\n".join(
-            f"  - {s}" for s in critique.suggestions
-        ) or "  (none specified)"
+        issues_list = (
+            "\n".join(f"  - {i}" for i in critique.issues) or "  (none specified)"
+        )
+        suggestions_list = (
+            "\n".join(f"  - {s}" for s in critique.suggestions) or "  (none specified)"
+        )
 
         return (
             "You are a revision specialist. The final output of an "
@@ -434,19 +469,21 @@ class Refiner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    async def _call_llm(agent: "Agent", prompt: str) -> Any:
+    async def _call_llm(agent: Agent, prompt: str) -> Any:
         call_kwargs: Dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": getattr(
-                agent.config, "step_inference_max_tokens", 2048,
+                agent.config,
+                "step_inference_max_tokens",
+                2048,
             ),
         }
         call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
         return await agent.llm.call(**call_kwargs)
 
     @staticmethod
-    def _extract_content(response: Any) -> Optional[str]:
+    def _extract_content(response: Any) -> str | None:
         """Pull text content from an LLM response object."""
         if not response or not hasattr(response, "choices") or not response.choices:
             return None
@@ -456,7 +493,7 @@ class Refiner:
         return getattr(msg, "content", None)
 
     @staticmethod
-    def _extract_tool_args(response: Any, action: str) -> Optional[Dict[str, Any]]:
+    def _extract_tool_args(response: Any, action: str) -> Dict[str, Any] | None:
         """Extract tool arguments from an LLM response for re-execution."""
         if not response or not hasattr(response, "choices") or not response.choices:
             return None

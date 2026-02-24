@@ -16,13 +16,14 @@ Run with: python builtin_plugins_showcase.py
 Requires OPENAI_API_KEY environment variable.
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
@@ -32,20 +33,19 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
-from nucleusiq_openai import BaseOpenAI
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
-from nucleusiq.tools import BaseTool
-
 from nucleusiq.plugins.builtin import (
+    ContextWindowPlugin,
+    HumanApprovalPlugin,
     ModelCallLimitPlugin,
-    ToolCallLimitPlugin,
-    ToolRetryPlugin,
     ModelFallbackPlugin,
     PIIGuardPlugin,
-    HumanApprovalPlugin,
-    ContextWindowPlugin,
+    ToolCallLimitPlugin,
     ToolGuardPlugin,
+    ToolRetryPlugin,
 )
+from nucleusiq.tools import BaseTool
+from nucleusiq_openai import BaseOpenAI
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,13 +58,16 @@ logger = logging.getLogger(__name__)
 # Helper tools                                                          #
 # ==================================================================== #
 
+
 def add(a: int, b: int) -> int:
     """Add two numbers."""
     return a + b
 
+
 def multiply(a: int, b: int) -> int:
     """Multiply two numbers."""
     return a * b
+
 
 def search_contacts(query: str) -> str:
     """Search the company contact directory."""
@@ -78,20 +81,28 @@ def search_contacts(query: str) -> str:
             return val
     return f"No contact found for: {query}"
 
+
 def delete_database(table: str) -> str:
     """Delete a database table (dangerous!)."""
     return f"Deleted table: {table}"
 
 
 add_tool = BaseTool.from_function(add, name="add", description="Add two numbers")
-mul_tool = BaseTool.from_function(multiply, name="multiply", description="Multiply two numbers")
-search_tool = BaseTool.from_function(search_contacts, name="search_contacts", description="Search company contacts")
-delete_tool = BaseTool.from_function(delete_database, name="delete_database", description="Delete a database table")
+mul_tool = BaseTool.from_function(
+    multiply, name="multiply", description="Multiply two numbers"
+)
+search_tool = BaseTool.from_function(
+    search_contacts, name="search_contacts", description="Search company contacts"
+)
+delete_tool = BaseTool.from_function(
+    delete_database, name="delete_database", description="Delete a database table"
+)
 
 
 # ==================================================================== #
 # Demo 1: PII Guard + Tool Guard                                        #
 # ==================================================================== #
+
 
 async def demo_pii_and_tool_guard():
     print("\n" + "=" * 70)
@@ -124,10 +135,12 @@ async def demo_pii_and_tool_guard():
     await agent.initialize()
 
     print("\n  Query: 'Look up Alice in our contacts'")
-    result = await agent.execute({
-        "id": "1",
-        "objective": "Look up Alice in our contacts and tell me about her.",
-    })
+    result = await agent.execute(
+        {
+            "id": "1",
+            "objective": "Look up Alice in our contacts and tell me about her.",
+        }
+    )
     print(f"\n  Response: {result}")
     print("\n  (PII in the tool result was redacted before the LLM saw it)")
 
@@ -135,6 +148,7 @@ async def demo_pii_and_tool_guard():
 # ==================================================================== #
 # Demo 2: Model Fallback                                                #
 # ==================================================================== #
+
 
 async def demo_model_fallback():
     print("\n" + "=" * 70)
@@ -162,10 +176,12 @@ async def demo_model_fallback():
     await agent.initialize()
 
     print("\n  Query: 'What is 2+2? Answer in one word.'")
-    result = await agent.execute({
-        "id": "1",
-        "objective": "What is 2+2? Answer in one word.",
-    })
+    result = await agent.execute(
+        {
+            "id": "1",
+            "objective": "What is 2+2? Answer in one word.",
+        }
+    )
     print(f"  Response: {result}")
     print("\n  (ModelFallbackPlugin is silently protecting against model failures)")
 
@@ -173,6 +189,7 @@ async def demo_model_fallback():
 # ==================================================================== #
 # Demo 3: Human Approval (programmatic)                                 #
 # ==================================================================== #
+
 
 async def demo_human_approval():
     print("\n" + "=" * 70)
@@ -208,10 +225,12 @@ async def demo_human_approval():
     await agent.initialize()
 
     print("\n  Query: 'What is 15 + 25?'")
-    result = await agent.execute({
-        "id": "1",
-        "objective": "What is 15 + 25?",
-    })
+    result = await agent.execute(
+        {
+            "id": "1",
+            "objective": "What is 15 + 25?",
+        }
+    )
     print(f"  Response: {result}")
     print(f"  Approval log: {approval_log}")
 
@@ -219,6 +238,7 @@ async def demo_human_approval():
 # ==================================================================== #
 # Demo 4: Context Window + Memory                                       #
 # ==================================================================== #
+
 
 async def demo_context_window():
     print("\n" + "=" * 70)
@@ -249,13 +269,22 @@ async def demo_context_window():
     await agent.initialize()
 
     print("\n  Sending 3 conversation turns...")
-    r1 = await agent.execute({"id": "1", "objective": "My name is Brijesh and I'm building NucleusIQ."})
+    r1 = await agent.execute(
+        {"id": "1", "objective": "My name is Brijesh and I'm building NucleusIQ."}
+    )
     print(f"  Turn 1: {str(r1)[:120]}...")
 
-    r2 = await agent.execute({"id": "2", "objective": "NucleusIQ has a plugin system with 8 built-in plugins."})
+    r2 = await agent.execute(
+        {
+            "id": "2",
+            "objective": "NucleusIQ has a plugin system with 8 built-in plugins.",
+        }
+    )
     print(f"  Turn 2: {str(r2)[:120]}...")
 
-    r3 = await agent.execute({"id": "3", "objective": "What's my name and what am I building?"})
+    r3 = await agent.execute(
+        {"id": "3", "objective": "What's my name and what am I building?"}
+    )
     print(f"  Turn 3: {str(r3)[:120]}...")
     print("\n  (Context window keeps messages under control for long conversations)")
 
@@ -263,6 +292,7 @@ async def demo_context_window():
 # ==================================================================== #
 # Demo 5: All plugins combined                                          #
 # ==================================================================== #
+
 
 async def demo_all_combined():
     print("\n" + "=" * 70)
@@ -314,13 +344,16 @@ async def demo_all_combined():
     print(f"  Result: {r2}\n")
 
     print("  Turn 3: Recall from memory")
-    r3 = await agent.execute({"id": "3", "objective": "What was the math result from earlier?"})
+    r3 = await agent.execute(
+        {"id": "3", "objective": "What was the math result from earlier?"}
+    )
     print(f"  Result: {r3}\n")
 
 
 # ==================================================================== #
 # Main                                                                   #
 # ==================================================================== #
+
 
 async def main():
     if not os.getenv("OPENAI_API_KEY"):
@@ -342,6 +375,7 @@ async def main():
         except Exception as e:
             print(f"\n  [FAIL] {name}: {e}\n")
             import traceback
+
             traceback.print_exc()
 
 

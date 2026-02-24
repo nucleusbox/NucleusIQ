@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nucleusiq.plugins.base import BasePlugin, ToolRequest, ToolHandler
+from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
 from nucleusiq.plugins.errors import PluginHalt
 
 

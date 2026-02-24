@@ -31,7 +31,7 @@ import json
 import logging
 import re
 from enum import Enum
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -40,13 +40,14 @@ if TYPE_CHECKING:
 
 from nucleusiq.agents.plan import Plan, PlanStep
 
-
 # ------------------------------------------------------------------ #
 # Data models                                                         #
 # ------------------------------------------------------------------ #
 
+
 class Verdict(str, Enum):
     """Three-way outcome of a critique review."""
+
     PASS = "pass"
     FAIL = "fail"
     UNCERTAIN = "uncertain"
@@ -54,6 +55,7 @@ class Verdict(str, Enum):
 
 class CritiqueResult(BaseModel):
     """Structured output from the Critic's review."""
+
     verdict: Verdict = Field(
         description="Overall verdict: pass, fail, or uncertain",
     )
@@ -75,7 +77,7 @@ class CritiqueResult(BaseModel):
         default_factory=list,
         description="Actionable improvements for the Refiner",
     )
-    verifier_answer: Optional[str] = Field(
+    verifier_answer: str | None = Field(
         default=None,
         description=(
             "The Verifier's independently computed answer. "
@@ -87,6 +89,7 @@ class CritiqueResult(BaseModel):
 # ------------------------------------------------------------------ #
 # Critic component                                                    #
 # ------------------------------------------------------------------ #
+
 
 class Critic:
     """Prompt builder and result parser for the Verifier SubAgent.
@@ -124,7 +127,7 @@ class Critic:
     pipeline degrades gracefully (execute → done, no verification).
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(self, logger: logging.Logger | None = None) -> None:
         self._logger = logger or logging.getLogger(__name__)
 
     # ------------------------------------------------------------------ #
@@ -135,7 +138,7 @@ class Critic:
         self,
         task_objective: str,
         final_result: Any,
-        generator_messages: Optional[List[Any]] = None,
+        generator_messages: List[Any] | None = None,
     ) -> str:
         """Build an adaptive verification prompt for the Verifier Agent.
 
@@ -164,10 +167,14 @@ class Critic:
 
         if used_tools:
             return self._build_tool_verification(
-                task_objective, final_result, trace,
+                task_objective,
+                final_result,
+                trace,
             )
         return self._build_reasoning_verification(
-            task_objective, final_result, trace,
+            task_objective,
+            final_result,
+            trace,
         )
 
     # ------------------------------------------------------------------ #
@@ -176,7 +183,9 @@ class Critic:
 
     @staticmethod
     def _build_tool_verification(
-        task_objective: str, final_result: Any, trace: str,
+        task_objective: str,
+        final_result: Any,
+        trace: str,
     ) -> str:
         """Verification strategy for tool-based tasks.
 
@@ -216,7 +225,9 @@ class Critic:
 
     @staticmethod
     def _build_reasoning_verification(
-        task_objective: str, final_result: Any, trace: str,
+        task_objective: str,
+        final_result: Any,
+        trace: str,
     ) -> str:
         """Verification strategy for reasoning-only tasks (no tools).
 
@@ -227,10 +238,7 @@ class Critic:
         return (
             "VERIFY whether the following answer is correct and complete.\n\n"
             f"## ORIGINAL TASK\n{task_objective}\n\n"
-            + (
-                f"## GENERATOR'S RESPONSE\n{trace}\n\n"
-                if trace else ""
-            )
+            + (f"## GENERATOR'S RESPONSE\n{trace}\n\n" if trace else "")
             + f"## CLAIMED ANSWER\n{_truncate(str(final_result), 3000)}\n\n"
             "## YOUR JOB\n"
             "Review the answer for quality across these dimensions:\n\n"
@@ -250,12 +258,11 @@ class Critic:
             '- Major error (wrong answer, missed requirement) → "fail", '
             "score < 0.3.\n"
             '- Minor issue (could be better) → "pass", score 0.6-0.8.\n'
-            '- Cannot determine quality → "uncertain".\n\n'
-            + _VERDICT_FORMAT
+            '- Cannot determine quality → "uncertain".\n\n' + _VERDICT_FORMAT
         )
 
     @staticmethod
-    def _extract_reasoning_trace(messages: Optional[List[Any]]) -> str:
+    def _extract_reasoning_trace(messages: List[Any] | None) -> str:
         """Extract the Generator's execution trace from its conversation.
 
         Captures the full sequence of what the Generator did:
@@ -274,8 +281,7 @@ class Critic:
         for msg in messages:
             role = msg.role if hasattr(msg, "role") else msg.get("role", "?")
             content = (
-                msg.content if hasattr(msg, "content")
-                else msg.get("content", "")
+                msg.content if hasattr(msg, "content") else msg.get("content", "")
             ) or ""
             tool_calls = (
                 getattr(msg, "tool_calls", None)
@@ -292,16 +298,16 @@ class Critic:
                 if tool_calls:
                     for tc in tool_calls:
                         name = (
-                            tc.name if hasattr(tc, "name")
+                            tc.name
+                            if hasattr(tc, "name")
                             else tc.get("function", {}).get("name", "?")
                         )
                         args = (
-                            tc.arguments if hasattr(tc, "arguments")
+                            tc.arguments
+                            if hasattr(tc, "arguments")
                             else tc.get("function", {}).get("arguments", "")
                         )
-                        lines.append(
-                            f"[Tool Call] {name}({_truncate(str(args), 200)})"
-                        )
+                        lines.append(f"[Tool Call] {name}({_truncate(str(args), 200)})")
             elif role == "tool":
                 lines.append(f"[Tool Result] {_truncate(content, 300)}")
 
@@ -348,7 +354,8 @@ class Critic:
             )
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             self._logger.debug(
-                "Failed to parse verifier JSON: %s. Inferring from text.", e,
+                "Failed to parse verifier JSON: %s. Inferring from text.",
+                e,
             )
             return self._infer_from_text(text)
 
@@ -358,7 +365,7 @@ class Critic:
 
     async def review_step(
         self,
-        agent: "Agent",
+        agent: Agent,
         task_objective: str,
         step: PlanStep,
         result: Any,
@@ -380,18 +387,21 @@ class Critic:
             return self._auto_pass("No LLM available — skipping critique")
 
         prompt = self._build_step_review_prompt(
-            task_objective, step, result, context,
+            task_objective,
+            step,
+            result,
+            context,
         )
         return await self._run_single_call(agent, prompt)
 
     async def review_final(
         self,
-        agent: "Agent",
+        agent: Agent,
         task_objective: str,
-        plan: Optional["Plan"] = None,
-        results: Optional[List[Any]] = None,
+        plan: Plan | None = None,
+        results: List[Any] | None = None,
         final_result: Any = None,
-        messages: Optional[List[Any]] = None,
+        messages: List[Any] | None = None,
     ) -> CritiqueResult:
         """Review the final result (single LLM call, backward compatible).
 
@@ -414,11 +424,16 @@ class Critic:
 
         if messages:
             prompt = self._build_conversation_review_prompt(
-                task_objective, final_result, messages,
+                task_objective,
+                final_result,
+                messages,
             )
         else:
             prompt = self._build_final_review_prompt(
-                task_objective, plan, results or [], final_result,
+                task_objective,
+                plan,
+                results or [],
+                final_result,
             )
         return await self._run_single_call(agent, prompt)
 
@@ -442,9 +457,7 @@ class Critic:
                     continue
                 ctx_lines.append(f"  - {k}: {_truncate(str(v), 300)}")
             if ctx_lines:
-                ctx_summary = (
-                    "\n\nPrevious Steps Results:\n" + "\n".join(ctx_lines)
-                )
+                ctx_summary = "\n\nPrevious Steps Results:\n" + "\n".join(ctx_lines)
 
         return (
             "You are a quality reviewer for an AI agent. "
@@ -495,8 +508,7 @@ class Critic:
         for msg in messages:
             role = msg.role if hasattr(msg, "role") else msg.get("role", "?")
             content = (
-                msg.content if hasattr(msg, "content")
-                else msg.get("content", "")
+                msg.content if hasattr(msg, "content") else msg.get("content", "")
             ) or ""
 
             tool_calls = (
@@ -508,27 +520,27 @@ class Critic:
             if role == "assistant" and tool_calls:
                 for tc in tool_calls:
                     name = (
-                        tc.name if hasattr(tc, "name")
+                        tc.name
+                        if hasattr(tc, "name")
                         else tc.get("function", {}).get("name", "?")
                     )
                     args = (
-                        tc.arguments if hasattr(tc, "arguments")
+                        tc.arguments
+                        if hasattr(tc, "arguments")
                         else tc.get("function", {}).get("arguments", "")
                     )
-                    tool_evidence.append(
-                        f"  CALL: {name}({_truncate(str(args), 400)})"
-                    )
+                    tool_evidence.append(f"  CALL: {name}({_truncate(str(args), 400)})")
             elif role == "tool":
-                tool_evidence.append(
-                    f"  RESULT: {_truncate(str(content), 600)}"
-                )
+                tool_evidence.append(f"  RESULT: {_truncate(str(content), 600)}")
             elif role == "assistant" and content:
-                assistant_reasoning.append(
-                    _truncate(content, 500)
-                )
+                assistant_reasoning.append(_truncate(content, 500))
 
         evidence = "\n".join(tool_evidence) if tool_evidence else "(no tools called)"
-        reasoning = "\n---\n".join(assistant_reasoning[-3:]) if assistant_reasoning else "(none)"
+        reasoning = (
+            "\n---\n".join(assistant_reasoning[-3:])
+            if assistant_reasoning
+            else "(none)"
+        )
 
         return (
             "You are an independent verifier with access to the same tools "
@@ -605,9 +617,7 @@ class Critic:
 
         results_lines = []
         for i, r in enumerate(results, 1):
-            results_lines.append(
-                f"  Step {i} result: {_truncate(str(r), 500)}"
-            )
+            results_lines.append(f"  Step {i} result: {_truncate(str(r), 500)}")
         results_summary = "\n".join(results_lines)
 
         return (
@@ -640,7 +650,7 @@ class Critic:
 
     async def _run_single_call(
         self,
-        agent: "Agent",
+        agent: Agent,
         prompt: str,
     ) -> CritiqueResult:
         """Single LLM call without tools (text-only verification).
@@ -655,9 +665,7 @@ class Critic:
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 1024,
             }
-            call_kwargs.update(
-                getattr(agent, "_current_llm_overrides", {})
-            )
+            call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
             response = await agent.llm.call(**call_kwargs)
             return self._parse_response(response)
         except Exception as e:
@@ -688,7 +696,7 @@ class Critic:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _extract_content(response: Any) -> Optional[str]:
+    def _extract_content(response: Any) -> str | None:
         """Pull text content from an LLM response object."""
         if not response or not hasattr(response, "choices") or not response.choices:
             return None
@@ -698,10 +706,12 @@ class Critic:
         return getattr(msg, "content", None)
 
     @staticmethod
-    def _extract_json(text: str) -> Optional[str]:
+    def _extract_json(text: str) -> str | None:
         """Extract JSON from text, handling markdown fences."""
         fenced = re.search(
-            r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text, re.DOTALL,
+            r"```(?:json)?\s*(\{[\s\S]*?\})\s*```",
+            text,
+            re.DOTALL,
         )
         if fenced:
             return fenced.group(1)
@@ -755,6 +765,7 @@ class Critic:
 # ------------------------------------------------------------------ #
 # Module-level helpers                                                #
 # ------------------------------------------------------------------ #
+
 
 def _truncate(text: str, max_len: int) -> str:
     """Truncate text for prompt inclusion."""

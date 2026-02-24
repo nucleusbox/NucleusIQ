@@ -1,29 +1,28 @@
 # File: src/nucleusiq/agents/agent.py
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List
-import asyncio
-import logging
-import json
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.tools.base_tool import BaseTool
-from typing import Dict, Any, List
+
 
 class EchoAgent(Agent):
     """
     A simple agent that echoes the task objective or invokes tools
     following OpenAI-style function-calling steps.
     """
+
     async def initialize(self) -> None:
         # Initialize tools (plain functions no-op)
-        for tool in getattr(self, 'tools', []):
+        for tool in getattr(self, "tools", []):
             await tool.initialize()
         self.state = AgentState.COMPLETED
-    
+
     async def plan(self, task):
         return await super().plan(task)
 
@@ -41,13 +40,13 @@ class EchoAgent(Agent):
         if self.prompt and self.prompt.user:
             messages.append({"role": "user", "content": self.prompt.user})
 
-        # Second user turn with the *actual* task text  
+        # Second user turn with the *actual* task text
         messages.append({"role": "user", "content": task.get("objective", "")})
         print(messages)
         # 3) First LLM call (may return a function_call)
         if not self.llm:
             raise ValueError("LLM is required for execution")
-        
+
         model_name = getattr(self.llm, "model_name", "default")
         response = await self.llm.call(
             model=model_name,
@@ -105,12 +104,13 @@ async def main():
         technique=PromptTechnique.ZERO_SHOT
     ).configure(
         system="You are a helpful assistant.",
-        user="Compute the sum of two numbers or repeat the request."
+        user="Compute the sum of two numbers or repeat the request.",
     )
 
     # Wrap a simple function as a tool
     def add(a: int, b: int) -> int:
         return a + b
+
     adder = BaseTool.from_function(add, description="Add two integers.")
 
     # Instantiate EchoAgent with tools
@@ -122,7 +122,7 @@ async def main():
         llm=llm,
         prompt=zero_shot,
         tools=[adder],
-        config=AgentConfig(verbose=True)
+        config=AgentConfig(verbose=True),
     )
 
     await agent.initialize()
@@ -134,6 +134,7 @@ async def main():
         print(f"Task Result: {result}")
     except Exception as e:
         print(f"Task failed with error: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

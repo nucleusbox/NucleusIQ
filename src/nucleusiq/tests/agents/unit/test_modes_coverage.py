@@ -1,15 +1,14 @@
 """Tests covering uncovered lines in modes/ (base_mode, direct_mode, standard_mode, autonomous_mode)."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Any, Dict
+from unittest.mock import MagicMock
 
+import pytest
 from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
+from nucleusiq.agents.config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.modes.direct_mode import DirectMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
+from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
 
@@ -32,7 +31,6 @@ def _make_agent(**overrides):
 
 
 class TestBaseExecutionModeHelpers:
-
     def test_get_objective_dict(self):
         result = BaseExecutionMode.get_objective({"objective": "do stuff"})
         assert result == "do stuff"
@@ -86,7 +84,10 @@ class TestBaseExecutionModeHelpers:
 
     def test_extract_content_list_format(self):
         msg = MagicMock()
-        msg.content = [{"type": "text", "text": "part1"}, {"type": "text", "text": "part2"}]
+        msg.content = [
+            {"type": "text", "text": "part1"},
+            {"type": "text", "text": "part2"},
+        ]
         result = BaseExecutionMode.extract_content(msg)
         assert "part1" in result
         assert "part2" in result
@@ -103,7 +104,6 @@ class TestBaseExecutionModeHelpers:
 
 
 class TestDirectMode:
-
     @pytest.mark.asyncio
     async def test_no_llm_echo(self):
         agent = _make_agent(llm=None)
@@ -126,7 +126,6 @@ class TestDirectMode:
 
 
 class TestStandardModeMemory:
-
     @pytest.mark.asyncio
     async def test_store_in_memory(self):
         mem = FullHistoryMemory()

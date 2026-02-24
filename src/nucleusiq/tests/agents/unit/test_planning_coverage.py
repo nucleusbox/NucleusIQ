@@ -5,24 +5,24 @@ plan_creator.py, plan_executor.py, plan_parser.py, planner.py
 
 import asyncio
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Any, Dict
 
-from nucleusiq.agents.plan import Plan, PlanStep, PlanResponse
+import pytest
+from nucleusiq.agents.agent import Agent
+from nucleusiq.agents.plan import Plan, PlanResponse, PlanStep
 from nucleusiq.agents.planning.plan_creator import PlanCreator
 from nucleusiq.agents.planning.plan_executor import PlanExecutor
 from nucleusiq.agents.planning.plan_parser import PlanParser
 from nucleusiq.agents.planning.planner import Planner
-from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.llms.mock_llm import MockLLM
 
 
 def _make_agent(**overrides):
     defaults = dict(
-        name="TestAgent", role="Tester",
-        objective="Test", narrative="Tester",
+        name="TestAgent",
+        role="Tester",
+        objective="Test",
+        narrative="Tester",
     )
     defaults.update(overrides)
     return Agent(**defaults)
@@ -42,30 +42,41 @@ def _mock_response(content=None, tool_calls=None, refusal=None):
 # PlanParser
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestPlanParser:
 
+class TestPlanParser:
     def test_parse_valid_json(self):
         parser = PlanParser()
-        json_text = json.dumps({
-            "steps": [
-                {"step": 1, "action": "search", "details": "find data", "args": {"query": "test"}}
-            ]
-        })
+        json_text = json.dumps(
+            {
+                "steps": [
+                    {
+                        "step": 1,
+                        "action": "search",
+                        "details": "find data",
+                        "args": {"query": "test"},
+                    }
+                ]
+            }
+        )
         result = parser.parse(json_text)
         assert isinstance(result, PlanResponse)
         assert len(result.steps) == 1
 
     def test_parse_code_block(self):
         parser = PlanParser()
-        text = f'```json\n{json.dumps({"steps": [{"step": 1, "action": "go"}]})}\n```'
+        text = f"```json\n{json.dumps({'steps': [{'step': 1, 'action': 'go'}]})}\n```"
         result = parser.parse(text)
         assert len(result.steps) == 1
 
     def test_parse_balanced_json_with_nested(self):
         parser = PlanParser()
-        text = json.dumps({
-            "steps": [{"step": 1, "action": "run", "args": {"config": {"nested": True}}}]
-        })
+        text = json.dumps(
+            {
+                "steps": [
+                    {"step": 1, "action": "run", "args": {"config": {"nested": True}}}
+                ]
+            }
+        )
         result = parser.parse(text)
         assert result.steps[0].action == "run"
 
@@ -90,9 +101,9 @@ class TestPlanParser:
     def test_balanced_json_with_escape(self):
         """Tests the escape handling in balanced JSON extractor."""
         parser = PlanParser()
-        raw = json.dumps({
-            "steps": [{"step": 1, "action": "test", "details": 'escaped \\"quote\\"'}]
-        })
+        raw = json.dumps(
+            {"steps": [{"step": 1, "action": "test", "details": 'escaped \\"quote\\"'}]}
+        )
         result = parser.parse(raw)
         assert len(result.steps) == 1
 
@@ -115,8 +126,8 @@ class TestPlanParser:
 # PlanCreator
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestPlanCreator:
 
+class TestPlanCreator:
     @pytest.mark.asyncio
     async def test_no_llm_raises(self):
         creator = PlanCreator()
@@ -126,16 +137,16 @@ class TestPlanCreator:
 
     @pytest.mark.asyncio
     async def test_create_via_content_fallback(self):
-        plan_json = json.dumps({
-            "steps": [{"step": 1, "action": "search", "args": {}}]
-        })
+        plan_json = json.dumps({"steps": [{"step": 1, "action": "search", "args": {}}]})
         llm = MockLLM()
         llm.call = AsyncMock(return_value=_mock_response(content=plan_json))
         agent = _make_agent(llm=llm)
         await agent.initialize()
 
         creator = PlanCreator()
-        plan = await creator.create_plan(agent, {"id": "1", "objective": "do stuff"}, {})
+        plan = await creator.create_plan(
+            agent, {"id": "1", "objective": "do stuff"}, {}
+        )
         assert isinstance(plan, Plan)
         assert len(plan.steps) >= 1
 
@@ -163,7 +174,9 @@ class TestPlanCreator:
         }
         plan_json = json.dumps({"steps": [{"step": 1, "action": "fallback"}]})
         llm = MockLLM()
-        llm.call = AsyncMock(return_value=_mock_response(content=plan_json, tool_calls=[tc]))
+        llm.call = AsyncMock(
+            return_value=_mock_response(content=plan_json, tool_calls=[tc])
+        )
         agent = _make_agent(llm=llm)
         await agent.initialize()
 
@@ -175,10 +188,12 @@ class TestPlanCreator:
     async def test_create_empty_response_retries(self):
         llm = MockLLM()
         plan_json = json.dumps({"steps": [{"step": 1, "action": "ok"}]})
-        llm.call = AsyncMock(side_effect=[
-            _mock_response(content=None),
-            _mock_response(content=plan_json),
-        ])
+        llm.call = AsyncMock(
+            side_effect=[
+                _mock_response(content=None),
+                _mock_response(content=plan_json),
+            ]
+        )
         agent = _make_agent(llm=llm)
         await agent.initialize()
 
@@ -200,10 +215,15 @@ class TestPlanCreator:
     def test_get_tool_param_lines_with_tools(self):
         tool = MagicMock()
         tool.name = "search"
-        tool.get_spec = MagicMock(return_value={
-            "name": "search",
-            "parameters": {"properties": {"q": {"type": "string"}}, "required": ["q"]},
-        })
+        tool.get_spec = MagicMock(
+            return_value={
+                "name": "search",
+                "parameters": {
+                    "properties": {"q": {"type": "string"}},
+                    "required": ["q"],
+                },
+            }
+        )
         agent = _make_agent(llm=MockLLM(), tools=[tool])
         lines = PlanCreator()._get_tool_param_lines(agent)
         assert len(lines) == 1
@@ -245,8 +265,8 @@ class TestPlanCreator:
 # PlanExecutor
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestPlanExecutor:
 
+class TestPlanExecutor:
     @pytest.mark.asyncio
     async def test_execute_single_step(self):
         llm = MockLLM()
@@ -297,10 +317,18 @@ class TestPlanExecutor:
         async def slow_step(*a, **kw):
             await asyncio.sleep(10)
 
-        with patch.object(executor, '_execute_step', side_effect=slow_step):
+        with patch.object(executor, "_execute_step", side_effect=slow_step):
             result, error = await executor._run_with_retries(
-                agent, step, 1, "slow_tool", task, "", {}, task,
-                timeout=1, max_retries=0,
+                agent,
+                step,
+                1,
+                "slow_tool",
+                task,
+                "",
+                {},
+                task,
+                timeout=1,
+                max_retries=0,
             )
         assert error is not None
         assert "timed out" in error
@@ -326,7 +354,9 @@ class TestPlanExecutor:
 
     def test_resolve_step_task_with_task(self):
         step = PlanStep(step=1, action="test", task={"id": "s1", "objective": "sub"})
-        result = PlanExecutor._resolve_step_task(step, {"id": "main", "objective": "main"})
+        result = PlanExecutor._resolve_step_task(
+            step, {"id": "main", "objective": "main"}
+        )
         assert result["objective"] == "sub"
 
     def test_get_required_keys(self):
@@ -360,8 +390,8 @@ class TestPlanExecutor:
 # Planner facade
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestPlanner:
 
+class TestPlanner:
     @pytest.mark.asyncio
     async def test_create_and_execute_plan(self):
         llm = MockLLM()

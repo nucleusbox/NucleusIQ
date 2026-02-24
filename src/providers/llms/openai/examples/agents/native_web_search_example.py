@@ -9,10 +9,10 @@ Usage:
     python native_web_search_example.py
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 
 _src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
@@ -25,7 +25,9 @@ from nucleusiq.agents.config import AgentConfig
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +45,9 @@ async def main():
 
     # 2. Create native web search tool (one-liner!)
     web_search = OpenAITool.web_search()
-    logger.info(f"Tool: {web_search.name}  |  type: {web_search.tool_type}  |  native: {web_search.is_native}")
+    logger.info(
+        f"Tool: {web_search.name}  |  type: {web_search.tool_type}  |  native: {web_search.is_native}"
+    )
 
     # 3. Verify spec is in Responses API format
     spec = web_search.get_spec()

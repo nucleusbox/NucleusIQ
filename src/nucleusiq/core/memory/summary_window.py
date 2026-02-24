@@ -11,14 +11,13 @@ running summary, and the window is trimmed.
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-
-from pydantic import Field, ConfigDict
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from nucleusiq.memory.base import BaseMemory
+from pydantic import ConfigDict, Field
 
 if TYPE_CHECKING:
-    from nucleusiq.llms.base_llm import BaseLLM
+    pass
 
 
 _SUMMARIZE_PROMPT = (
@@ -40,7 +39,7 @@ class SummaryWindowMemory(BaseMemory):
         gt=0,
         description="Number of recent messages kept verbatim.",
     )
-    llm: Optional[Any] = Field(
+    llm: Any | None = Field(
         default=None,
         description="BaseLLM instance used for summarization.",
     )
@@ -72,7 +71,7 @@ class SummaryWindowMemory(BaseMemory):
             self._compact_sync()
 
     def get_context(
-        self, query: Optional[str] = None, **kwargs: Any
+        self, query: str | None = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         ctx: List[Dict[str, str]] = []
         if self._summary:
@@ -97,9 +96,7 @@ class SummaryWindowMemory(BaseMemory):
 
     # -- Async (preferred path) ------------------------------------------
 
-    async def aadd_message(
-        self, role: str, content: str, **kwargs: Any
-    ) -> None:
+    async def aadd_message(self, role: str, content: str, **kwargs: Any) -> None:
         self._messages.append({"role": role, "content": content})
         if len(self._messages) > self.window_size:
             await self._compact_async()
@@ -140,9 +137,7 @@ class SummaryWindowMemory(BaseMemory):
             overflow.append(self._messages.popleft())
         return overflow
 
-    async def _summarize(
-        self, messages: List[Dict[str, str]]
-    ) -> str:
+    async def _summarize(self, messages: List[Dict[str, str]]) -> str:
         prompt = _SUMMARIZE_PROMPT.format(
             prev_summary=self._summary or "(none)",
             messages=self._format_messages(messages),
@@ -162,6 +157,5 @@ class SummaryWindowMemory(BaseMemory):
     @staticmethod
     def _format_messages(msgs: List[Dict[str, str]]) -> str:
         return "\n".join(
-            f"[{m.get('role', '?')}]: {m.get('content', '')}"
-            for m in msgs
+            f"[{m.get('role', '?')}]: {m.get('content', '')}" for m in msgs
         )

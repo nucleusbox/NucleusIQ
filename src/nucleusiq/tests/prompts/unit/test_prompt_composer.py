@@ -1,6 +1,5 @@
 # tests/test_prompt_composer.py
 
-import os
 import sys
 from pathlib import Path
 
@@ -10,11 +9,11 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 import pytest
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.base import BasePrompt
+from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+
 
 class TestPromptComposer:
-
     # 1) Basic usage with variable mappings
     def test_variable_mappings_basic(self):
         custom_template = "System: {sys}\nUser: {usr}\nQuery: {qry}"
@@ -23,31 +22,26 @@ class TestPromptComposer:
             "user_query": "usr",
             "questions": "qry",
         }
-        composer = (
-            PromptFactory
-            .create_prompt(PromptTechnique.PROMPT_COMPOSER)
-            .configure(
-                template=custom_template,
-                variable_mappings=var_mappings
-            )
-        )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(template=custom_template, variable_mappings=var_mappings)
         # Now format
         result = composer.format_prompt(
             system="System prompt here",
             user_query="User says hello",
-            questions="Any question"
+            questions="Any question",
         )
-        expected = "System: System prompt here\nUser: User says hello\nQuery: Any question"
+        expected = (
+            "System: System prompt here\nUser: User says hello\nQuery: Any question"
+        )
         assert result.strip() == expected.strip()
 
     # 2) Missing required variables
     def test_missing_required_variables(self):
         custom_tmpl = "Hello {name}, you said: {msg}"
-        composer = (
-            PromptFactory
-            .create_prompt(PromptTechnique.PROMPT_COMPOSER)
-            .configure(template=custom_tmpl)
-        )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(template=custom_tmpl)
         # Suppose we define name/msg as required
         composer.input_variables = ["name", "msg"]
 
@@ -64,19 +58,15 @@ class TestPromptComposer:
             lines = kwargs["tasks"].split("\n")
             return "\n".join("- " + line for line in lines)
 
-        composer = (
-            PromptFactory
-            .create_prompt(PromptTechnique.PROMPT_COMPOSER)
-            .configure(
-                template=custom_tmpl,
-                function_mappings={"tasks": bullet_points}
-            )
-        )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(template=custom_tmpl, function_mappings={"tasks": bullet_points})
         prompt_text = composer.format_prompt(
-            tasks="Wash dishes\nClean house",
-            user_query="Please get them done soon."
+            tasks="Wash dishes\nClean house", user_query="Please get them done soon."
         )
-        expected = "Tasks:\n- Wash dishes\n- Clean house\n\nUser: Please get them done soon."
+        expected = (
+            "Tasks:\n- Wash dishes\n- Clean house\n\nUser: Please get them done soon."
+        )
         assert prompt_text.strip() == expected.strip()
 
     # 4) Invalid variable mappings referencing a field not used in the template
@@ -85,14 +75,9 @@ class TestPromptComposer:
         # 'foo' does not appear in input_variables or template placeholders
         var_mappings = {"foo": "bar"}
 
-        composer = (
-            PromptFactory
-            .create_prompt(PromptTechnique.PROMPT_COMPOSER)
-            .configure(
-                template=custom_tmpl,
-                variable_mappings=var_mappings
-            )
-        )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(template=custom_tmpl, variable_mappings=var_mappings)
         with pytest.raises(ValueError) as exc:
             # The template needs 'hello' => we never supply it => KeyError => ValueError
             composer.format_prompt()
@@ -102,13 +87,11 @@ class TestPromptComposer:
     # 5) Serialization & Deserialization
     def test_serialization_deserialization(self, tmp_path):
         custom_tmpl = "System says: {sys}, user says: {usr}"
-        composer = (
-            PromptFactory
-            .create_prompt(PromptTechnique.PROMPT_COMPOSER)
-            .configure(
-                template=custom_tmpl,
-                variable_mappings={"system": "sys", "user_query": "usr"}
-            )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(
+            template=custom_tmpl,
+            variable_mappings={"system": "sys", "user_query": "usr"},
         )
         # Save to JSON
         file_path = tmp_path / "composer_test.json"
@@ -119,7 +102,6 @@ class TestPromptComposer:
         prompt_text = loaded.format_prompt(system="SystemHere", user_query="UserHere")
         expected = "System says: SystemHere, user says: UserHere"
         assert prompt_text.strip() == expected.strip()
-
 
     # 7) Empty template => base class refuses
     def test_empty_template(self):
@@ -134,7 +116,7 @@ class TestPromptComposer:
         composer = PromptFactory.create_prompt(PromptTechnique.PROMPT_COMPOSER)
         with pytest.raises(ValueError) as exc:
             # Not a string => base class complains
-            composer.configure(template=123)  
+            composer.configure(template=123)
         # Might be "Template cannot be empty." or a type error message
         err = str(exc.value)
         assert "Template cannot be empty." in err or "must be a string" in err
@@ -142,11 +124,9 @@ class TestPromptComposer:
     # 9) No input vars => if template placeholders are missing => error
     def test_no_input_vars_missing_placeholder(self):
         tmpl = "Welcome {who}"
-        composer = (
-            PromptFactory
-            .create_prompt(PromptTechnique.PROMPT_COMPOSER)
-            .configure(template=tmpl)
-        )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(template=tmpl)
         with pytest.raises(ValueError) as exc:
             composer.format_prompt()  # 'who' not supplied
         assert "Missing variable in template: 'who'" in str(exc.value)
@@ -154,7 +134,9 @@ class TestPromptComposer:
     # 10) No variable/function mappings => direct placeholders
     def test_no_mappings_direct_placeholders(self):
         tmpl = "Hello, {name}. You are {role}."
-        composer = PromptFactory.create_prompt(PromptTechnique.PROMPT_COMPOSER).configure(template=tmpl)
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(template=tmpl)
         result = composer.format_prompt(name="Alice", role="Engineer")
         expected = "Hello, Alice. You are Engineer."
         assert result.strip() == expected
@@ -164,20 +146,15 @@ class TestPromptComposer:
         tmpl = "Field1: {f1}, Field2: {f2}"
         var_mappings = {
             "fieldA": "f1",
-            "fieldB": "f1"  # both mapped to same placeholder => overshadow
+            "fieldB": "f1",  # both mapped to same placeholder => overshadow
         }
-        composer = (
-            PromptFactory
-            .create_prompt(PromptTechnique.PROMPT_COMPOSER)
-            .configure(
-                template=tmpl,
-                variable_mappings=var_mappings
-            )
-        )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(template=tmpl, variable_mappings=var_mappings)
         with pytest.raises(ValueError) as exc:
             composer.format_prompt(fieldA="ValA", fieldB="ValB")
         assert "Missing variable in template: 'f2'" in str(exc.value)
-        
+
     # 12) Configure with multiple fields
     def test_configure_multiple_fields(self):
         composer = PromptFactory.create_prompt(PromptTechnique.PROMPT_COMPOSER)
@@ -186,7 +163,7 @@ class TestPromptComposer:
             system="System???",
             examples="Ex??",
             chain_of_thought="COT??",
-            user_query="User??"
+            user_query="User??",
         )
         result = composer.format_prompt(one="1", two="2", three="3")
         assert "System???" not in result  # not in template
@@ -196,22 +173,20 @@ class TestPromptComposer:
     def test_configure_unrecognized_field(self):
         composer = PromptFactory.create_prompt(PromptTechnique.PROMPT_COMPOSER)
         with pytest.raises(ValueError) as exc:
-            composer.configure(
-                template="My tmpl",
-                non_existent="???"
-            )
+            composer.configure(template="My tmpl", non_existent="???")
         assert "Field 'non_existent' is not recognized" in str(exc.value)
 
     # 14) Function mappings referencing missing fields
     def test_function_mapping_missing_field(self):
         def title_case(**kwargs):
-            val = kwargs["missing_key"]  # We'll attempt to read something that doesn't exist
+            val = kwargs[
+                "missing_key"
+            ]  # We'll attempt to read something that doesn't exist
             return val.title()
 
-        composer = PromptFactory.create_prompt(PromptTechnique.PROMPT_COMPOSER).configure(
-            template="Hello {greet}",
-            function_mappings={"greet": title_case}
-        )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(template="Hello {greet}", function_mappings={"greet": title_case})
         with pytest.raises(ValueError) as exc:
             composer.format_prompt()
         assert "Missing variable in template: 'greet'" in str(exc.value)
@@ -222,16 +197,16 @@ class TestPromptComposer:
             return kwargs["orig"] + "!!!"
 
         custom_template = "System: {sys}\nExamples: {ex}\nQuery: {q}"
-        composer = (
-            PromptFactory
-            .create_prompt(PromptTechnique.PROMPT_COMPOSER)
-            .configure(
-                template=custom_template,
-                variable_mappings={"system": "sys", "examples": "ex", "user_query": "q"},
-                function_mappings={"examples": exclaim}
-            )
+        composer = PromptFactory.create_prompt(
+            PromptTechnique.PROMPT_COMPOSER
+        ).configure(
+            template=custom_template,
+            variable_mappings={"system": "sys", "examples": "ex", "user_query": "q"},
+            function_mappings={"examples": exclaim},
         )
-        result = composer.format_prompt(system="SysText", user_query="UserText", orig="BaseExamples")
+        result = composer.format_prompt(
+            system="SysText", user_query="UserText", orig="BaseExamples"
+        )
         # 'examples' => ex => exclaim => "BaseExamples!!!"
         expected = "System: SysText\nExamples: BaseExamples!!!\nQuery: UserText"
         assert result.strip() == expected.strip()

@@ -1,16 +1,15 @@
 """Unit tests for the 5 new built-in plugins."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
-from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.plugins.builtin.context_window import ContextWindowPlugin
+from nucleusiq.plugins.builtin.human_approval import HumanApprovalPlugin
 from nucleusiq.plugins.builtin.model_fallback import ModelFallbackPlugin
 from nucleusiq.plugins.builtin.pii_guard import PIIGuardPlugin, _luhn_check
-from nucleusiq.plugins.builtin.human_approval import HumanApprovalPlugin
-from nucleusiq.plugins.builtin.context_window import ContextWindowPlugin
 from nucleusiq.plugins.builtin.tool_guard import ToolGuardPlugin
-
+from nucleusiq.plugins.errors import PluginHalt
 
 # ==================================================================== #
 # ModelFallbackPlugin                                                    #
@@ -258,9 +257,7 @@ class TestPIIGuardPlugin:
 
     @pytest.mark.asyncio
     async def test_after_model_redacts_output(self):
-        p = PIIGuardPlugin(
-            pii_types=["email"], strategy="redact", apply_to_output=True
-        )
+        p = PIIGuardPlugin(pii_types=["email"], strategy="redact", apply_to_output=True)
         req = ModelRequest(agent_name="a")
         response = MagicMock()
         response.content = "Contact alice@company.com for details"
@@ -285,9 +282,7 @@ class TestPIIGuardPlugin:
 
     @pytest.mark.asyncio
     async def test_input_disabled(self):
-        p = PIIGuardPlugin(
-            pii_types=["email"], strategy="redact", apply_to_input=False
-        )
+        p = PIIGuardPlugin(pii_types=["email"], strategy="redact", apply_to_input=False)
         req = ModelRequest(
             messages=[{"role": "user", "content": "john@test.com"}],
             agent_name="a",

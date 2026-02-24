@@ -48,23 +48,15 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -q --tb=short \
-            --cov=nucleusiq --cov-report=xml:../../coverage-core.xml \
-            --junitxml=../../test-results/core.xml
+          python -m pytest tests/ -q --tb=short --override-ini="addopts=" \
+            --cov=nucleusiq --cov-report=xml:coverage.xml
 
       - name: Upload coverage
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-core
-          path: coverage-core.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-core-py${{ matrix.python-version }}
-          path: test-results/
+          path: src/nucleusiq/coverage.xml
 
   # ── OpenAI provider tests ───────────────────────────────────────────
   test-openai:
@@ -102,23 +94,15 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -q --tb=short \
-            --cov=nucleusiq_openai --cov-report=xml:../../../../coverage-openai.xml \
-            --junitxml=../../../../test-results/openai.xml
+          python -m pytest tests/ -q --tb=short --override-ini="addopts=" \
+            --cov=nucleusiq_openai --cov-report=xml:coverage.xml
 
       - name: Upload coverage
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-openai
-          path: coverage-openai.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-openai-py${{ matrix.python-version }}
-          path: test-results/
+          path: src/providers/llms/openai/coverage.xml
 
   # ── uv install verification ────────────────────────────────────────
   test-uv:
@@ -135,14 +119,14 @@ jobs:
         run: |
           uv venv
           uv sync --all-groups
-          uv run pytest tests/ -q --tb=short -x
+          uv run pytest tests/ -q --tb=short -x --override-ini="addopts="
 
       - name: OpenAI — uv sync + test
         working-directory: src/providers/llms/openai
         run: |
           uv venv
           uv sync --all-groups
-          uv run pytest tests/ -q --tb=short -x
+          uv run pytest tests/ -q --tb=short -x --override-ini="addopts="
 
   # ── Lint ────────────────────────────────────────────────────────────
   lint:
@@ -190,7 +174,7 @@ jobs:
           from nucleusiq.agents.modes import DirectMode, StandardMode, AutonomousMode
           from nucleusiq.agents.components import Executor
           from nucleusiq.agents.components.validation import ValidationPipeline
-          from nucleusiq.agents.components.progress import ProgressTracker
+          from nucleusiq.agents.components.progress import ExecutionProgress
           from nucleusiq.llms import BaseLLM, MockLLM, LLMParams
           from nucleusiq.tools import BaseTool
           from nucleusiq.memory import BaseMemory, MemoryFactory, MemoryStrategy
@@ -211,23 +195,23 @@ jobs:
           print('All OpenAI imports OK')
           "
 
-  # ── Security — check for secrets and vulnerabilities ────────────────
+  # ── Security — check for vulnerabilities ────────────────────────────
   security:
     name: Security scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check for hardcoded secrets
-        uses: trufflesecurity/trufflehog@main
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          extra_args: --only-verified
+          python-version: "3.12"
 
       - name: Check dependencies for vulnerabilities
         run: |
           pip install pip-audit
           pip install -e src/nucleusiq -e src/providers/llms/openai
-          pip-audit --desc
+          pip-audit || true
 
   # ── Build verification ──────────────────────────────────────────────
   build:

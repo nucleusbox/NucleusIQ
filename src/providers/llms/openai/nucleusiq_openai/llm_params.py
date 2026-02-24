@@ -21,12 +21,10 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional
-
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Dict, List, Literal
 
 from nucleusiq.llms.llm_params import LLMParams
-
+from pydantic import BaseModel, ConfigDict, Field
 
 # ======================================================================== #
 # Nested config models                                                     #
@@ -80,9 +78,9 @@ class OpenAILLMParams(LLMParams):
     """
 
     # --- Reasoning (o-series / gpt-5 models) ---
-    reasoning_effort: Optional[
-        Literal["none", "minimal", "low", "medium", "high", "xhigh"]
-    ] = Field(
+    reasoning_effort: (
+        Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
+    ) = Field(
         None,
         description=(
             "Reasoning depth for o-series and gpt-5 models. "
@@ -91,9 +89,7 @@ class OpenAILLMParams(LLMParams):
     )
 
     # --- Cost & Performance ---
-    service_tier: Optional[
-        Literal["auto", "default", "flex", "priority"]
-    ] = Field(
+    service_tier: Literal["auto", "default", "flex", "priority"] | None = Field(
         None,
         description=(
             "Processing tier. 'flex' = ~50%% cheaper (async processing). "
@@ -102,66 +98,69 @@ class OpenAILLMParams(LLMParams):
     )
 
     # --- Multimodal Output ---
-    modalities: Optional[List[Literal["text", "audio"]]] = Field(
+    modalities: List[Literal["text", "audio"]] | None = Field(
         None,
         description='Output modalities. ["text"] or ["text", "audio"].',
     )
-    audio: Optional[AudioOutputConfig] = Field(
+    audio: AudioOutputConfig | None = Field(
         None,
         description="Audio output config (required when modalities includes 'audio').",
     )
 
     # --- Tool Behaviour ---
-    parallel_tool_calls: Optional[bool] = Field(
+    parallel_tool_calls: bool | None = Field(
         None,
         description="Allow model to call multiple tools in parallel.",
     )
 
     # --- Logging & Debugging ---
-    logprobs: Optional[bool] = Field(
+    logprobs: bool | None = Field(
         None,
         description="Return log probabilities of output tokens.",
     )
-    top_logprobs: Optional[int] = Field(
-        None, ge=0, le=20,
+    top_logprobs: int | None = Field(
+        None,
+        ge=0,
+        le=20,
         description="Number of most likely tokens to return at each position.",
     )
 
     # --- Storage & Tracking ---
-    metadata: Optional[Dict[str, str]] = Field(
+    metadata: Dict[str, str] | None = Field(
         None,
         description="Up to 16 key-value pairs for tracking/querying.",
     )
-    store: Optional[bool] = Field(
+    store: bool | None = Field(
         None,
         description="Whether to store response for later retrieval via API.",
     )
 
     # --- Caching ---
-    prompt_cache_key: Optional[str] = Field(
+    prompt_cache_key: str | None = Field(
         None,
         description="Stable identifier for prompt cache optimisation.",
     )
-    prompt_cache_retention: Optional[Literal["in-memory", "24h"]] = Field(
+    prompt_cache_retention: Literal["in-memory", "24h"] | None = Field(
         None,
         description="Cache retention policy.",
     )
 
     # --- Responses API Specific ---
-    truncation: Optional[Literal["auto", "disabled"]] = Field(
+    truncation: Literal["auto", "disabled"] | None = Field(
         None,
         description=(
             "Context overflow handling. 'auto' = truncate from the "
             "beginning of the conversation. 'disabled' = return 400 error."
         ),
     )
-    max_tool_calls: Optional[int] = Field(
-        None, ge=1,
+    max_tool_calls: int | None = Field(
+        None,
+        ge=1,
         description="Maximum total built-in tool calls allowed per response.",
     )
 
     # --- Safety ---
-    safety_identifier: Optional[str] = Field(
+    safety_identifier: str | None = Field(
         None,
         description="Hashed end-user identifier for abuse detection.",
     )

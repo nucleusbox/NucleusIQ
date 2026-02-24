@@ -20,18 +20,18 @@ Architecture (Generate → Verify → Revise):
 Run with: python src/nucleusiq/examples/agents/autonomous_mode_example.py
 """
 
-import os
-import sys
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+import os
+import sys
+from typing import Any, Dict
 
 _src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
-from nucleusiq.agents.task import Task
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.tools.base_tool import BaseTool
 
@@ -45,6 +45,7 @@ logger = logging.getLogger("autonomous_demo")
 # ------------------------------------------------------------------ #
 # Tools                                                               #
 # ------------------------------------------------------------------ #
+
 
 class AddTool(BaseTool):
     def __init__(self):
@@ -100,6 +101,7 @@ class MultiplyTool(BaseTool):
 # Demo runner                                                         #
 # ------------------------------------------------------------------ #
 
+
 async def main():
     logger.info("=" * 60)
     logger.info("NucleusIQ Autonomous Mode (Generate → Verify → Revise)")
@@ -110,8 +112,8 @@ async def main():
 
     config = AgentConfig(
         execution_mode=ExecutionMode.AUTONOMOUS,
-        critique_rounds=3,          # max Generate→Verify→Revise cycles
-        require_quality_check=True, # enable quality gate
+        critique_rounds=3,  # max Generate→Verify→Revise cycles
+        require_quality_check=True,  # enable quality gate
         verbose=True,
     )
 

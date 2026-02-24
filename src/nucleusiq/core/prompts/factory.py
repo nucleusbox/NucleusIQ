@@ -1,18 +1,22 @@
 # src/nucleusiq/prompts/factory.py
 
-from typing import Type, Dict, TypeVar, cast
 from enum import Enum
-from nucleusiq.prompts.base import BasePrompt
-from nucleusiq.prompts.zero_shot import ZeroShotPrompt
-from nucleusiq.prompts.few_shot import FewShotPrompt
-from nucleusiq.prompts.chain_of_thought import ChainOfThoughtPrompt
+from typing import Dict, Type, TypeVar, cast
+
 from nucleusiq.prompts.auto_chain_of_thought import AutoChainOfThoughtPrompt
-from nucleusiq.prompts.retrieval_augmented_generation import RetrievalAugmentedGenerationPrompt
-from nucleusiq.prompts.prompt_composer import PromptComposer
+from nucleusiq.prompts.base import BasePrompt
+from nucleusiq.prompts.chain_of_thought import ChainOfThoughtPrompt
+from nucleusiq.prompts.few_shot import FewShotPrompt
 from nucleusiq.prompts.meta_prompt import MetaPrompt
+from nucleusiq.prompts.prompt_composer import PromptComposer
+from nucleusiq.prompts.retrieval_augmented_generation import (
+    RetrievalAugmentedGenerationPrompt,
+)
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 
 # Define a TypeVar for BasePrompt
-T = TypeVar('T', bound=BasePrompt)
+T = TypeVar("T", bound=BasePrompt)
+
 
 # Define an Enum for prompt techniques
 class PromptTechnique(Enum):
@@ -23,6 +27,7 @@ class PromptTechnique(Enum):
     RETRIEVAL_AUGMENTED_GENERATION = "retrieval_augmented_generation"
     PROMPT_COMPOSER = "prompt_composer"
     META_PROMPTING = "meta_prompting"
+
 
 class PromptFactory:
     """
@@ -40,7 +45,9 @@ class PromptFactory:
     }
 
     @classmethod
-    def register_prompt(cls, technique: PromptTechnique, prompt_class: Type[BasePrompt]) -> None:
+    def register_prompt(
+        cls, technique: PromptTechnique, prompt_class: Type[BasePrompt]
+    ) -> None:
         """
         Register a new prompting technique.
 
@@ -49,7 +56,9 @@ class PromptFactory:
             prompt_class (Type[BasePrompt]): The class implementing the technique.
         """
         if technique.value in cls.prompt_classes:
-            raise ValueError(f"Prompting technique '{technique.value}' is already registered.")
+            raise ValueError(
+                f"Prompting technique '{technique.value}' is already registered."
+            )
         cls.prompt_classes[technique.value] = prompt_class
 
     @classmethod

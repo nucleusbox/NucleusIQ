@@ -1,8 +1,10 @@
 # src/nucleusiq/prompts/retrieval_augmented_generation.py
 
-from typing import List, Optional, Dict, Any
-from pydantic import Field
+from typing import Any, Dict, List
+
 from nucleusiq.prompts.base import BasePrompt
+from pydantic import Field
+
 
 class RetrievalAugmentedGenerationPrompt(BasePrompt):
     """
@@ -23,23 +25,23 @@ class RetrievalAugmentedGenerationPrompt(BasePrompt):
     # The base class will check they are non-empty strings.
     template: str = Field(
         default="{system}\n\n{context}\n\n{user}",
-        description="Default template for Retrieval-Augmented Generation."
+        description="Default template for Retrieval-Augmented Generation.",
     )
     input_variables: List[str] = Field(
         default_factory=lambda: ["system", "context", "user"],
-        description="All three fields are required & must be non-empty."
+        description="All three fields are required & must be non-empty.",
     )
     # No optional variables here
     optional_variables: List[str] = Field(
         default_factory=list,
-        description="No truly optional fields for RAG—context must be non-empty."
+        description="No truly optional fields for RAG—context must be non-empty.",
     )
 
     def configure(
         self,
-        system: Optional[str] = None,
-        context: Optional[str] = None,
-        user: Optional[str] = None
+        system: str | None = None,
+        context: str | None = None,
+        user: str | None = None,
     ) -> "RetrievalAugmentedGenerationPrompt":
         """
         Configure multiple parameters at once.
@@ -52,11 +54,7 @@ class RetrievalAugmentedGenerationPrompt(BasePrompt):
         Returns:
             Self: The updated prompt instance.
         """
-        return super().configure(
-            system=system,
-            context=context,
-            user=user
-        )
+        return super().configure(system=system, context=context, user=user)
 
     def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
         """
@@ -73,7 +71,9 @@ class RetrievalAugmentedGenerationPrompt(BasePrompt):
         # If context is None or empty => the base class will actually catch it, but let's explicitly check
         val = combined_vars["context"]
         if val is None:
-            raise ValueError("RetrievalAugmentedGenerationPrompt requires 'context' not be None.")
+            raise ValueError(
+                "RetrievalAugmentedGenerationPrompt requires 'context' not be None."
+            )
 
         # If it's a string but empty or whitespace, the base class's final check will reject it,
         # but we can add a clearer error message if desired:

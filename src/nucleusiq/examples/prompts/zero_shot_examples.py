@@ -4,7 +4,7 @@ import os
 import sys
 
 # Add src directory to path so we can import nucleusiq
-_src_dir = os.path.join(os.path.dirname(__file__), '../..')
+_src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
@@ -28,32 +28,35 @@ def zero_shot_example():
     print("Zero-Shot Prompt:\n")
     print(final_prompt)
 
+
 def test_extra_variable_error():
     zero_shot = PromptFactory.create_prompt(
-                technique=PromptTechnique.ZERO_SHOT
-            ).configure(
-                system="You are a helpful assistant.",
-                user="Translate the following English text to French: 'Hello, how are you?'",
-                extra_field="This should be ignored."
-            )
+        technique=PromptTechnique.ZERO_SHOT
+    ).configure(
+        system="You are a helpful assistant.",
+        user="Translate the following English text to French: 'Hello, how are you?'",
+        extra_field="This should be ignored.",
+    )
     print(zero_shot.format_prompt())
+
 
 def test_cot_toggel():
     zero_shot = PromptFactory.create_prompt(
-            technique=PromptTechnique.ZERO_SHOT
-        ).configure(
-            system="System prompt.",
-            user="User prompt.",
-            use_cot=False,
-            cot_instruction="Custom CoT instruction."
-        )
+        technique=PromptTechnique.ZERO_SHOT
+    ).configure(
+        system="System prompt.",
+        user="User prompt.",
+        use_cot=False,
+        cot_instruction="Custom CoT instruction.",
+    )
     prompt_text = zero_shot.format_prompt()
-        # expected_prompt = (
-        #     "System prompt.\n\n"
-        #     "User prompt."
-        #     # 'cot_instruction' should not be included because use_cot=False
-        # )
+    # expected_prompt = (
+    #     "System prompt.\n\n"
+    #     "User prompt."
+    #     # 'cot_instruction' should not be included because use_cot=False
+    # )
     print(prompt_text)
+
 
 if __name__ == "__main__":
     # zero_shot_example()

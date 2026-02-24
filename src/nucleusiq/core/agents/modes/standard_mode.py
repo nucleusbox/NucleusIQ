@@ -14,16 +14,16 @@ Characteristics:
 """
 
 import json
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
+from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
+from nucleusiq.agents.components.executor import Executor
+from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.task import Task
-from nucleusiq.agents.config.agent_config import AgentState
-from nucleusiq.agents.components.executor import Executor
-from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.plugins.errors import PluginHalt
 
 
@@ -34,9 +34,7 @@ class StandardMode(BaseExecutionMode):
 
     async def run(self, agent: "Agent", task: Task) -> Any:
         """Execute a task with tool-calling loop."""
-        agent._logger.debug(
-            "Executing in STANDARD mode (tool-enabled, linear)"
-        )
+        agent._logger.debug("Executing in STANDARD mode (tool-enabled, linear)")
         agent.state = AgentState.EXECUTING
 
         # Fast path: no LLM -> echo
@@ -54,17 +52,13 @@ class StandardMode(BaseExecutionMode):
         messages = self.build_messages(agent, task)
 
         try:
-            result = await self._tool_call_loop(
-                agent, task, messages, tool_specs
-            )
+            result = await self._tool_call_loop(agent, task, messages, tool_specs)
             agent._last_messages = messages
             return result
         except PluginHalt:
             raise
         except Exception as e:
-            agent._logger.error(
-                "Error during standard execution: %s", str(e)
-            )
+            agent._logger.error("Error during standard execution: %s", str(e))
             agent.state = AgentState.ERROR
             return f"Error: Standard execution failed: {str(e)}"
 
@@ -78,9 +72,7 @@ class StandardMode(BaseExecutionMode):
             if agent.llm:
                 agent._executor = Executor(agent.llm, agent.tools)
             else:
-                raise RuntimeError(
-                    "Cannot execute in standard mode: LLM not available"
-                )
+                raise RuntimeError("Cannot execute in standard mode: LLM not available")
 
     def _get_tool_specs(self, agent: "Agent") -> List[Dict[str, Any]]:
         """Return LLM-formatted tool specifications."""
@@ -91,7 +83,7 @@ class StandardMode(BaseExecutionMode):
     async def _tool_call_loop(
         self,
         agent: "Agent",
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
         messages: List[ChatMessage],
         tool_specs: List[Dict[str, Any]],
     ) -> Any:
@@ -138,18 +130,18 @@ class StandardMode(BaseExecutionMode):
 
             if empty_retries_remaining > 0:
                 empty_retries_remaining -= 1
-                messages.append(ChatMessage(
-                    role="user",
-                    content=(
-                        "Your last message was empty. You MUST "
-                        "either call a tool or provide a final answer."
-                    ),
-                ))
+                messages.append(
+                    ChatMessage(
+                        role="user",
+                        content=(
+                            "Your last message was empty. You MUST "
+                            "either call a tool or provide a final answer."
+                        ),
+                    )
+                )
                 continue
 
-            agent._logger.error(
-                "LLM returned no tool calls and no content after retry"
-            )
+            agent._logger.error("LLM returned no tool calls and no content after retry")
             agent.state = AgentState.ERROR
             objective = self.get_objective(task)
             return (
@@ -169,7 +161,7 @@ class StandardMode(BaseExecutionMode):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _get_tool_calls(msg: Any) -> Optional[list]:
+    def _get_tool_calls(msg: Any) -> list | None:
         """Extract tool_calls list from a message (dict or object)."""
         if isinstance(msg, dict):
             calls = msg.get("tool_calls")
@@ -180,7 +172,7 @@ class StandardMode(BaseExecutionMode):
         return None
 
     @staticmethod
-    def _get_refusal(msg: Any) -> Optional[str]:
+    def _get_refusal(msg: Any) -> str | None:
         """Extract refusal string from a message (dict or object)."""
         if isinstance(msg, dict):
             return msg.get("refusal")
@@ -192,46 +184,46 @@ class StandardMode(BaseExecutionMode):
         msg: Any,
         tool_calls: list,
         messages: List[ChatMessage],
-    ) -> Optional[str]:
+    ) -> str | None:
         """Execute tool calls and append results to the message list.
 
         Returns an error string if any tool fails (fire-and-forget),
         otherwise ``None`` (continue loop).
         """
         raw_content = (
-            msg.get("content") if isinstance(msg, dict)
+            msg.get("content")
+            if isinstance(msg, dict)
             else getattr(msg, "content", None)
         )
         parsed_calls = [ToolCallRequest.from_raw(tc) for tc in tool_calls]
-        messages.append(ChatMessage(
-            role="assistant",
-            content=raw_content,
-            tool_calls=parsed_calls,
-        ))
+        messages.append(
+            ChatMessage(
+                role="assistant",
+                content=raw_content,
+                tool_calls=parsed_calls,
+            )
+        )
 
         for tc in parsed_calls:
             if not tc.name:
-                agent._logger.warning(
-                    "Tool call missing function name, skipping"
-                )
+                agent._logger.warning("Tool call missing function name, skipping")
                 continue
 
             agent._logger.info("Tool requested: %s", tc.name)
 
             try:
                 tool_result = await self.call_tool(agent, tc)
-                messages.append(ChatMessage(
-                    role="tool",
-                    tool_call_id=tc.id,
-                    content=json.dumps(tool_result),
-                ))
+                messages.append(
+                    ChatMessage(
+                        role="tool",
+                        tool_call_id=tc.id,
+                        content=json.dumps(tool_result),
+                    )
+                )
             except Exception as e:
                 agent._logger.error("Tool execution failed: %s", e)
                 agent.state = AgentState.ERROR
-                return (
-                    f"Error: Tool '{tc.name}' execution "
-                    f"failed: {str(e)}"
-                )
+                return f"Error: Tool '{tc.name}' execution failed: {str(e)}"
 
         return None
 
@@ -243,31 +235,21 @@ class StandardMode(BaseExecutionMode):
         if isinstance(tool_call, dict):
             tc_id = tool_call.get("id")
             fn_info = tool_call.get("function", {})
-            fn_name = (
-                fn_info.get("name")
-                if isinstance(fn_info, dict) else None
-            )
+            fn_name = fn_info.get("name") if isinstance(fn_info, dict) else None
             fn_args_str = (
-                fn_info.get("arguments", "{}")
-                if isinstance(fn_info, dict) else "{}"
+                fn_info.get("arguments", "{}") if isinstance(fn_info, dict) else "{}"
             )
         else:
             tc_id = getattr(tool_call, "id", None)
             fn_info = getattr(tool_call, "function", None)
             fn_name = getattr(fn_info, "name", None) if fn_info else None
-            fn_args_str = (
-                getattr(fn_info, "arguments", "{}") if fn_info else "{}"
-            )
+            fn_args_str = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
         return tc_id, fn_name, fn_args_str
 
-    async def _store_in_memory(
-        self, agent: "Agent", task: Any, content: str
-    ) -> None:
+    async def _store_in_memory(self, agent: "Agent", task: Any, content: str) -> None:
         """Persist result in agent memory."""
         if agent.memory:
             try:
                 await agent.memory.aadd_message("assistant", content)
             except Exception as e:
-                agent._logger.warning(
-                    "Failed to store in memory: %s", e
-                )
+                agent._logger.warning("Failed to store in memory: %s", e)

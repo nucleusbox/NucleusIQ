@@ -15,7 +15,7 @@ import asyncio
 import logging
 from typing import Any
 
-from nucleusiq.plugins.base import BasePlugin, ToolRequest, ToolHandler
+from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class ToolRetryPlugin(BasePlugin):
                 last_error = exc
                 if attempt < self._max_retries:
                     delay = min(
-                        self._base_delay * (2 ** attempt),
+                        self._base_delay * (2**attempt),
                         self._max_delay,
                     )
                     logger.warning(

@@ -8,11 +8,10 @@ Trade-off: loses older context.
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Dict, List, Optional
-
-from pydantic import Field
+from typing import Any, Dict, List
 
 from nucleusiq.memory.base import BaseMemory
+from pydantic import Field
 
 
 class SlidingWindowMemory(BaseMemory):
@@ -37,7 +36,7 @@ class SlidingWindowMemory(BaseMemory):
         self._messages.append({"role": role, "content": content})
 
     def get_context(
-        self, query: Optional[str] = None, **kwargs: Any
+        self, query: str | None = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         return list(self._messages)
 

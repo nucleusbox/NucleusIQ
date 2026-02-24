@@ -22,10 +22,9 @@ so they can be overridden in one place when OpenAI ships new type strings:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, List, Union
+from typing import Any, Dict, List
 
 from nucleusiq.tools.base_tool import BaseTool
-
 
 # ---------------------------------------------------------------------------
 # Registry of native tool types that require the Responses API.
@@ -166,7 +165,7 @@ class OpenAITool:
         )
 
     @staticmethod
-    def file_search(vector_store_ids: Optional[List[str]] = None) -> BaseTool:
+    def file_search(vector_store_ids: List[str] | None = None) -> BaseTool:
         """
         Create OpenAI's file search tool.
 
@@ -207,11 +206,11 @@ class OpenAITool:
         server_label: str,
         server_description: str,
         *,
-        server_url: Optional[str] = None,
-        connector_id: Optional[str] = None,
-        require_approval: Optional[Union[str, Dict[str, Any]]] = None,
-        allowed_tools: Optional[List[str]] = None,
-        authorization: Optional[str] = None,
+        server_url: str | None = None,
+        connector_id: str | None = None,
+        require_approval: str | Dict[str, Any] | None = None,
+        allowed_tools: List[str] | None = None,
+        authorization: str | None = None,
     ) -> BaseTool:
         """
         Create OpenAI's MCP (Model Context Protocol) tool.
@@ -256,8 +255,7 @@ class OpenAITool:
             )
         if server_url and connector_id:
             raise ValueError(
-                "Cannot specify both server_url and connector_id. "
-                "Use one or the other."
+                "Cannot specify both server_url and connector_id. Use one or the other."
             )
 
         tool_spec: Dict[str, Any] = {
@@ -291,8 +289,8 @@ class OpenAITool:
         server_description: str,
         *,
         authorization: str,
-        require_approval: Optional[Union[str, Dict[str, Any]]] = None,
-        allowed_tools: Optional[List[str]] = None,
+        require_approval: str | Dict[str, Any] | None = None,
+        allowed_tools: List[str] | None = None,
     ) -> BaseTool:
         """
         Convenience method for creating OpenAI connector tools.
@@ -301,8 +299,15 @@ class OpenAITool:
 
         Available connectors::
 
-            connector_dropbox, connector_gmail, connector_googlecalendar,
-            connector_googledrive, connector_microsoftteams,
+            (
+                connector_dropbox,
+                connector_gmail,
+                connector_googlecalendar,
+            )
+            (
+                connector_googledrive,
+                connector_microsoftteams,
+            )
             connector_outlookcalendar, connector_outlookemail, connector_sharepoint
 
         Args:

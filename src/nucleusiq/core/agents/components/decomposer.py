@@ -19,13 +19,13 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
-from nucleusiq.agents.task import Task
 from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode
+from nucleusiq.agents.task import Task
 from nucleusiq.plugins.builtin.model_call_limit import ModelCallLimitPlugin
 
 _SUB_AGENT_MAX_LLM_CALLS = 15
@@ -34,6 +34,7 @@ _SUB_AGENT_MAX_LLM_CALLS = 15
 @dataclass
 class TaskAnalysis:
     """Result of task complexity analysis."""
+
     is_complex: bool
     sub_tasks: List[Dict[str, str]] = field(default_factory=list)
     reasoning: str = ""
@@ -52,14 +53,14 @@ class Decomposer:
     remains the Critic/Refiner's job in AutonomousMode.
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(self, logger: logging.Logger | None = None) -> None:
         self._logger = logger or logging.getLogger(__name__)
 
     # ------------------------------------------------------------------ #
     # Task Analysis                                                        #
     # ------------------------------------------------------------------ #
 
-    async def analyze(self, agent: "Agent", task: Task) -> TaskAnalysis:
+    async def analyze(self, agent: Agent, task: Task) -> TaskAnalysis:
         """Classify a task as SIMPLE or COMPLEX via one LLM call.
 
         Uses a 3-gate checklist: the task is COMPLEX only when ALL
@@ -103,7 +104,8 @@ class Decomposer:
             return self._parse_analysis(response)
         except Exception as e:
             self._logger.warning(
-                "Task analysis failed: %s — defaulting to SIMPLE", e,
+                "Task analysis failed: %s — defaulting to SIMPLE",
+                e,
             )
             return TaskAnalysis(is_complex=False, reasoning=f"Analysis error: {e}")
 
@@ -113,13 +115,14 @@ class Decomposer:
         if hasattr(response, "choices") and response.choices:
             msg = response.choices[0].message
             content = (
-                msg.get("content", "") if isinstance(msg, dict)
+                msg.get("content", "")
+                if isinstance(msg, dict)
                 else getattr(msg, "content", "") or ""
             )
 
         try:
             json_match = json.loads(
-                content[content.index("{"):content.rindex("}") + 1]
+                content[content.index("{") : content.rindex("}") + 1]
             )
         except (json.JSONDecodeError, ValueError):
             return TaskAnalysis(is_complex=False, reasoning="Could not parse")
@@ -138,13 +141,14 @@ class Decomposer:
             self._logger.info(
                 "LLM claimed COMPLEX but gates failed "
                 "(gate1=%s, gate2=%s, gate3=%s) — overriding to SIMPLE",
-                gate1, gate2, gate3,
+                gate1,
+                gate2,
+                gate3,
             )
 
         if claimed_complex and all_gates_pass and len(sub_tasks) < 2:
             self._logger.info(
-                "LLM claimed COMPLEX but returned %d sub-tasks — "
-                "overriding to SIMPLE",
+                "LLM claimed COMPLEX but returned %d sub-tasks — overriding to SIMPLE",
                 len(sub_tasks),
             )
 
@@ -160,10 +164,10 @@ class Decomposer:
 
     @staticmethod
     async def create_sub_agent(
-        parent: "Agent",
+        parent: Agent,
         sub_task_id: str,
         sub_task_objective: str,
-    ) -> Optional["Agent"]:
+    ) -> Agent | None:
         """Create an isolated sub-agent using the framework's Agent class.
 
         Shares the parent's LLM and tools but has its own:
@@ -190,7 +194,9 @@ class Decomposer:
             return sub
         except Exception as e:
             logging.getLogger(__name__).warning(
-                "Sub-agent creation failed for %s: %s", sub_task_id, e,
+                "Sub-agent creation failed for %s: %s",
+                sub_task_id,
+                e,
             )
             return None
 
@@ -200,7 +206,7 @@ class Decomposer:
 
     async def run_sub_tasks(
         self,
-        parent: "Agent",
+        parent: Agent,
         sub_tasks: List[Dict[str, str]],
         max_sub_agents: int = 5,
     ) -> List[Dict[str, Any]]:
@@ -222,35 +228,46 @@ class Decomposer:
         capped = sub_tasks[:max_sub_agents]
         self._logger.info(
             "Decomposing into %d sub-tasks (cap=%d)",
-            len(capped), max_sub_agents,
+            len(capped),
+            max_sub_agents,
         )
 
         agents_and_tasks = []
         for st in capped:
             sub_agent = await self.create_sub_agent(
-                parent, st["id"], st["objective"],
+                parent,
+                st["id"],
+                st["objective"],
             )
             if sub_agent:
                 agents_and_tasks.append((sub_agent, st))
             else:
-                self._logger.warning("Skipping sub-task %s (agent creation failed)", st["id"])
+                self._logger.warning(
+                    "Skipping sub-task %s (agent creation failed)", st["id"]
+                )
 
         if not agents_and_tasks:
             return []
 
-        async def _execute_one(agent: "Agent", st: Dict[str, str]) -> Dict[str, Any]:
+        async def _execute_one(agent: Agent, st: Dict[str, str]) -> Dict[str, Any]:
             try:
-                raw = await agent.execute(
-                    Task(id=st["id"], objective=st["objective"])
-                )
-                return {"id": st["id"], "objective": st["objective"], "result": str(raw)}
+                raw = await agent.execute(Task(id=st["id"], objective=st["objective"]))
+                return {
+                    "id": st["id"],
+                    "objective": st["objective"],
+                    "result": str(raw),
+                }
             except Exception as e:
                 self._logger.warning("Sub-task %s failed: %s", st["id"], e)
-                return {"id": st["id"], "objective": st["objective"], "result": f"Error: {e}"}
+                return {
+                    "id": st["id"],
+                    "objective": st["objective"],
+                    "result": f"Error: {e}",
+                }
 
-        findings = await asyncio.gather(*[
-            _execute_one(agent, st) for agent, st in agents_and_tasks
-        ])
+        findings = await asyncio.gather(
+            *[_execute_one(agent, st) for agent, st in agents_and_tasks]
+        )
         return list(findings)
 
     # ------------------------------------------------------------------ #
@@ -273,10 +290,7 @@ class Decomposer:
         """
         findings_text = ""
         for f in findings:
-            findings_text += (
-                f"\n### Sub-task: {f['objective']}\n"
-                f"{f['result'][:2000]}\n"
-            )
+            findings_text += f"\n### Sub-task: {f['objective']}\n{f['result'][:2000]}\n"
 
         return (
             f"## ORIGINAL TASK\n{task_objective}\n\n"

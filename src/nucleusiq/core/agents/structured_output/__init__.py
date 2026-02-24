@@ -13,23 +13,23 @@ Design Philosophy:
 Basic Usage:
     from pydantic import BaseModel
     from nucleusiq.agents import Agent
-    
+
     class Person(BaseModel):
         name: str
         age: int
-    
+
     # Just pass the schema - that's it!
     agent = Agent(
         name="Extractor",
         response_format=Person
     )
-    
+
     result = await agent.execute(task)
     person = result.output  # Person instance
 
 Advanced Usage:
     from nucleusiq.agents.structured_output import OutputSchema, OutputMode
-    
+
     # Explicit control over output handling
     agent = Agent(
         name="Extractor",
@@ -42,20 +42,20 @@ Advanced Usage:
     )
 """
 
-from .types import OutputMode, SchemaType
 from .config import OutputSchema
 from .errors import (
-    StructuredOutputError,
-    SchemaValidationError,
-    SchemaParseError,
     MultipleOutputError,
+    SchemaParseError,
+    SchemaValidationError,
+    StructuredOutputError,
 )
 from .parser import (
     parse_schema,
-    validate_output,
     schema_to_json,
+    validate_output,
 )
-from .resolver import resolve_output_config, get_provider_from_llm
+from .resolver import get_provider_from_llm, resolve_output_config
+from .types import OutputMode, SchemaType
 
 __all__ = [
     # Main config
@@ -63,9 +63,9 @@ __all__ = [
     "OutputMode",
     # Types
     "SchemaType",
-    # Errors  
+    # Errors
     "StructuredOutputError",
-    "SchemaValidationError", 
+    "SchemaValidationError",
     "SchemaParseError",
     "MultipleOutputError",
     # Utilities
@@ -75,4 +75,3 @@ __all__ = [
     "resolve_output_config",
     "get_provider_from_llm",
 ]
-

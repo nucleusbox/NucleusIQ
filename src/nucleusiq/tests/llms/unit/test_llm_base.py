@@ -1,13 +1,11 @@
 """Tests for llms/base.py, llms/base_llm.py, and llms/mock_llm.py."""
 
 import json
-import pytest
 from unittest.mock import MagicMock
-from typing import Any, Dict, List, Optional
 
+import pytest
 from nucleusiq.llms.base_llm import BaseLLM
 from nucleusiq.llms.mock_llm import MockLLM
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BaseLLM
@@ -15,7 +13,6 @@ from nucleusiq.llms.mock_llm import MockLLM
 
 
 class TestBaseLLM:
-
     def test_cannot_instantiate_directly(self):
         with pytest.raises(TypeError):
             BaseLLM()
@@ -58,7 +55,6 @@ class TestBaseLLM:
 
 
 class TestMockLLM:
-
     def test_init(self):
         llm = MockLLM()
         assert llm.model_name == "mock-model"
@@ -67,15 +63,20 @@ class TestMockLLM:
     @pytest.mark.asyncio
     async def test_first_call_with_tools_openai_format(self):
         llm = MockLLM()
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "add",
-                "parameters": {
-                    "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "add",
+                    "parameters": {
+                        "properties": {
+                            "a": {"type": "integer"},
+                            "b": {"type": "integer"},
+                        },
+                    },
                 },
-            },
-        }]
+            }
+        ]
         response = await llm.call(
             model="mock", messages=[{"role": "user", "content": "5 + 3"}], tools=tools
         )
@@ -89,12 +90,14 @@ class TestMockLLM:
     @pytest.mark.asyncio
     async def test_first_call_with_tools_generic_format(self):
         llm = MockLLM()
-        tools = [{
-            "name": "multiply",
-            "parameters": {
-                "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
-            },
-        }]
+        tools = [
+            {
+                "name": "multiply",
+                "parameters": {
+                    "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+                },
+            }
+        ]
         response = await llm.call(
             model="mock", messages=[{"role": "user", "content": "2 and 3"}], tools=tools
         )
@@ -126,9 +129,7 @@ class TestMockLLM:
 
     def test_create_completion_sync(self):
         llm = MockLLM()
-        result = llm.create_completion(
-            messages=[{"role": "user", "content": "test"}]
-        )
+        result = llm.create_completion(messages=[{"role": "user", "content": "test"}])
         assert isinstance(result, str)
 
     def test_convert_tool_specs(self):

@@ -10,24 +10,23 @@ New modes can be registered via ``Agent.register_mode()`` without
 modifying the Agent class (Open/Closed Principle).
 """
 
-from abc import ABC, abstractmethod
 import json
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.config.agent_config import AgentState
-from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.chat_models import (
     ChatMessage,
     LLMCallKwargs,
     ToolCallRequest,
     messages_to_dicts,
 )
+from nucleusiq.agents.config.agent_config import AgentState
+from nucleusiq.agents.messaging.message_builder import MessageBuilder
+from nucleusiq.agents.task import Task
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
-from nucleusiq.plugins.errors import PluginHalt
 
 
 class BaseExecutionMode(ABC):
@@ -67,7 +66,7 @@ class BaseExecutionMode(ABC):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def get_objective(task: Union[Task, Dict[str, Any]]) -> str:
+    def get_objective(task: Task | Dict[str, Any]) -> str:
         """Extract the objective string from a Task or dict.
 
         Accepts both forms for backward compatibility with external callers,
@@ -77,15 +76,11 @@ class BaseExecutionMode(ABC):
             return task.objective
         return task.get("objective", "")
 
-    def echo_fallback(
-        self, agent: "Agent", task: Union[Task, Dict[str, Any]]
-    ) -> Optional[str]:
+    def echo_fallback(self, agent: "Agent", task: Task | Dict[str, Any]) -> str | None:
         """Return an echo result when no LLM is configured, or ``None``."""
         if agent.llm:
             return None
-        agent._logger.warning(
-            "No LLM configured, falling back to echo mode"
-        )
+        agent._logger.warning("No LLM configured, falling back to echo mode")
         agent.state = AgentState.COMPLETED
         objective = self.get_objective(task)
         return f"Echo: {objective}"
@@ -93,7 +88,7 @@ class BaseExecutionMode(ABC):
     def build_messages(
         self,
         agent: "Agent",
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
         plan: Any = None,
     ) -> List[ChatMessage]:
         """Convert task (and optional plan) into an LLM-ready message list.
@@ -117,7 +112,8 @@ class BaseExecutionMode(ABC):
             if memory_ctx:
                 current_objective = task_dict.get("objective", "")
                 filtered = [
-                    m for m in memory_ctx
+                    m
+                    for m in memory_ctx
                     if not (
                         m["role"] == "user"
                         and m["content"] == current_objective
@@ -143,8 +139,8 @@ class BaseExecutionMode(ABC):
         self,
         agent: "Agent",
         messages: List[ChatMessage],
-        tool_specs: Optional[List[Dict[str, Any]]] = None,
-        max_tokens: Optional[int] = None,
+        tool_specs: List[Dict[str, Any]] | None = None,
+        max_tokens: int | None = None,
     ) -> LLMCallKwargs:
         """Build the kwargs dict for ``agent.llm.call()``.
 
@@ -156,28 +152,20 @@ class BaseExecutionMode(ABC):
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": messages_to_dicts(messages),
             "tools": tool_specs if tool_specs else None,
-            "max_tokens": max_tokens or getattr(
-                agent.config, "llm_max_tokens", 1024
-            ),
+            "max_tokens": max_tokens or getattr(agent.config, "llm_max_tokens", 1024),
         }
         call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
-        call_kwargs.update(
-            agent._get_structured_output_kwargs(output_config)
-        )
+        call_kwargs.update(agent._get_structured_output_kwargs(output_config))
         return call_kwargs
 
     @staticmethod
     def validate_response(response: Any) -> None:
         """Raise ``ValueError`` if the LLM response is empty/malformed."""
-        if (
-            not response
-            or not hasattr(response, "choices")
-            or not response.choices
-        ):
+        if not response or not hasattr(response, "choices") or not response.choices:
             raise ValueError("LLM returned empty response")
 
     @staticmethod
-    def extract_content(msg: Any) -> Optional[str]:
+    def extract_content(msg: Any) -> str | None:
         """Extract and normalise text content from an LLM message.
 
         Handles:
@@ -202,9 +190,7 @@ class BaseExecutionMode(ABC):
             return "\n".join(parts) if parts else None
         return None
 
-    def handle_structured_output(
-        self, agent: "Agent", response: Any
-    ) -> Optional[Any]:
+    def handle_structured_output(self, agent: "Agent", response: Any) -> Any | None:
         """Return the wrapped structured-output result, or ``None``.
 
         When a structured-output result is detected the agent state is
@@ -225,8 +211,8 @@ class BaseExecutionMode(ABC):
         self,
         agent: "Agent",
         call_kwargs: Dict[str, Any],
-        messages: Optional[List[ChatMessage]] = None,
-        tool_specs: Optional[List[Dict[str, Any]]] = None,
+        messages: List[ChatMessage] | None = None,
+        tool_specs: List[Dict[str, Any]] | None = None,
     ) -> Any:
         """Invoke ``agent.llm.call()`` with the full plugin pipeline.
 

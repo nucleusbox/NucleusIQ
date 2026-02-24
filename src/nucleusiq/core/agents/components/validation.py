@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -43,7 +43,7 @@ class ValidationPipeline:
 
     def __init__(
         self,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
         llm_review: bool = False,
     ):
         self._logger = logger or logging.getLogger(__name__)
@@ -55,9 +55,9 @@ class ValidationPipeline:
 
     async def validate(
         self,
-        agent: "Agent",
+        agent: Agent,
         result: Any,
-        messages: List["ChatMessage"],
+        messages: List[ChatMessage],
     ) -> ValidationResult:
         """Run all applicable validation layers in order.
 
@@ -92,7 +92,7 @@ class ValidationPipeline:
     @staticmethod
     def _check_tool_outputs(
         result: Any,
-        messages: List["ChatMessage"],
+        messages: List[ChatMessage],
     ) -> ValidationResult:
         """Built-in checks on tool outputs — no LLM, no plugins."""
 
@@ -134,7 +134,7 @@ class ValidationPipeline:
 
     @staticmethod
     async def _run_plugin_validators(
-        agent: "Agent",
+        agent: Agent,
         result: Any,
     ) -> ValidationResult:
         """Run ResultValidatorPlugin instances registered on the agent.
@@ -163,7 +163,6 @@ class ValidationPipeline:
         if isinstance(current_task, dict):
             context["task_objective"] = current_task.get("objective", "")
 
-        failures = []
         for validator in validators:
             try:
                 valid, reason = await validator.validate_result(result, context)
@@ -175,7 +174,9 @@ class ValidationPipeline:
                     )
             except Exception as e:
                 logger.warning(
-                    "Validator %s error (non-fatal): %s", validator.name, e,
+                    "Validator %s error (non-fatal): %s",
+                    validator.name,
+                    e,
                 )
 
         return ValidationResult(valid=True, layer="plugin", reason="Validators passed")
@@ -186,9 +187,9 @@ class ValidationPipeline:
 
     async def _run_llm_review(
         self,
-        agent: "Agent",
+        agent: Agent,
         result: Any,
-        messages: List["ChatMessage"],
+        messages: List[ChatMessage],
     ) -> ValidationResult:
         """Optional LLM-based review — only runs when explicitly enabled.
 
@@ -234,7 +235,11 @@ class ValidationPipeline:
                     layer="llm_review",
                     reason=text[:200],
                 )
-            return ValidationResult(valid=True, layer="llm_review", reason="LLM approved")
+            return ValidationResult(
+                valid=True, layer="llm_review", reason="LLM approved"
+            )
         except Exception as e:
             self._logger.warning("LLM review failed (non-fatal): %s", e)
-            return ValidationResult(valid=True, layer="llm_review", reason="LLM error (skipped)")
+            return ValidationResult(
+                valid=True, layer="llm_review", reason="LLM error (skipped)"
+            )

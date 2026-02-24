@@ -1,48 +1,48 @@
 """Tests for the structured_output package: types, errors, config, resolver, parser."""
 
-import json
 import dataclasses
-import pytest
+import json
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
 
-from nucleusiq.agents.structured_output.types import (
-    OutputMode, ErrorHandling, SchemaType,
-)
-from nucleusiq.agents.structured_output.errors import (
-    StructuredOutputError,
-    SchemaValidationError,
-    SchemaParseError,
-    MultipleOutputError,
-)
+import pytest
 from nucleusiq.agents.structured_output.config import OutputSchema, output_schema
-from nucleusiq.agents.structured_output.resolver import (
-    supports_native_output,
-    resolve_output_config,
-    get_provider_from_llm,
-    _auto_select_mode,
+from nucleusiq.agents.structured_output.errors import (
+    MultipleOutputError,
+    SchemaParseError,
+    SchemaValidationError,
+    StructuredOutputError,
 )
 from nucleusiq.agents.structured_output.parser import (
-    is_pydantic,
-    is_dataclass,
-    is_json_schema,
-    schema_to_json,
-    extract_json,
-    parse_schema,
-    validate_output,
-    _type_to_json,
-    _clean_schema,
     _clean_property,
     _inline_refs,
+    _type_to_json,
+    extract_json,
+    is_dataclass,
+    is_json_schema,
+    is_pydantic,
+    parse_schema,
+    schema_to_json,
+    validate_output,
 )
-
+from nucleusiq.agents.structured_output.resolver import (
+    _auto_select_mode,
+    get_provider_from_llm,
+    resolve_output_config,
+    supports_native_output,
+)
+from nucleusiq.agents.structured_output.types import (
+    ErrorHandling,
+    OutputMode,
+)
+from pydantic import BaseModel
 
 # ── Fixture models ───────────────────────────────────────────────────────────
+
 
 class PersonModel(BaseModel):
     name: str
     age: int
-    email: Optional[str] = None
+    email: str | None = None
 
 
 @dataclasses.dataclass
@@ -58,7 +58,6 @@ class PointDC:
 
 
 class TestOutputMode:
-
     def test_all_values(self):
         assert set(m.value for m in OutputMode) == {"auto", "native", "tool", "prompt"}
 
@@ -81,7 +80,6 @@ class TestOutputMode:
 
 
 class TestErrorHandling:
-
     def test_values(self):
         assert set(e.value for e in ErrorHandling) == {"retry", "raise", "fallback"}
 
@@ -92,7 +90,6 @@ class TestErrorHandling:
 
 
 class TestStructuredOutputError:
-
     def test_basic(self):
         e = StructuredOutputError("bad")
         assert str(e) == "bad"
@@ -109,7 +106,6 @@ class TestStructuredOutputError:
 
 
 class TestSchemaValidationError:
-
     def test_with_field_errors(self):
         errs = [{"field": "age", "error": "not an int"}]
         e = SchemaValidationError("bad", schema_name="Person", field_errors=errs)
@@ -123,7 +119,6 @@ class TestSchemaValidationError:
 
 
 class TestSchemaParseError:
-
     def test_basic(self):
         e = SchemaParseError("bad json", raw_output="{", parse_position=1)
         assert e.parse_position == 1
@@ -131,11 +126,8 @@ class TestSchemaParseError:
 
 
 class TestMultipleOutputError:
-
     def test_basic(self):
-        e = MultipleOutputError(
-            "too many", output_names=["A", "B"], outputs=[1, 2]
-        )
+        e = MultipleOutputError("too many", output_names=["A", "B"], outputs=[1, 2])
         retry = e.format_for_retry()
         assert "2" in retry
         assert "A, B" in retry
@@ -151,7 +143,6 @@ class TestMultipleOutputError:
 
 
 class TestOutputSchema:
-
     def test_defaults(self):
         cfg = OutputSchema(schema=PersonModel)
         assert cfg.mode == OutputMode.AUTO
@@ -233,7 +224,6 @@ class TestOutputSchema:
 
 
 class TestOutputSchemaFunction:
-
     def test_convenience(self):
         cfg = output_schema(PersonModel, strict=False, max_retries=5)
         assert isinstance(cfg, OutputSchema)
@@ -247,7 +237,6 @@ class TestOutputSchemaFunction:
 
 
 class TestSupportsNativeOutput:
-
     def test_openai_models(self):
         assert supports_native_output("gpt-4o-mini") is True
         assert supports_native_output("gpt-5-turbo") is True
@@ -264,7 +253,6 @@ class TestSupportsNativeOutput:
 
 
 class TestResolveOutputConfig:
-
     def test_none(self):
         assert resolve_output_config(None) is None
 
@@ -295,7 +283,6 @@ class TestResolveOutputConfig:
 
 
 class TestAutoSelectMode:
-
     def test_native_model(self):
         assert _auto_select_mode(model_name="gpt-4o") == OutputMode.NATIVE
 
@@ -307,33 +294,37 @@ class TestAutoSelectMode:
 
 
 class TestGetProviderFromLLM:
-
     def test_none(self):
         assert get_provider_from_llm(None) is None
 
     def test_openai(self):
         class FakeOpenAILLM:
             pass
+
         assert get_provider_from_llm(FakeOpenAILLM()) == "openai"
 
     def test_anthropic(self):
         class FakeAnthropicLLM:
             pass
+
         assert get_provider_from_llm(FakeAnthropicLLM()) == "anthropic"
 
     def test_claude(self):
         class FakeClaudeLLM:
             pass
+
         assert get_provider_from_llm(FakeClaudeLLM()) == "anthropic"
 
     def test_google(self):
         class FakeGoogleLLM:
             pass
+
         assert get_provider_from_llm(FakeGoogleLLM()) == "google"
 
     def test_unknown(self):
         class FakeLlamaCpp:
             pass
+
         assert get_provider_from_llm(FakeLlamaCpp()) is None
 
 
@@ -343,7 +334,6 @@ class TestGetProviderFromLLM:
 
 
 class TestTypeDetection:
-
     def test_is_pydantic(self):
         assert is_pydantic(PersonModel) is True
         assert is_pydantic(dict) is False
@@ -360,7 +350,6 @@ class TestTypeDetection:
 
 
 class TestSchemaToJson:
-
     def test_pydantic(self):
         result = schema_to_json(PersonModel)
         assert result["type"] == "object"
@@ -393,12 +382,12 @@ class TestSchemaToJson:
         class Simple:
             name: str
             value: int
+
         result = schema_to_json(Simple)
         assert "name" in result["properties"]
 
 
 class TestTypeToJson:
-
     def test_none_type(self):
         assert _type_to_json(type(None)) == {"type": "null"}
 
@@ -430,7 +419,6 @@ class TestTypeToJson:
 
 
 class TestCleanProperty:
-
     def test_removes_metadata(self):
         prop = {"type": "string", "title": "Name", "default": "x", "description": "d"}
         result = _clean_property(prop)
@@ -457,9 +445,10 @@ class TestCleanProperty:
 
 
 class TestInlineRefs:
-
     def test_resolves_refs(self):
-        defs = {"Address": {"type": "object", "properties": {"city": {"type": "string"}}}}
+        defs = {
+            "Address": {"type": "object", "properties": {"city": {"type": "string"}}}
+        }
         obj = {"type": "object", "properties": {"addr": {"$ref": "#/$defs/Address"}}}
         result = _inline_refs(obj, defs)
         assert result["properties"]["addr"]["type"] == "object"
@@ -470,7 +459,6 @@ class TestInlineRefs:
 
 
 class TestExtractJson:
-
     def test_code_block(self):
         text = '```json\n{"a": 1}\n```'
         assert json.loads(extract_json(text)) == {"a": 1}
@@ -492,7 +480,6 @@ class TestExtractJson:
 
 
 class TestParseSchema:
-
     def test_valid(self):
         result = parse_schema('{"x": 1}')
         assert result == {"x": 1}
@@ -503,7 +490,6 @@ class TestParseSchema:
 
 
 class TestValidateOutput:
-
     def test_pydantic_valid(self):
         result = validate_output({"name": "Alice", "age": 30}, PersonModel)
         assert isinstance(result, PersonModel)

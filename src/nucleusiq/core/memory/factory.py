@@ -1,18 +1,19 @@
 # src/nucleusiq/memory/factory.py
 
-from typing import Any, Dict, Type, Union, cast
 from enum import Enum
+from typing import Any, Dict, Type, Union
 
 from nucleusiq.memory.base import BaseMemory
 from nucleusiq.memory.full_history import FullHistoryMemory
 from nucleusiq.memory.sliding_window import SlidingWindowMemory
-from nucleusiq.memory.token_budget import TokenBudgetMemory
 from nucleusiq.memory.summary import SummaryMemory
 from nucleusiq.memory.summary_window import SummaryWindowMemory
+from nucleusiq.memory.token_budget import TokenBudgetMemory
 
 
 class MemoryStrategy(Enum):
     """Built-in memory retention strategies."""
+
     FULL_HISTORY = "full_history"
     SLIDING_WINDOW = "sliding_window"
     TOKEN_BUDGET = "token_budget"
@@ -64,9 +65,7 @@ class MemoryFactory:
         """
         key = _resolve_key(strategy)
         if key in cls._registry:
-            raise ValueError(
-                f"Memory strategy '{key}' is already registered."
-            )
+            raise ValueError(f"Memory strategy '{key}' is already registered.")
         cls._registry[key] = memory_class
 
     @classmethod

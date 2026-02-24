@@ -14,10 +14,10 @@ Usage:
     python native_mixed_tools_example.py
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 
 _src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
@@ -28,10 +28,12 @@ load_dotenv()
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
-from nucleusiq_openai import BaseOpenAI, OpenAITool
 from nucleusiq.tools import BaseTool
+from nucleusiq_openai import BaseOpenAI, OpenAITool
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +59,9 @@ async def main():
         return a * b
 
     add_tool = BaseTool.from_function(add, description="Add two integers")
-    multiply_tool = BaseTool.from_function(multiply, description="Multiply two integers")
+    multiply_tool = BaseTool.from_function(
+        multiply, description="Multiply two integers"
+    )
 
     # 3. Create native OpenAI tools
     web_search = OpenAITool.web_search()
@@ -104,7 +108,10 @@ async def main():
     tasks = [
         {"id": "m1", "objective": "What is 42 + 58? Use the add tool."},
         {"id": "m2", "objective": "What is today's top news headline? Use web search."},
-        {"id": "m3", "objective": "Calculate the factorial of 10 using code interpreter."},
+        {
+            "id": "m3",
+            "objective": "Calculate the factorial of 10 using code interpreter.",
+        },
     ]
 
     for task in tasks:

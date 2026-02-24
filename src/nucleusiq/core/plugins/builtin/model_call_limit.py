@@ -11,8 +11,6 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Optional
-
 from nucleusiq.plugins.base import BasePlugin, ModelRequest
 from nucleusiq.plugins.errors import PluginHalt
 
@@ -27,7 +25,7 @@ class ModelCallLimitPlugin(BasePlugin):
     def name(self) -> str:
         return "model_call_limit"
 
-    async def before_model(self, request: ModelRequest) -> Optional[ModelRequest]:
+    async def before_model(self, request: ModelRequest) -> ModelRequest | None:
         if request.call_count > self._max_calls:
             raise PluginHalt(
                 f"Model call limit exceeded: {request.call_count} > {self._max_calls}"

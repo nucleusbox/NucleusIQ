@@ -1,19 +1,19 @@
 """Unit tests for plugin decorator API."""
 
-import pytest
-from typing import Any, Optional
+from typing import Any
 
+import pytest
 from nucleusiq.plugins.base import (
-    BasePlugin,
     AgentContext,
+    BasePlugin,
     ModelRequest,
     ToolRequest,
 )
 from nucleusiq.plugins.decorators import (
-    before_agent,
     after_agent,
-    before_model,
     after_model,
+    before_agent,
+    before_model,
     wrap_model_call,
     wrap_tool_call,
 )

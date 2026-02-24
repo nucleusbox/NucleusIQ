@@ -1,27 +1,25 @@
 """Additional parser.py coverage: TypedDict, Literal, code-block edge cases."""
 
 import json
-import sys
+from typing import List, TypedDict, Union
+
 import pytest
-from typing import Any, Dict, List, Optional, Union, TypedDict
-
-from pydantic import BaseModel
-
+from nucleusiq.agents.structured_output.errors import (
+    SchemaParseError,
+)
 from nucleusiq.agents.structured_output.parser import (
-    is_typed_dict,
-    schema_to_json,
-    extract_json,
-    parse_schema,
-    validate_output,
+    _clean_schema,
     _type_to_json,
     _typeddict_to_json,
-    _clean_schema,
-    _dataclass_to_json,
+    extract_json,
+    is_typed_dict,
+    parse_schema,
+    schema_to_json,
+    validate_output,
 )
-from nucleusiq.agents.structured_output.errors import SchemaParseError, SchemaValidationError
-
 
 # ── TypedDict fixture (must use typing.TypedDict for detection) ──────────────
+
 
 class UserTD(TypedDict, total=False):
     name: str
@@ -37,8 +35,8 @@ class StrictTD(TypedDict):
 # TypedDict detection and conversion (lines 153-172)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestTypedDict:
 
+class TestTypedDict:
     def test_is_typed_dict_true(self):
         assert is_typed_dict(UserTD) is True
 
@@ -64,10 +62,11 @@ class TestTypedDict:
 # Literal type (line 225-227)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestLiteralType:
 
+class TestLiteralType:
     def test_literal_enum(self):
         from typing import Literal
+
         result = _type_to_json(Literal["red", "green", "blue"])
         assert result["type"] == "string"
         assert set(result["enum"]) == {"red", "green", "blue"}
@@ -77,8 +76,8 @@ class TestLiteralType:
 # Union types (line 210)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestUnionTypes:
 
+class TestUnionTypes:
     def test_union_multiple(self):
         result = _type_to_json(Union[str, int, float])
         assert "anyOf" in result
@@ -99,8 +98,8 @@ class TestUnionTypes:
 # extract_json edge cases (lines 343-344, 352-353, 358)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestExtractJsonEdgeCases:
 
+class TestExtractJsonEdgeCases:
     def test_code_block_invalid_then_valid(self):
         text = '```json\n{invalid}\n```\n```json\n{"valid": true}\n```'
         result = extract_json(text)
@@ -122,7 +121,7 @@ class TestExtractJsonEdgeCases:
             extract_json(text)
 
     def test_invalid_raw_json(self):
-        text = 'The result is {bad json} here.'
+        text = "The result is {bad json} here."
         with pytest.raises(SchemaParseError):
             extract_json(text)
 
@@ -131,8 +130,8 @@ class TestExtractJsonEdgeCases:
 # parse_schema with bad JSON (lines 383-384)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestParseSchemaErrors:
 
+class TestParseSchemaErrors:
     def test_bad_json_in_code_block(self):
         with pytest.raises(SchemaParseError):
             parse_schema("not json at all!")
@@ -142,8 +141,8 @@ class TestParseSchemaErrors:
 # validate_output edge cases
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestValidateOutputEdgeCases:
 
+class TestValidateOutputEdgeCases:
     def test_schema_name_from_dict(self):
         data = {"x": 1}
         result = validate_output(data, {"title": "Custom", "type": "object"})
@@ -158,12 +157,14 @@ class TestValidateOutputEdgeCases:
 # _clean_schema with $defs (line 260)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestCleanSchemaWithDefs:
 
+class TestCleanSchemaWithDefs:
     def test_inline_defs(self):
         schema = {
             "type": "object",
-            "$defs": {"Addr": {"type": "object", "properties": {"city": {"type": "string"}}}},
+            "$defs": {
+                "Addr": {"type": "object", "properties": {"city": {"type": "string"}}}
+            },
             "properties": {"address": {"$ref": "#/$defs/Addr"}},
         }
         result = _clean_schema(schema)
@@ -175,9 +176,10 @@ class TestCleanSchemaWithDefs:
 # config.py schema_name fallback (line 90)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestConfigSchemaNameEdge:
 
+class TestConfigSchemaNameEdge:
     def test_non_type_non_dict_schema(self):
         from nucleusiq.agents.structured_output.config import OutputSchema
+
         cfg = OutputSchema(schema={"type": "object"})
         assert cfg.schema_name == "Schema"

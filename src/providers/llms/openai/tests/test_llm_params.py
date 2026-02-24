@@ -12,11 +12,9 @@ Covers:
 """
 
 import pytest
-from pydantic import ValidationError
-
 from nucleusiq.llms.llm_params import LLMParams
-from nucleusiq_openai.llm_params import OpenAILLMParams, AudioOutputConfig
-
+from nucleusiq_openai.llm_params import AudioOutputConfig, OpenAILLMParams
+from pydantic import ValidationError
 
 # ===================================================================== #
 # Construction & Validation                                              #

@@ -29,28 +29,27 @@ import asyncio
 import logging
 import os
 import sys
-from typing import Any, Dict
 from datetime import datetime
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Add src to path for imports
-_src_dir = os.path.join(os.path.dirname(__file__), '../..')
+_src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode, AgentState
+from nucleusiq.agents.config.agent_config import AgentConfig, AgentState, ExecutionMode
 from nucleusiq.agents.task import Task
-from nucleusiq.tools import BaseTool
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -63,9 +62,10 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 # TOOL DEFINITIONS - Rich set of tools for complex tasks
 # =============================================================================
 
+
 def create_research_tools():
     """Create tools for research and information gathering."""
-    
+
     def web_search(query: str) -> str:
         """Search the web for information on a topic. Returns relevant snippets."""
         # Simulated search results based on query keywords
@@ -99,14 +99,14 @@ Top Results:
 4. EV Adoption: 14% of new car sales globally
 Key Insight: Climate action accelerating but gaps remain.""",
         }
-        
+
         # Find matching results
         for key, value in results.items():
             if key.lower() in query.lower():
                 return value.strip()
-        
+
         return f"Search results for '{query}': Multiple articles found. Key topics: trends, analysis, insights available."
-    
+
     def database_query(table: str, query_type: str = "summary") -> str:
         """Query the database for structured data. Table: users, sales, metrics."""
         mock_data = {
@@ -115,53 +115,62 @@ Key Insight: Climate action accelerating but gaps remain.""",
                 "active_last_30_days": 8234,
                 "premium_users": 1245,
                 "churn_rate": "3.4%",
-                "growth_rate": "+12% MoM"
+                "growth_rate": "+12% MoM",
             },
             "sales": {
                 "total_revenue": "$1,250,000",
                 "monthly_growth": "12%",
                 "avg_order_value": "$85.50",
                 "top_product": "Enterprise Plan",
-                "conversion_rate": "3.2%"
+                "conversion_rate": "3.2%",
             },
             "metrics": {
                 "page_views": "2,500,000",
                 "unique_visitors": "450,000",
                 "avg_session_duration": "4min 5sec",
                 "bounce_rate": "42%",
-                "engagement_score": "7.2/10"
-            }
+                "engagement_score": "7.2/10",
+            },
         }
-        
+
         if table.lower() in mock_data:
             data = mock_data[table.lower()]
-            return f"Database Query Result ({table}):\n" + "\n".join(f"  - {k}: {v}" for k, v in data.items())
-        return f"Query on {table}: No data found. Available tables: users, sales, metrics."
-    
+            return f"Database Query Result ({table}):\n" + "\n".join(
+                f"  - {k}: {v}" for k, v in data.items()
+            )
+        return (
+            f"Query on {table}: No data found. Available tables: users, sales, metrics."
+        )
+
     def analyze_data(data: str, analysis_type: str = "summary") -> str:
         """Perform statistical analysis. Types: summary, trend, correlation, forecast."""
         analyses = {
             "summary": "Statistical Summary: Mean=125.4, Median=118, StdDev=23.5, Range=[45, 234], Sample Size=1000",
             "trend": "Trend Analysis: Upward trend detected (+12% MoM), seasonality present (Q4 peaks), confidence=92%",
             "correlation": "Correlation Analysis: revenue~users=0.87 (strong), churn~satisfaction=-0.72 (negative)",
-            "forecast": "Forecast: Next quarter projected at $1.4M (+12%), confidence interval: $1.25M-$1.55M (85% CI)"
+            "forecast": "Forecast: Next quarter projected at $1.4M (+12%), confidence interval: $1.25M-$1.55M (85% CI)",
         }
-        return analyses.get(analysis_type.lower(), f"Analysis of {data}: Patterns identified, insights generated.")
-    
+        return analyses.get(
+            analysis_type.lower(),
+            f"Analysis of {data}: Patterns identified, insights generated.",
+        )
+
     def summarize(text: str, style: str = "concise") -> str:
         """Summarize information. Styles: concise, executive, detailed."""
         word_count = len(text.split())
         styles = {
             "concise": f"Summary ({word_count} words condensed): Key themes extracted, core insights identified, actionable items highlighted.",
-            "executive": f"Executive Summary: Decision points identified. Recommendation: Proceed with Option A. Risk: Moderate. Timeline: 8 weeks.",
-            "detailed": f"Detailed Analysis: Comprehensive review of {word_count} word input. Multiple patterns identified. See sections below."
+            "executive": "Executive Summary: Decision points identified. Recommendation: Proceed with Option A. Risk: Moderate. Timeline: 8 weeks.",
+            "detailed": f"Detailed Analysis: Comprehensive review of {word_count} word input. Multiple patterns identified. See sections below.",
         }
         return styles.get(style.lower(), styles["concise"])
-    
-    def generate_report(content: str, title: str = "Report", format: str = "markdown") -> str:
+
+    def generate_report(
+        content: str, title: str = "Report", format: str = "markdown"
+    ) -> str:
         """Generate a formatted report. Formats: markdown, json, text."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        
+
         if format.lower() == "markdown":
             return f"""# {title}
 Generated: {timestamp}
@@ -180,19 +189,32 @@ Based on comprehensive analysis, strategic recommendations outlined above."""
             return f'{{"title": "{title}", "timestamp": "{timestamp}", "summary": "{content[:100]}..."}}'
         else:
             return f"Report: {title}\nDate: {timestamp}\nContent: {content[:200]}..."
-    
+
     return [
-        BaseTool.from_function(web_search, description="Search the web for information on any topic."),
-        BaseTool.from_function(database_query, description="Query database tables: users, sales, metrics."),
-        BaseTool.from_function(analyze_data, description="Perform statistical analysis: summary, trend, correlation, forecast."),
-        BaseTool.from_function(summarize, description="Summarize text in concise, executive, or detailed style."),
-        BaseTool.from_function(generate_report, description="Generate formatted reports in markdown, json, or text format."),
+        BaseTool.from_function(
+            web_search, description="Search the web for information on any topic."
+        ),
+        BaseTool.from_function(
+            database_query, description="Query database tables: users, sales, metrics."
+        ),
+        BaseTool.from_function(
+            analyze_data,
+            description="Perform statistical analysis: summary, trend, correlation, forecast.",
+        ),
+        BaseTool.from_function(
+            summarize,
+            description="Summarize text in concise, executive, or detailed style.",
+        ),
+        BaseTool.from_function(
+            generate_report,
+            description="Generate formatted reports in markdown, json, or text format.",
+        ),
     ]
 
 
 def create_project_tools():
     """Create tools for project planning and management."""
-    
+
     def plan_project(description: str, team_size: int = 3) -> str:
         """Break down a project into phases, tasks, and estimates."""
         return f"""Project Plan: {description[:50]}...
@@ -218,7 +240,7 @@ Phase 3: Quality & Launch (Week 7-8)
 
 Total Effort: 188 hours
 Critical Path: 1.1 -> 1.2 -> 2.1 -> 2.4 -> 3.1 -> 3.3"""
-    
+
     def assess_risk(scenario: str, context: str = "") -> str:
         """Assess risks and provide mitigation strategies."""
         return f"""Risk Assessment: {scenario[:40]}...
@@ -244,7 +266,7 @@ LOW PRIORITY:
 
 Overall Risk Score: 6.5/10 (Moderate)
 Recommendation: Proceed with enhanced monitoring"""
-    
+
     def calculate(expression: str, calc_type: str = "basic") -> str:
         """Perform calculations: basic math, financial (roi, npv), estimates."""
         try:
@@ -262,7 +284,7 @@ Recommendation: Proceed with enhanced monitoring"""
         except Exception:
             pass
         return f"Calculated: {expression} (type: {calc_type})"
-    
+
     def analyze_code(path: str, analysis_type: str = "full") -> str:
         """Analyze code for quality, complexity, and issues."""
         return f"""Code Analysis: {path}
@@ -284,18 +306,30 @@ Recommendations:
 1. Refactor complex functions (>20 lines)
 2. Add error handling to API calls
 3. Increase test coverage to 85%"""
-    
+
     return [
-        BaseTool.from_function(plan_project, description="Create project plan with phases, tasks, and estimates."),
-        BaseTool.from_function(assess_risk, description="Assess project risks and provide mitigation strategies."),
-        BaseTool.from_function(calculate, description="Perform calculations: basic, roi, npv, or estimate."),
-        BaseTool.from_function(analyze_code, description="Analyze code for quality, complexity, and issues."),
+        BaseTool.from_function(
+            plan_project,
+            description="Create project plan with phases, tasks, and estimates.",
+        ),
+        BaseTool.from_function(
+            assess_risk,
+            description="Assess project risks and provide mitigation strategies.",
+        ),
+        BaseTool.from_function(
+            calculate, description="Perform calculations: basic, roi, npv, or estimate."
+        ),
+        BaseTool.from_function(
+            analyze_code,
+            description="Analyze code for quality, complexity, and issues.",
+        ),
     ]
 
 
 # =============================================================================
 # EXAMPLE 1: Research Agent - Information Gathering & Synthesis
 # =============================================================================
+
 
 async def example_research_agent():
     """
@@ -307,14 +341,14 @@ async def example_research_agent():
     logger.info("=" * 80)
     logger.info("EXAMPLE 1: Research Agent - Multi-Source Information Synthesis")
     logger.info("=" * 80)
-    
+
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY not set!")
         return False
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini", temperature=0.3)
     tools = create_research_tools()
-    
+
     # CHAIN_OF_THOUGHT: Encourages step-by-step reasoning
     prompt = PromptFactory.create_prompt(
         technique=PromptTechnique.CHAIN_OF_THOUGHT
@@ -330,9 +364,9 @@ When researching:
 4. Summarize findings
 5. Generate a professional report""",
         user="Complete the research task using the available tools.",
-        cot_instruction="Let's approach this research systematically, step by step, ensuring we gather and analyze all relevant data before drawing conclusions."
+        cot_instruction="Let's approach this research systematically, step by step, ensuring we gather and analyze all relevant data before drawing conclusions.",
     )
-    
+
     agent = Agent(
         name="ResearchAnalyst",
         role="Senior Research Analyst",
@@ -344,14 +378,13 @@ When researching:
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=15,
-
             planning_max_tokens=2048,
-            llm_max_tokens=2048
-        )
+            llm_max_tokens=2048,
+        ),
     )
-    
+
     await agent.initialize()
-    
+
     task = Task(
         id="research_python_perf",
         objective="""Research Python performance optimization:
@@ -359,18 +392,22 @@ When researching:
 2. Query our metrics database for current baselines
 3. Analyze the data for trends
 4. Summarize findings in executive style
-5. Generate a markdown report titled 'Python Performance Analysis'"""
+5. Generate a markdown report titled 'Python Performance Analysis'""",
     )
-    
+
     logger.info(f"Task: {task.objective[:80]}...")
     logger.info("Mode: AUTONOMOUS")
     logger.info("-" * 80)
-    
+
     result = await agent.execute(task)
-    
-    logger.info(f"\nResult:\n{result[:500]}..." if len(str(result)) > 500 else f"\nResult:\n{result}")
+
+    logger.info(
+        f"\nResult:\n{result[:500]}..."
+        if len(str(result)) > 500
+        else f"\nResult:\n{result}"
+    )
     logger.info(f"Agent State: {agent.state}")
-    
+
     success = agent.state == AgentState.COMPLETED and "Error:" not in str(result)
     return success
 
@@ -378,6 +415,7 @@ When researching:
 # =============================================================================
 # EXAMPLE 2: Data Analysis Pipeline Agent
 # =============================================================================
+
 
 async def example_data_pipeline_agent():
     """
@@ -389,18 +427,16 @@ async def example_data_pipeline_agent():
     logger.info("=" * 80)
     logger.info("EXAMPLE 2: Data Pipeline Agent - Complex Analytics Workflow")
     logger.info("=" * 80)
-    
+
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY not set!")
         return False
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini", temperature=0.2)
     tools = create_research_tools()
-    
+
     # FEW_SHOT: Learning from examples of data analysis
-    prompt = PromptFactory.create_prompt(
-        technique=PromptTechnique.FEW_SHOT
-    ).configure(
+    prompt = PromptFactory.create_prompt(technique=PromptTechnique.FEW_SHOT).configure(
         system="""You are a data analytics specialist.
 Extract insights through systematic analysis:
 1. Gather data from relevant sources
@@ -412,15 +448,15 @@ Extract insights through systematic analysis:
         examples=[
             {
                 "input": "Analyze user growth for Q3",
-                "output": "Step 1: Query users table. Step 2: Analyze trends. Step 3: Generate forecast. Result: 15% MoM growth with seasonal patterns."
+                "output": "Step 1: Query users table. Step 2: Analyze trends. Step 3: Generate forecast. Result: 15% MoM growth with seasonal patterns.",
             },
             {
                 "input": "Create revenue report",
-                "output": "Step 1: Query sales data. Step 2: Calculate key metrics. Step 3: Identify top products. Step 4: Generate markdown report with insights."
-            }
-        ]
+                "output": "Step 1: Query sales data. Step 2: Calculate key metrics. Step 3: Identify top products. Step 4: Generate markdown report with insights.",
+            },
+        ],
     )
-    
+
     agent = Agent(
         name="DataAnalyst",
         role="Data Analytics Specialist",
@@ -432,12 +468,11 @@ Extract insights through systematic analysis:
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=15,
-
-        )
+        ),
     )
-    
+
     await agent.initialize()
-    
+
     task = Task(
         id="q4_business_analysis",
         objective="""Analyze business performance and create a quarterly report:
@@ -445,18 +480,22 @@ Extract insights through systematic analysis:
 2. Query 'sales' table for revenue data
 3. Perform trend analysis on the data
 4. Generate a forecast for next quarter
-5. Create a markdown report titled 'Q4 Business Analysis'"""
+5. Create a markdown report titled 'Q4 Business Analysis'""",
     )
-    
+
     logger.info(f"Task: {task.objective[:80]}...")
     logger.info("Mode: AUTONOMOUS")
     logger.info("-" * 80)
-    
+
     result = await agent.execute(task)
-    
-    logger.info(f"\nResult:\n{result[:500]}..." if len(str(result)) > 500 else f"\nResult:\n{result}")
+
+    logger.info(
+        f"\nResult:\n{result[:500]}..."
+        if len(str(result)) > 500
+        else f"\nResult:\n{result}"
+    )
     logger.info(f"Agent State: {agent.state}")
-    
+
     success = agent.state == AgentState.COMPLETED and "Error:" not in str(result)
     return success
 
@@ -464,6 +503,7 @@ Extract insights through systematic analysis:
 # =============================================================================
 # EXAMPLE 3: Project Planning Agent
 # =============================================================================
+
 
 async def example_project_planning_agent():
     """
@@ -476,14 +516,14 @@ async def example_project_planning_agent():
     logger.info("=" * 80)
     logger.info("EXAMPLE 3: Project Planning Agent - Comprehensive Planning")
     logger.info("=" * 80)
-    
+
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY not set!")
         return False
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini", temperature=0.3)
     tools = create_project_tools()
-    
+
     # CHAIN_OF_THOUGHT: Logical step-by-step planning
     prompt = PromptFactory.create_prompt(
         technique=PromptTechnique.CHAIN_OF_THOUGHT
@@ -496,9 +536,9 @@ Create comprehensive project plans accounting for:
 - Dependencies
 Provide realistic estimates and identify blockers.""",
         user="Create the project plan using the available tools.",
-        cot_instruction="Let's think through this project systematically: first break down the work, then assess risks, calculate costs, and finally document everything."
+        cot_instruction="Let's think through this project systematically: first break down the work, then assess risks, calculate costs, and finally document everything.",
     )
-    
+
     agent = Agent(
         name="ProjectManager",
         role="Senior Project Manager",
@@ -510,12 +550,11 @@ Provide realistic estimates and identify blockers.""",
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=12,
-
-        )
+        ),
     )
-    
+
     await agent.initialize()
-    
+
     task = Task(
         id="analytics_dashboard_plan",
         objective="""Create a project plan for building a customer analytics dashboard:
@@ -526,18 +565,22 @@ Required:
 1. Break down project into phases and tasks (use plan_project with team_size=4)
 2. Assess risks for this project
 3. Calculate total cost assuming $150/hour rate (use calculate with calc_type='estimate')
-4. Generate a markdown report titled 'Analytics Dashboard Plan'"""
+4. Generate a markdown report titled 'Analytics Dashboard Plan'""",
     )
-    
+
     logger.info(f"Task: {task.objective[:80]}...")
     logger.info("Mode: AUTONOMOUS")
     logger.info("-" * 80)
-    
+
     result = await agent.execute(task)
-    
-    logger.info(f"\nResult:\n{result[:500]}..." if len(str(result)) > 500 else f"\nResult:\n{result}")
+
+    logger.info(
+        f"\nResult:\n{result[:500]}..."
+        if len(str(result)) > 500
+        else f"\nResult:\n{result}"
+    )
     logger.info(f"Agent State: {agent.state}")
-    
+
     success = agent.state == AgentState.COMPLETED and "Error:" not in str(result)
     return success
 
@@ -545,6 +588,7 @@ Required:
 # =============================================================================
 # EXAMPLE 4: Code Quality Agent
 # =============================================================================
+
 
 async def example_code_quality_agent():
     """
@@ -557,18 +601,16 @@ async def example_code_quality_agent():
     logger.info("=" * 80)
     logger.info("EXAMPLE 4: Code Quality Agent - Technical Debt Analysis")
     logger.info("=" * 80)
-    
+
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY not set!")
         return False
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini", temperature=0.2)
     tools = create_project_tools()
-    
+
     # FEW_SHOT + CoT: Examples combined with step-by-step reasoning
-    prompt = PromptFactory.create_prompt(
-        technique=PromptTechnique.FEW_SHOT
-    ).configure(
+    prompt = PromptFactory.create_prompt(technique=PromptTechnique.FEW_SHOT).configure(
         system="""You are a software architect focused on code quality.
 Your expertise includes:
 - Static code analysis
@@ -581,15 +623,15 @@ Provide actionable recommendations prioritized by impact.""",
         examples=[
             {
                 "input": "Assess code quality for auth module",
-                "output": "1. analyze_code('auth'): Found 5 issues. 2. assess_risk: Security vulnerabilities critical. 3. calculate cost: 40h remediation. 4. Recommendation: Prioritize security fixes."
+                "output": "1. analyze_code('auth'): Found 5 issues. 2. assess_risk: Security vulnerabilities critical. 3. calculate cost: 40h remediation. 4. Recommendation: Prioritize security fixes.",
             },
             {
                 "input": "Review API endpoints",
-                "output": "1. analyze_code('api'): Complexity=15. 2. assess_risk: Performance bottlenecks. 3. plan_project: 3 sprints needed. 4. Report: Refactor high-traffic endpoints first."
-            }
-        ]
+                "output": "1. analyze_code('api'): Complexity=15. 2. assess_risk: Performance bottlenecks. 3. plan_project: 3 sprints needed. 4. Report: Refactor high-traffic endpoints first.",
+            },
+        ],
     )
-    
+
     agent = Agent(
         name="CodeQualityExpert",
         role="Software Architect",
@@ -601,12 +643,11 @@ Provide actionable recommendations prioritized by impact.""",
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=12,
-
-        )
+        ),
     )
-    
+
     await agent.initialize()
-    
+
     task = Task(
         id="code_quality_assessment",
         objective="""Perform code quality assessment for our backend service:
@@ -614,18 +655,22 @@ Provide actionable recommendations prioritized by impact.""",
 2. Assess technical risks based on findings
 3. Calculate remediation cost at $100/hour (use calculate with calc_type='estimate')
 4. Create a remediation plan (use plan_project with team_size=2)
-5. Generate a markdown report titled 'Code Quality Report'"""
+5. Generate a markdown report titled 'Code Quality Report'""",
     )
-    
+
     logger.info(f"Task: {task.objective[:80]}...")
     logger.info("Mode: AUTONOMOUS")
     logger.info("-" * 80)
-    
+
     result = await agent.execute(task)
-    
-    logger.info(f"\nResult:\n{result[:500]}..." if len(str(result)) > 500 else f"\nResult:\n{result}")
+
+    logger.info(
+        f"\nResult:\n{result[:500]}..."
+        if len(str(result)) > 500
+        else f"\nResult:\n{result}"
+    )
     logger.info(f"Agent State: {agent.state}")
-    
+
     success = agent.state == AgentState.COMPLETED and "Error:" not in str(result)
     return success
 
@@ -633,6 +678,7 @@ Provide actionable recommendations prioritized by impact.""",
 # =============================================================================
 # EXAMPLE 5: Strategic Decision Agent
 # =============================================================================
+
 
 async def example_strategic_decision_agent():
     """
@@ -645,16 +691,16 @@ async def example_strategic_decision_agent():
     logger.info("=" * 80)
     logger.info("EXAMPLE 5: Strategic Decision Agent - Market Analysis")
     logger.info("=" * 80)
-    
+
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY not set!")
         return False
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini", temperature=0.4)
-    
+
     # Combine research and project tools
     tools = create_research_tools() + create_project_tools()
-    
+
     # CHAIN_OF_THOUGHT: Multi-phase strategic reasoning
     prompt = PromptFactory.create_prompt(
         technique=PromptTechnique.CHAIN_OF_THOUGHT
@@ -677,9 +723,9 @@ Phase 5 - Financial Modeling: Calculate investments and projections.
 Phase 6 - Synthesis: Summarize and formulate recommendation.
 Phase 7 - Documentation: Generate comprehensive report.
 
-Now, let's execute each phase systematically."""
+Now, let's execute each phase systematically.""",
     )
-    
+
     agent = Agent(
         name="StrategicAdvisor",
         role="Strategic Advisor",
@@ -691,13 +737,12 @@ Now, let's execute each phase systematically."""
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=18,
-
-            planning_max_tokens=2048
-        )
+            planning_max_tokens=2048,
+        ),
     )
-    
+
     await agent.initialize()
-    
+
     task = Task(
         id="ml_market_expansion",
         objective="""Evaluate ML market expansion opportunity:
@@ -711,18 +756,22 @@ Now, let's execute each phase systematically."""
 8. Summarize findings in executive style
 9. Generate markdown report titled 'ML Market Expansion Analysis'
 
-Provide GO/NO-GO recommendation with rationale."""
+Provide GO/NO-GO recommendation with rationale.""",
     )
-    
+
     logger.info(f"Task: {task.objective[:80]}...")
     logger.info("Mode: AUTONOMOUS (complex multi-step analysis)")
     logger.info("-" * 80)
-    
+
     result = await agent.execute(task)
-    
-    logger.info(f"\nResult:\n{result[:500]}..." if len(str(result)) > 500 else f"\nResult:\n{result}")
+
+    logger.info(
+        f"\nResult:\n{result[:500]}..."
+        if len(str(result)) > 500
+        else f"\nResult:\n{result}"
+    )
     logger.info(f"Agent State: {agent.state}")
-    
+
     success = agent.state == AgentState.COMPLETED and "Error:" not in str(result)
     return success
 
@@ -730,6 +779,7 @@ Provide GO/NO-GO recommendation with rationale."""
 # =============================================================================
 # EXAMPLE 6: RAG-Enhanced Agent (Retrieval Augmented Generation)
 # =============================================================================
+
 
 async def example_rag_agent():
     """
@@ -741,14 +791,14 @@ async def example_rag_agent():
     logger.info("=" * 80)
     logger.info("EXAMPLE 6: RAG Agent - Retrieval Augmented Generation")
     logger.info("=" * 80)
-    
+
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY not set!")
         return False
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini", temperature=0.2)
     tools = create_research_tools()
-    
+
     # Simulated retrieved context (in real RAG, this comes from vector DB)
     retrieved_context = """
 RETRIEVED KNOWLEDGE BASE CONTEXT:
@@ -770,19 +820,19 @@ Document 3: Industry Benchmarks
 - Optimal memory per worker: <1GB
 - Modern Python adoption rate: 78% on 3.11+
 """
-    
+
     # RETRIEVAL_AUGMENTED_GENERATION: Grounded in retrieved knowledge
     prompt = PromptFactory.create_prompt(
         technique=PromptTechnique.RETRIEVAL_AUGMENTED_GENERATION
     ).configure(
-        system="""You are an expert technical advisor. Use the retrieved context 
-to provide accurate, fact-based recommendations. Always ground your 
-analysis in the provided knowledge base documents. Cross-reference 
+        system="""You are an expert technical advisor. Use the retrieved context
+to provide accurate, fact-based recommendations. Always ground your
+analysis in the provided knowledge base documents. Cross-reference
 internal metrics with industry benchmarks.""",
         context=retrieved_context,
-        user="Analyze the retrieved information and use tools to provide additional insights."
+        user="Analyze the retrieved information and use tools to provide additional insights.",
     )
-    
+
     agent = Agent(
         name="RAGAdvisor",
         role="Technical Advisor with Knowledge Base",
@@ -794,12 +844,11 @@ internal metrics with industry benchmarks.""",
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=12,
-
-        )
+        ),
     )
-    
+
     await agent.initialize()
-    
+
     task = Task(
         id="rag_performance_analysis",
         objective="""Based on the retrieved context about Python performance and our internal metrics:
@@ -809,19 +858,23 @@ internal metrics with industry benchmarks.""",
 4. Summarize findings with specific upgrade recommendations
 5. Generate a markdown report titled 'Performance Optimization Plan'
 
-Ground all recommendations in the retrieved knowledge base context."""
+Ground all recommendations in the retrieved knowledge base context.""",
     )
-    
+
     logger.info(f"Task: {task.objective[:80]}...")
     logger.info("Mode: AUTONOMOUS with RAG prompting")
     logger.info("Technique: RETRIEVAL_AUGMENTED_GENERATION")
     logger.info("-" * 80)
-    
+
     result = await agent.execute(task)
-    
-    logger.info(f"\nResult:\n{result[:500]}..." if len(str(result)) > 500 else f"\nResult:\n{result}")
+
+    logger.info(
+        f"\nResult:\n{result[:500]}..."
+        if len(str(result)) > 500
+        else f"\nResult:\n{result}"
+    )
     logger.info(f"Agent State: {agent.state}")
-    
+
     success = agent.state == AgentState.COMPLETED and "Error:" not in str(result)
     return success
 
@@ -829,6 +882,7 @@ Ground all recommendations in the retrieved knowledge base context."""
 # =============================================================================
 # MAIN EXECUTION
 # =============================================================================
+
 
 async def main():
     """Run all complex autonomous agent examples with various prompt techniques."""
@@ -853,13 +907,13 @@ Prompt Techniques Demonstrated:
 
 Each example also showcases:
 - Automatic multi-step planning
-- Tool orchestration  
+- Tool orchestration
 - Context building across steps
 """)
     logger.info("=" * 80)
-    
+
     results = {}
-    
+
     # Run examples with different prompt techniques
     examples = [
         ("Research Agent (CoT)", example_research_agent),
@@ -869,7 +923,7 @@ Each example also showcases:
         ("Strategic Decision (CoT)", example_strategic_decision_agent),
         ("RAG Agent", example_rag_agent),
     ]
-    
+
     for name, example_fn in examples:
         try:
             logger.info(f"\nRunning: {name}")
@@ -879,29 +933,29 @@ Each example also showcases:
         except Exception as e:
             logger.error(f"{name} failed: {e}")
             results[name] = False
-        
+
         logger.info("-" * 80)
-    
+
     # Summary
     logger.info("\n" + "=" * 80)
     logger.info("FINAL SUMMARY")
     logger.info("=" * 80)
-    
+
     passed = sum(1 for v in results.values() if v)
     total = len(results)
-    
+
     for name, success in results.items():
         status = "PASS" if success else "FAIL"
         logger.info(f"  {name}: {status}")
-    
+
     logger.info(f"\nOverall: {passed}/{total} examples completed successfully")
-    
+
     if passed == total:
         logger.info("\nAll prompt techniques executed successfully!")
         logger.info("Demonstrated: CHAIN_OF_THOUGHT, FEW_SHOT, FEW_SHOT+CoT, RAG")
     else:
         logger.warning(f"\n{total - passed} example(s) had issues.")
-    
+
     return passed == total
 
 

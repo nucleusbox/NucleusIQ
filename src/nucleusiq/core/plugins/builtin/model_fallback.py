@@ -20,9 +20,9 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence, Tuple, Type, Union
+from typing import Any, Sequence, Tuple, Type
 
-from nucleusiq.plugins.base import BasePlugin, ModelRequest, ModelHandler
+from nucleusiq.plugins.base import BasePlugin, ModelHandler, ModelRequest
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class ModelFallbackPlugin(BasePlugin):
     def __init__(
         self,
         fallbacks: Sequence[str],
-        retry_on: Union[Tuple[Type[Exception], ...], Type[Exception]] = (Exception,),
+        retry_on: Tuple[Type[Exception], ...] | Type[Exception] = (Exception,),
     ) -> None:
         if not fallbacks:
             raise ValueError("At least one fallback model is required")

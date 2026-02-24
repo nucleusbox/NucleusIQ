@@ -15,9 +15,9 @@ override the async methods directly.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BaseMemory(BaseModel, ABC):
@@ -35,11 +35,11 @@ class BaseMemory(BaseModel, ABC):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    user_id: Optional[str] = Field(
+    user_id: str | None = Field(
         default=None,
         description="User identifier for multi-user memory isolation.",
     )
-    session_id: Optional[str] = Field(
+    session_id: str | None = Field(
         default=None,
         description="Session identifier for conversation scoping.",
     )
@@ -75,7 +75,7 @@ class BaseMemory(BaseModel, ABC):
 
     @abstractmethod
     def get_context(
-        self, query: Optional[str] = None, **kwargs: Any
+        self, query: str | None = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         """Retrieve relevant conversation context.
 
@@ -138,13 +138,11 @@ class BaseMemory(BaseModel, ABC):
     ) -> List[Dict[str, str]]:
         return self.get_relevant_context(query, **kwargs)
 
-    async def aadd_message(
-        self, role: str, content: str, **kwargs: Any
-    ) -> None:
+    async def aadd_message(self, role: str, content: str, **kwargs: Any) -> None:
         self.add_message(role, content, **kwargs)
 
     async def aget_context(
-        self, query: Optional[str] = None, **kwargs: Any
+        self, query: str | None = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         return self.get_context(query, **kwargs)
 

@@ -12,17 +12,17 @@ Responsibilities:
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
 
-from nucleusiq.agents.task import Task
+from nucleusiq.agents.chat_models import LLMCallKwargs
+from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.plan import Plan, PlanResponse
 from nucleusiq.agents.planning.plan_parser import PlanParser
-from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.planning.prompt_strategy import (
-    PlanPromptStrategy,
     DefaultPlanPromptStrategy,
+    PlanPromptStrategy,
 )
-from nucleusiq.agents.chat_models import LLMCallKwargs
+from nucleusiq.agents.task import Task
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -38,8 +38,8 @@ class PlanCreator:
 
     def __init__(
         self,
-        logger: Optional[logging.Logger] = None,
-        prompt_strategy: Optional[PlanPromptStrategy] = None,
+        logger: logging.Logger | None = None,
+        prompt_strategy: PlanPromptStrategy | None = None,
     ):
         self._logger = logger or logging.getLogger(__name__)
         self._parser = PlanParser(logger=self._logger)
@@ -52,7 +52,7 @@ class PlanCreator:
     async def create_plan(
         self,
         agent: "Agent",
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
         context: Dict[str, Any],
     ) -> Plan:
         """Create an execution plan using the LLM.
@@ -65,9 +65,7 @@ class PlanCreator:
 
         task_dict = task.to_dict() if isinstance(task, Task) else task
         task_obj = task_dict.get("objective", str(task_dict))
-        tool_names = [
-            getattr(t, "name", "unknown") for t in (agent.tools or [])
-        ]
+        tool_names = [getattr(t, "name", "unknown") for t in (agent.tools or [])]
         tool_param_lines = self._get_tool_param_lines(agent)
 
         # Full structured-JSON prompt (content fallback)
@@ -89,7 +87,6 @@ class PlanCreator:
         empty_retries_remaining = 1
 
         while True:
-            messages = [{"role": "user", "content": plan_prompt}]
             llm_response = None
 
             # --- Try function-calling first -------------------------
@@ -99,9 +96,7 @@ class PlanCreator:
                 )
                 llm_response = await agent.llm.call(**plan_kwargs)
 
-                result = self._extract_plan_from_tool_calls(
-                    llm_response, task
-                )
+                result = self._extract_plan_from_tool_calls(llm_response, task)
                 if result is not None:
                     return result
             except Exception as e:
@@ -155,15 +150,12 @@ class PlanCreator:
                 )
                 if isinstance(props, dict) and props:
                     lines.append(
-                        f"- {t.name}({', '.join(props.keys())}) "
-                        f"required={required}"
+                        f"- {t.name}({', '.join(props.keys())}) required={required}"
                     )
                 else:
                     lines.append(f"- {t.name}(...)")
             except Exception:
-                lines.append(
-                    f"- {getattr(t, 'name', 'unknown')}(...)"
-                )
+                lines.append(f"- {getattr(t, 'name', 'unknown')}(...)")
         return lines
 
     # ------------------------------------------------------------------ #
@@ -174,15 +166,13 @@ class PlanCreator:
         self,
         agent: "Agent",
         prompt: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: List[Dict[str, Any]] | None = None,
     ) -> LLMCallKwargs:
         """Build kwargs for ``agent.llm.call()``."""
         kwargs: Dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": getattr(
-                agent.config, "planning_max_tokens", 4096
-            ),
+            "max_tokens": getattr(agent.config, "planning_max_tokens", 4096),
         }
         if tools:
             kwargs["tools"] = tools
@@ -192,14 +182,10 @@ class PlanCreator:
     def _extract_plan_from_tool_calls(
         self,
         response: Any,
-        task: Union[Task, Dict[str, Any]],
-    ) -> Optional[Plan]:
+        task: Task | Dict[str, Any],
+    ) -> Plan | None:
         """Try to extract a Plan from tool_calls in the response."""
-        if (
-            not response
-            or not hasattr(response, "choices")
-            or not response.choices
-        ):
+        if not response or not hasattr(response, "choices") or not response.choices:
             return None
 
         msg = response.choices[0].message
@@ -218,8 +204,7 @@ class PlanCreator:
                     plan_data = json.loads(fn_args_str)
                     plan_response = PlanResponse.from_dict(plan_data)
                     self._logger.debug(
-                        "Successfully received structured plan "
-                        "via tool calling"
+                        "Successfully received structured plan via tool calling"
                     )
                     return plan_response.to_plan(task)
                 except (json.JSONDecodeError, ValueError) as e:
@@ -236,29 +221,19 @@ class PlanCreator:
         """Return ``(fn_name, fn_args_str)`` from a tool call."""
         if isinstance(tc, dict):
             fn_info = tc.get("function", {})
-            fn_name = (
-                fn_info.get("name")
-                if isinstance(fn_info, dict) else None
-            )
+            fn_name = fn_info.get("name") if isinstance(fn_info, dict) else None
             fn_args_str = (
-                fn_info.get("arguments", "{}")
-                if isinstance(fn_info, dict) else "{}"
+                fn_info.get("arguments", "{}") if isinstance(fn_info, dict) else "{}"
             )
         else:
             fn_info = getattr(tc, "function", None)
             fn_name = getattr(fn_info, "name", None) if fn_info else None
-            fn_args_str = (
-                getattr(fn_info, "arguments", "{}") if fn_info else "{}"
-            )
+            fn_args_str = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
         return fn_name, fn_args_str
 
-    def _extract_content(self, response: Any) -> Optional[str]:
+    def _extract_content(self, response: Any) -> str | None:
         """Extract text content from an LLM response, checking for refusals."""
-        if (
-            not response
-            or not hasattr(response, "choices")
-            or not response.choices
-        ):
+        if not response or not hasattr(response, "choices") or not response.choices:
             raise ValueError("LLM returned empty response for planning")
 
         msg = response.choices[0].message
@@ -267,12 +242,8 @@ class PlanCreator:
             content = MessageBuilder.content_to_text(msg.get("content"))
         else:
             refusal = getattr(msg, "refusal", None)
-            content = MessageBuilder.content_to_text(
-                getattr(msg, "content", None)
-            )
+            content = MessageBuilder.content_to_text(getattr(msg, "content", None))
 
         if refusal:
-            raise ValueError(
-                f"LLM refused to generate plan: {refusal}"
-            )
+            raise ValueError(f"LLM refused to generate plan: {refusal}")
         return content

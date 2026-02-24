@@ -4,7 +4,7 @@ import os
 import sys
 
 # Add src directory to path so we can import nucleusiq
-_src_dir = os.path.join(os.path.dirname(__file__), '../..')
+_src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
 
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
@@ -19,13 +19,14 @@ def chain_of_thought_example():
         system="You are a logical reasoning assistant.",
         user="Solve the following problem: If all bloops are razzies and all razzies are lazzies, are all bloops definitely lazzies?",
         use_cot=True,
-        cot_instruction="Let's reason through this step by step."
+        cot_instruction="Let's reason through this step by step.",
     )
 
     # Format the prompt
     final_prompt = cot_prompt.format_prompt()
     print("Chain-of-Thought Prompt:\n")
     print(final_prompt)
+
 
 def chain_of_thought_invalid_use_cot():
     # Create a ChainOfThoughtPrompt instance using the factory
@@ -36,10 +37,11 @@ def chain_of_thought_invalid_use_cot():
         cot_prompt.configure(
             system="You are a logical reasoning assistant.",
             user="Solve the following problem: What is 2 + 2?",
-            use_cot=False  # This should raise an error
+            use_cot=False,  # This should raise an error
         )
     except ValueError as e:
         print(f"Error: {e}")
+
 
 def chain_of_thought_custom_cot_example():
     # Create a ChainOfThoughtPrompt instance using the factory
@@ -49,13 +51,14 @@ def chain_of_thought_custom_cot_example():
     cot_prompt.configure(
         system="You are a logical reasoning assistant.",
         user="Solve the following problem: What is the capital of France?",
-        cot_instruction="Let's analyze the question step by step."
+        cot_instruction="Let's analyze the question step by step.",
     )
 
     # Format the prompt
     final_prompt = cot_prompt.format_prompt()
     print("Chain-of-Thought Prompt with Custom CoT Instruction:\n")
     print(final_prompt)
+
 
 if __name__ == "__main__":
     chain_of_thought_example()

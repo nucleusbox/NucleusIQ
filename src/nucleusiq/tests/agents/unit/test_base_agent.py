@@ -1,9 +1,8 @@
 """Tests for agents/builder/base_agent.py and agents/agent.py utility methods."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Any, Dict
+from unittest.mock import MagicMock, patch
 
+import pytest
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, AgentMetrics, AgentState
 from nucleusiq.llms.mock_llm import MockLLM
@@ -27,7 +26,6 @@ def _make_agent(**overrides):
 
 
 class TestBaseAgentInit:
-
     def test_default_state(self):
         agent = _make_agent()
         assert agent.state == AgentState.INITIALIZING
@@ -60,7 +58,6 @@ class TestBaseAgentInit:
 
 
 class TestRetryMechanism:
-
     @pytest.mark.asyncio
     async def test_execute_step_updates_metrics_on_success(self):
         llm = MockLLM()
@@ -103,7 +100,6 @@ class TestRetryMechanism:
 
 
 class TestAgentMemoryInit:
-
     @pytest.mark.asyncio
     async def test_initialize_with_memory(self):
         mem = FullHistoryMemory()
@@ -124,7 +120,6 @@ class TestAgentMemoryInit:
 
 
 class TestAgentState:
-
     @pytest.mark.asyncio
     async def test_save_state_without_memory(self):
         agent = _make_agent()
@@ -176,7 +171,6 @@ class TestAgentState:
 
 
 class TestAgentProcessResult:
-
     @pytest.mark.asyncio
     async def test_process_result_stores_in_memory(self):
         mem = FullHistoryMemory()
@@ -204,7 +198,6 @@ class TestAgentProcessResult:
 
 
 class TestRemoveTool:
-
     @pytest.mark.asyncio
     async def test_remove_tool(self):
         tool = MagicMock()

@@ -1,8 +1,7 @@
 """Unit tests for plugin error types."""
 
 import pytest
-
-from nucleusiq.plugins.errors import PluginHalt, PluginError
+from nucleusiq.plugins.errors import PluginError, PluginHalt
 
 
 class TestPluginHalt:

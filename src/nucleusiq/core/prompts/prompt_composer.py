@@ -1,6 +1,8 @@
-from typing import Dict, Callable, Optional, List, Any
-from pydantic import Field, field_validator, ConfigDict
+from typing import Any, Callable, Dict, List
+
 from nucleusiq.prompts.base import BasePrompt
+from pydantic import ConfigDict, Field, field_validator
+
 
 class PromptComposer(BasePrompt):
     """
@@ -12,15 +14,12 @@ class PromptComposer(BasePrompt):
       - Raises an error if a placeholder is missing or a function key is missing
     """
 
-    model_config = ConfigDict(
-        validate_assignment=True,
-        arbitrary_types_allowed=True
-    )
+    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
     # Extended placeholders
-    examples: Optional[str] = Field(default=None)
-    chain_of_thought: Optional[str] = Field(default=None)
-    user_query: Optional[str] = Field(default=None)
+    examples: str | None = Field(default=None)
+    chain_of_thought: str | None = Field(default=None)
+    user_query: str | None = Field(default=None)
 
     # Mappings
     variable_mappings: Dict[str, str] = Field(default_factory=dict)
@@ -59,12 +58,16 @@ class PromptComposer(BasePrompt):
 
         if vmaps is not None:
             if not isinstance(vmaps, dict):
-                raise ValueError(f"variable_mappings must be a dict, not {type(vmaps).__name__}.")
+                raise ValueError(
+                    f"variable_mappings must be a dict, not {type(vmaps).__name__}."
+                )
             self.variable_mappings = vmaps
 
         if fmaps is not None:
             if not isinstance(fmaps, dict):
-                raise ValueError(f"function_mappings must be a dict, not {type(fmaps).__name__}.")
+                raise ValueError(
+                    f"function_mappings must be a dict, not {type(fmaps).__name__}."
+                )
             self.function_mappings = fmaps
 
         return self

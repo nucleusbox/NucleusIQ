@@ -1,14 +1,21 @@
 # File: src/nucleusiq/core/tools/base_tool.py
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Callable, Type, TYPE_CHECKING
 import inspect
-from typing import get_origin, get_args
+from abc import ABC, abstractmethod
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Type,
+    get_origin,
+)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
 try:
     from pydantic import BaseModel as _BaseModel
+
     PYDANTIC_AVAILABLE = True
     BaseModel = _BaseModel
 except ImportError:
@@ -36,88 +43,92 @@ def _parse_annotation(annotation: Any) -> str:
 def _pydantic_model_to_json_schema(model: Type[Any]) -> Dict[str, Any]:
     """
     Convert a Pydantic BaseModel to generic JSON Schema.
-    
+
     This returns standard JSON Schema (not LLM-specific).
     The LLM provider will convert this to its own format.
-    
+
     Args:
         model: Pydantic BaseModel class
-        
+
     Returns:
         Generic JSON Schema dict
     """
     if not PYDANTIC_AVAILABLE or BaseModel is None:
-        raise ImportError("Pydantic is required for schema-based tools. Install with: pip install pydantic")
-    
+        raise ImportError(
+            "Pydantic is required for schema-based tools. Install with: pip install pydantic"
+        )
+
     if not issubclass(model, BaseModel):
         raise TypeError(f"Expected Pydantic BaseModel, got {type(model)}")
-    
+
     # Get JSON schema from Pydantic model
     json_schema = model.model_json_schema()
-    
+
     # Extract properties and required fields
     properties = json_schema.get("properties", {})
     required = json_schema.get("required", [])
-    
+
     # Return generic JSON Schema (LLM-agnostic)
     generic_schema = {
         "type": "object",
         "properties": {},
         "required": required,
     }
-    
+
     # Process each property
     for prop_name, prop_schema in properties.items():
         # Handle different schema formats
         if "$ref" in prop_schema:
             # Reference to a definition - resolve it
             ref_path = prop_schema["$ref"].split("/")[-1]
-            definitions = json_schema.get("$defs", {}) or json_schema.get("definitions", {})
+            definitions = json_schema.get("$defs", {}) or json_schema.get(
+                "definitions", {}
+            )
             if ref_path in definitions:
                 prop_schema = definitions[ref_path]
-        
+
         # Extract type information
         prop_type = prop_schema.get("type", "string")
-        
+
         # Handle Literal types (enum)
         if "enum" in prop_schema:
             generic_schema["properties"][prop_name] = {
                 "type": prop_type,
                 "enum": prop_schema["enum"],
-                "description": prop_schema.get("description", "")
+                "description": prop_schema.get("description", ""),
             }
         else:
             # Standard property
             prop = {
                 "type": prop_type,
-                "description": prop_schema.get("description", "")
+                "description": prop_schema.get("description", ""),
             }
-            
+
             # Add default if present
             if "default" in prop_schema:
                 prop["default"] = prop_schema["default"]
-            
+
             # Add constraints
             for constraint in ["minimum", "maximum", "minLength", "maxLength"]:
                 if constraint in prop_schema:
                     prop[constraint] = prop_schema[constraint]
-            
+
             generic_schema["properties"][prop_name] = prop
-    
+
     return generic_schema
 
 
 class BaseTool(ABC):
     """
     Core abstraction for generic function-calling tools in NucleusIQ.
-    
+
     BaseTool is for tools that work with ANY LLM via function calling.
     These tools:
     - Generate generic tool specifications (LLM-agnostic JSON Schema)
     - Work with any LLM that supports function calling (OpenAI, Anthropic, Gemini, etc.)
     - Use function calling protocol (not LLM-native features)
     - LLM providers convert BaseTool specs to their own format
-    
+
     For LLM-specific built-in tools (like OpenAI's search, code interpreter),
     use provider-specific tool factories (e.g., OpenAITool).
 
@@ -134,14 +145,14 @@ class BaseTool(ABC):
 
     name: str
     description: str
-    version: Optional[str]
+    version: str | None
 
     def __init__(
         self,
         *,
         name: str,
         description: str,
-        version: Optional[str] = None,
+        version: str | None = None,
     ):
         self.name = name
         self.description = description
@@ -165,14 +176,14 @@ class BaseTool(ABC):
     def get_spec(self) -> Dict[str, Any]:
         """
         Return a generic tool specification (LLM-agnostic).
-        
+
         This should return a dict with:
           {
             "name": name,
             "description": description,
             "parameters": {...}  # Generic JSON Schema
           }
-        
+
         The LLM provider will convert this to its own format.
         """
         pass
@@ -194,20 +205,20 @@ class BaseTool(ABC):
         cls,
         fn: Callable[..., Any],
         *,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        args_schema: Optional[Type[Any]] = None,
+        name: str | None = None,
+        description: str | None = None,
+        args_schema: Type[Any] | None = None,
     ) -> "BaseTool":
         """
         Wrap any Python function as a tool with auto-generated spec.
-        
+
         Args:
             fn: Python function to wrap
             name: Optional custom tool name (defaults to function name)
             description: Optional tool description (defaults to function docstring)
             args_schema: Optional Pydantic BaseModel for parameter schema.
                         If provided, uses Pydantic schema instead of function signature.
-        
+
         Returns:
             BaseTool instance wrapping the function
         """
@@ -245,7 +256,11 @@ class BaseTool(ABC):
                     props: Dict[str, Any] = {}
                     required: list[str] = []
                     for pname, param in sig.parameters.items():
-                        ann = param.annotation if param.annotation is not inspect._empty else str
+                        ann = (
+                            param.annotation
+                            if param.annotation is not inspect._empty
+                            else str
+                        )
                         typ = _parse_annotation(ann)
                         props[pname] = {"type": typ, "description": ""}
                         if param.default is inspect._empty:
@@ -255,7 +270,7 @@ class BaseTool(ABC):
                         "properties": props,
                         "required": required,
                     }
-                
+
                 # Return generic spec (LLM-agnostic)
                 # LLM provider will convert to its own format
                 return {

@@ -18,28 +18,31 @@ Basic Usage:
 
 import asyncio
 import logging
-from typing import Optional, List, Literal
-from pydantic import BaseModel, Field
-from dataclasses import dataclass
-from typing_extensions import TypedDict
-from dotenv import load_dotenv
 import os
 import sys
+from dataclasses import dataclass
+from typing import List, Literal
+
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 # Load environment variables
 load_dotenv()
 
 # Add src directory to path
-_src_dir = os.path.join(os.path.dirname(__file__), '../..')
+_src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.task import Task
 from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode
-from nucleusiq.agents.structured_output import OutputSchema, OutputMode
+from nucleusiq.agents.structured_output import OutputMode, OutputSchema
+from nucleusiq.agents.task import Task
 from nucleusiq_openai import BaseOpenAI
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -47,16 +50,19 @@ logger = logging.getLogger(__name__)
 # SCHEMA DEFINITIONS
 # ============================================================================
 
+
 class ContactInfo(BaseModel):
     """Contact information extracted from text."""
+
     name: str = Field(description="Full name")
     email: str = Field(description="Email address")
-    phone: Optional[str] = Field(default=None, description="Phone number")
+    phone: str | None = Field(default=None, description="Phone number")
 
 
 class ProductReview(BaseModel):
     """Analyzed product review."""
-    rating: Optional[int] = Field(description="Rating 1-5", ge=1, le=5)
+
+    rating: int | None = Field(description="Rating 1-5", ge=1, le=5)
     sentiment: Literal["positive", "negative", "neutral"]
     key_points: List[str] = Field(description="Main points from review")
 
@@ -64,6 +70,7 @@ class ProductReview(BaseModel):
 @dataclass
 class MeetingAction:
     """Action item from a meeting."""
+
     task: str
     assignee: str
     priority: str  # low, medium, high
@@ -71,6 +78,7 @@ class MeetingAction:
 
 class ServerConfig(TypedDict):
     """Server configuration."""
+
     host: str
     port: int
     debug: bool
@@ -80,14 +88,15 @@ class ServerConfig(TypedDict):
 # EXAMPLES
 # ============================================================================
 
+
 async def example_simple():
     """Simplest usage - just pass the schema."""
     logger.info("=" * 60)
     logger.info("Example 1: Simple Usage (Just Pass Schema)")
     logger.info("=" * 60)
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini")
-    
+
     # Just pass the schema - that's it!
     agent = Agent(
         name="ContactExtractor",
@@ -95,17 +104,16 @@ async def example_simple():
         objective="Extract contact information",
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
-        response_format=ContactInfo  # <-- Just pass the Pydantic model
+        response_format=ContactInfo,  # <-- Just pass the Pydantic model
     )
-    
+
     task = Task(
-        id="contact-1",
-        objective="Extract: John Smith, john.smith@email.com, 555-1234"
+        id="contact-1", objective="Extract: John Smith, john.smith@email.com, 555-1234"
     )
-    
+
     result = await agent.execute(task)
     contact = result["output"]
-    
+
     logger.info(f"Type: {type(contact).__name__}")
     logger.info(f"Name: {contact.name}")
     logger.info(f"Email: {contact.email}")
@@ -118,9 +126,9 @@ async def example_explicit_config():
     logger.info("=" * 60)
     logger.info("Example 2: Explicit Config (OutputSchema)")
     logger.info("=" * 60)
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini")
-    
+
     # Explicit configuration for more control
     agent = Agent(
         name="ReviewAnalyzer",
@@ -131,20 +139,20 @@ async def example_explicit_config():
         response_format=OutputSchema(
             schema=ProductReview,
             mode=OutputMode.NATIVE,  # Use native structured output
-            strict=True,             # Strict schema adherence
-            retry_on_error=True,     # Retry on validation failure
-            max_retries=2
-        )
+            strict=True,  # Strict schema adherence
+            retry_on_error=True,  # Retry on validation failure
+            max_retries=2,
+        ),
     )
-    
+
     task = Task(
         id="review-1",
-        objective="Analyze: 'Great product! 5 stars. Fast shipping, great quality, but expensive.'"
+        objective="Analyze: 'Great product! 5 stars. Fast shipping, great quality, but expensive.'",
     )
-    
+
     result = await agent.execute(task)
     review = result["output"]
-    
+
     logger.info(f"Rating: {review.rating}/5")
     logger.info(f"Sentiment: {review.sentiment}")
     logger.info(f"Key Points: {review.key_points}")
@@ -156,26 +164,26 @@ async def example_dataclass():
     logger.info("=" * 60)
     logger.info("Example 3: Dataclass Schema")
     logger.info("=" * 60)
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini")
-    
+
     agent = Agent(
         name="MeetingParser",
         role="Meeting Assistant",
         objective="Extract action items from meeting notes",
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
-        response_format=MeetingAction
+        response_format=MeetingAction,
     )
-    
+
     task = Task(
         id="meeting-1",
-        objective="Action: Sarah needs to update the project timeline by Friday - high priority"
+        objective="Action: Sarah needs to update the project timeline by Friday - high priority",
     )
-    
+
     result = await agent.execute(task)
     action = result["output"]
-    
+
     logger.info(f"Type: {type(action).__name__}")
     logger.info(f"Task: {action.task}")
     logger.info(f"Assignee: {action.assignee}")
@@ -188,26 +196,26 @@ async def example_typeddict():
     logger.info("=" * 60)
     logger.info("Example 4: TypedDict Schema")
     logger.info("=" * 60)
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini")
-    
+
     agent = Agent(
         name="ConfigParser",
         role="Config Parser",
         objective="Parse server configuration",
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
-        response_format=ServerConfig
+        response_format=ServerConfig,
     )
-    
+
     task = Task(
         id="config-1",
-        objective="Parse: server at api.example.com on port 8080, debug mode on"
+        objective="Parse: server at api.example.com on port 8080, debug mode on",
     )
-    
+
     result = await agent.execute(task)
     config = result["output"]
-    
+
     logger.info(f"Type: {type(config).__name__}")
     logger.info(f"Host: {config['host']}")
     logger.info(f"Port: {config['port']}")
@@ -220,25 +228,22 @@ async def example_no_schema():
     logger.info("=" * 60)
     logger.info("Example 5: No Schema (Raw Text)")
     logger.info("=" * 60)
-    
+
     llm = BaseOpenAI(model_name="gpt-4o-mini")
-    
+
     # No response_format = raw text response
     agent = Agent(
         name="ChatBot",
         role="Assistant",
         objective="Answer questions",
         llm=llm,
-        config=AgentConfig(execution_mode=ExecutionMode.DIRECT)
+        config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
-    
-    task = Task(
-        id="chat-1",
-        objective="What is Python?"
-    )
-    
+
+    task = Task(id="chat-1", objective="What is Python?")
+
     result = await agent.execute(task)
-    
+
     logger.info(f"Type: {type(result).__name__}")
     logger.info(f"Response: {result[:100]}...")
     return isinstance(result, str)
@@ -247,6 +252,7 @@ async def example_no_schema():
 # ============================================================================
 # MAIN
 # ============================================================================
+
 
 async def main():
     """Run all examples."""
@@ -271,9 +277,9 @@ Supported schemas:
 - TypedDict
 - JSON Schema (dict)
 """)
-    
+
     results = {}
-    
+
     try:
         results["Simple (Pydantic)"] = await example_simple()
         results["Explicit Config"] = await example_explicit_config()
@@ -283,15 +289,16 @@ Supported schemas:
     except Exception as e:
         logger.error(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
         return
-    
+
     logger.info("\n" + "=" * 60)
     logger.info("SUMMARY")
     logger.info("=" * 60)
     for name, passed in results.items():
         logger.info(f"  {name}: {'PASS' if passed else 'FAIL'}")
-    
+
     total = len(results)
     passed = sum(1 for v in results.values() if v)
     logger.info(f"\nOverall: {passed}/{total} passed")

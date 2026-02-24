@@ -10,30 +10,27 @@ via a pluggable registry.  All heavy logic lives in:
 - ``messaging/``   — LLM message construction
 """
 
-from typing import Any, ClassVar, Dict, List, Optional, Type, Union
-from datetime import datetime
-import asyncio
 import inspect
-from pydantic import Field, PrivateAttr
+from datetime import datetime
+from typing import Any, ClassVar, Dict, List, Type
 
 from nucleusiq.agents.builder.base_agent import BaseAgent
-from nucleusiq.agents.config.agent_config import AgentState, AgentMetrics
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.components.executor import Executor
-from nucleusiq.agents.structured_output.handler import StructuredOutputHandler
-from nucleusiq.prompts.base import BasePrompt
-from nucleusiq.llms.base_llm import BaseLLM
-from nucleusiq.llms.llm_params import LLMParams
-from nucleusiq.plugins.base import BasePlugin, AgentContext
-from nucleusiq.plugins.manager import PluginManager
-from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.agents.config.agent_config import AgentMetrics, AgentState
+from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
 # Mode imports
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.modes.direct_mode import DirectMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
-from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
+from nucleusiq.agents.plan import Plan, PlanStep
+from nucleusiq.agents.structured_output.handler import StructuredOutputHandler
+from nucleusiq.agents.task import Task
+from nucleusiq.llms.llm_params import LLMParams
+from nucleusiq.plugins.base import AgentContext, BasePlugin
+from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.plugins.manager import PluginManager
+from pydantic import Field, PrivateAttr
 
 
 class Agent(BaseAgent):
@@ -92,9 +89,7 @@ class Agent(BaseAgent):
     }
 
     @classmethod
-    def register_mode(
-        cls, name: str, mode_class: Type[BaseExecutionMode]
-    ) -> None:
+    def register_mode(cls, name: str, mode_class: Type[BaseExecutionMode]) -> None:
         """
         Register a new execution mode without modifying Agent.
 
@@ -117,7 +112,7 @@ class Agent(BaseAgent):
     # Private attributes (initialised in initialize())                    #
     # ------------------------------------------------------------------ #
 
-    _executor: Optional[Executor] = PrivateAttr(default=None)
+    _executor: Executor | None = PrivateAttr(default=None)
     _plugin_manager: PluginManager = PrivateAttr(default=None)
     _structured_output: StructuredOutputHandler = PrivateAttr(
         default_factory=StructuredOutputHandler
@@ -156,36 +151,28 @@ class Agent(BaseAgent):
             # Initialize prompt if provided
             if self.prompt:
                 prompt_text = self.prompt.format_prompt()
-                self._logger.debug(
-                    f"Prompt system initialized \n {prompt_text}"
-                )
+                self._logger.debug(f"Prompt system initialized \n {prompt_text}")
 
             # Initialize tools
             for tool in self.tools:
                 await tool.initialize()
             if self.tools:
-                self._logger.debug(
-                    "Initialised %d tools", len(self.tools)
-                )
+                self._logger.debug("Initialised %d tools", len(self.tools))
 
             # Initialization succeeded
             self.state = AgentState.INITIALIZING
-            self._logger.info(
-                "Agent initialization completed successfully"
-            )
+            self._logger.info("Agent initialization completed successfully")
 
         except Exception as e:
             self.state = AgentState.ERROR
-            self._logger.error(
-                f"Agent initialization failed: {str(e)}"
-            )
+            self._logger.error(f"Agent initialization failed: {str(e)}")
             raise
 
     # ------------------------------------------------------------------ #
     # PLANNING (very simple by default)                                   #
     # ------------------------------------------------------------------ #
 
-    async def plan(self, task: Union[Task, Dict[str, Any]]) -> Plan:
+    async def plan(self, task: Task | Dict[str, Any]) -> Plan:
         """
         Create an execution plan for the given task.
 
@@ -213,7 +200,7 @@ class Agent(BaseAgent):
 
     def _resolve_llm_params(
         self,
-        per_execute: Optional[LLMParams] = None,
+        per_execute: LLMParams | None = None,
     ) -> Dict[str, Any]:
         """
         Merge LLM parameter overrides and return a kwargs dict.
@@ -240,8 +227,8 @@ class Agent(BaseAgent):
 
     async def execute(
         self,
-        task: Union[Task, Dict[str, Any]],
-        llm_params: Optional[LLMParams] = None,
+        task: Task | Dict[str, Any],
+        llm_params: LLMParams | None = None,
     ) -> Any:
         """
         Execute a task using the agent's capabilities.
@@ -272,9 +259,7 @@ class Agent(BaseAgent):
             task = Task.from_dict(task)
 
         # Resolve merged LLM params for this execution
-        self._current_llm_overrides = self._resolve_llm_params(
-            per_execute=llm_params
-        )
+        self._current_llm_overrides = self._resolve_llm_params(per_execute=llm_params)
 
         self._logger.debug("Starting execution for task %s", task.id)
         self._current_task = task.to_dict()  # Store as dict for compat
@@ -308,7 +293,6 @@ class Agent(BaseAgent):
                 await self.memory.aadd_message("user", user_input)
 
         # Route to appropriate execution mode (Gearbox Strategy)
-        from nucleusiq.agents.config.agent_config import ExecutionMode
 
         execution_mode = self.config.execution_mode
 
@@ -336,9 +320,7 @@ class Agent(BaseAgent):
                 result = halt.result
 
             # --- AFTER_AGENT hook ---
-            result = await self._plugin_manager.run_after_agent(
-                agent_ctx, result
-            )
+            result = await self._plugin_manager.run_after_agent(agent_ctx, result)
             return result
         finally:
             # Clean up per-execute overrides
@@ -386,9 +368,7 @@ class Agent(BaseAgent):
 
             # Process through prompt if available and method exists
             if self.prompt:
-                process_result = getattr(
-                    self.prompt, "process_result", None
-                )
+                process_result = getattr(self.prompt, "process_result", None)
                 if process_result and callable(process_result):
                     if inspect.iscoroutinefunction(process_result):
                         result = await process_result(result)
@@ -406,13 +386,9 @@ class Agent(BaseAgent):
         required_fields = ["id", "objective"]
         return all(field in task for field in required_fields)
 
-    async def _execute_tool(
-        self, tool_name: str, params: Dict[str, Any]
-    ) -> Any:
+    async def _execute_tool(self, tool_name: str, params: Dict[str, Any]) -> Any:
         """Execute a specific tool with parameters."""
-        tool = next(
-            (t for t in self.tools if t.name == tool_name), None
-        )
+        tool = next((t for t in self.tools if t.name == tool_name), None)
         if not tool:
             raise ValueError(f"Tool not found: {tool_name}")
 
@@ -422,9 +398,7 @@ class Agent(BaseAgent):
         finally:
             self.state = AgentState.EXECUTING
 
-    async def _handle_error(
-        self, error: Exception, context: Dict[str, Any]
-    ) -> None:
+    async def _handle_error(self, error: Exception, context: Dict[str, Any]) -> None:
         """Handle execution errors with appropriate logging and recovery."""
         self._logger.error(f"Error during execution: {str(error)}")
 
@@ -462,17 +436,14 @@ class Agent(BaseAgent):
         if self.memory and "memory" in state:
             await self.memory.aimport_state(state["memory"])
 
-        self._logger.info(
-            f"Loaded agent state from {state['timestamp']}"
-        )
+        self._logger.info(f"Loaded agent state from {state['timestamp']}")
 
     async def delegate_task(
         self, task: Dict[str, Any], target_agent: "BaseAgent"
     ) -> Any:
         """Delegate a task to another agent."""
         self._logger.info(
-            "Delegating task to agent to perfoming the task: "
-            f"{target_agent.name}"
+            f"Delegating task to agent to perfoming the task: {target_agent.name}"
         )
         self.state = AgentState.WAITING_FOR_HUMAN
 
@@ -480,4 +451,3 @@ class Agent(BaseAgent):
             return await target_agent.execute(task)
         finally:
             self.state = AgentState.EXECUTING
-

@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union, Self
+from typing import Any, Callable, Dict, List, Self, Type, TypeVar
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 FormatOutputType = TypeVar("FormatOutputType")
 
@@ -20,41 +20,30 @@ class BasePrompt(BaseModel, ABC):
     """
 
     template: str = Field(
-        default="",
-        description="Prompt template string with placeholders."
+        default="", description="Prompt template string with placeholders."
     )
     input_variables: List[str] = Field(
-        default_factory=list,
-        description="Names of required variables."
+        default_factory=list, description="Names of required variables."
     )
     optional_variables: List[str] = Field(
-        default_factory=list,
-        description="Names of optional variables."
+        default_factory=list, description="Names of optional variables."
     )
 
     # We keep these optional so we can set them later
-    system: Optional[str] = Field(
-        default=None,
-        description="System instructions for the LLM prompt."
+    system: str | None = Field(
+        default=None, description="System instructions for the LLM prompt."
     )
-    context: Optional[str] = Field(
-        default=None,
-        description="Additional context or background information."
+    context: str | None = Field(
+        default=None, description="Additional context or background information."
     )
-    user: Optional[str] = Field(
-        default=None,
-        description="User prompt or question."
-    )
+    user: str | None = Field(default=None, description="User prompt or question.")
 
-    partial_variables: Dict[str, Union[Any, Callable[[], Any]]] = Field(default_factory=dict)
-    output_parser: Optional[Callable[[str], Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
-    tags: Optional[List[str]] = Field(default_factory=list)
+    partial_variables: Dict[str, Any | Callable[[], Any]] = Field(default_factory=dict)
+    output_parser: Callable[[str], Any] | None = None
+    metadata: Dict[str, Any] | None = None
+    tags: List[str] | None = Field(default_factory=list)
 
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-        validate_assignment=True
-    )
+    model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
     @property
     @abstractmethod
@@ -71,13 +60,13 @@ class BasePrompt(BaseModel, ABC):
     #
     # Basic field-level checks for certain list fields, etc.
     #
-    @field_validator('template')
+    @field_validator("template")
     def validate_template_not_empty(cls, v):
         if not isinstance(v, str) or not v.strip():
             raise ValueError("Template cannot be empty.")
         return v
 
-    @field_validator('input_variables', 'optional_variables', mode='before')
+    @field_validator("input_variables", "optional_variables", mode="before")
     def validate_str_list(cls, v, field):
         """Ensure these are lists of valid strings."""
         if not isinstance(v, list):
@@ -130,11 +119,13 @@ class BasePrompt(BaseModel, ABC):
         """
         for field_name, value in kwargs.items():
             if not hasattr(self, field_name):
-                raise ValueError(f"Field '{field_name}' is not recognized by {self.__class__.__name__}.")
+                raise ValueError(
+                    f"Field '{field_name}' is not recognized by {self.__class__.__name__}."
+                )
             setattr(self, field_name, value)
         return self
 
-    def save(self, file_path: Union[Path, str]) -> None:
+    def save(self, file_path: Path | str) -> None:
         data = self.model_dump()
         data["_type"] = self.technique_name
 
@@ -149,13 +140,13 @@ class BasePrompt(BaseModel, ABC):
             raise ValueError("Unsupported file format. Use .json or .yaml/.yml")
 
     @classmethod
-    def load(cls: Type[Self], file_path: Union[Path, str]) -> Self:
+    def load(cls: Type[Self], file_path: Path | str) -> Self:
         p = Path(file_path)
         if p.suffix == ".json":
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 data = json.load(f)
         elif p.suffix in (".yaml", ".yml"):
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
         else:
             raise ValueError("Unsupported file format. Use .json or .yaml/.yml")
@@ -165,10 +156,13 @@ class BasePrompt(BaseModel, ABC):
             raise ValueError("Prompt file missing '_type' field for class resolution.")
 
         from .factory import PromptFactory
+
         subcls = PromptFactory.prompt_classes.get(prompt_type.lower())
         if not subcls:
             available = ", ".join(PromptFactory.prompt_classes.keys())
-            raise ValueError(f"Unsupported prompt type '{prompt_type}'. Available: {available}")
+            raise ValueError(
+                f"Unsupported prompt type '{prompt_type}'. Available: {available}"
+            )
 
         return subcls(**data)
 
@@ -190,7 +184,6 @@ class BasePrompt(BaseModel, ABC):
     def _merge_partial_variables(self, **kwargs: Any) -> Dict[str, Any]:
         # Merges partial_variables with any provided kwargs
         partial_vals = {
-            k: (v() if callable(v) else v)
-            for k, v in self.partial_variables.items()
+            k: (v() if callable(v) else v) for k, v in self.partial_variables.items()
         }
         return {**partial_vals, **kwargs}

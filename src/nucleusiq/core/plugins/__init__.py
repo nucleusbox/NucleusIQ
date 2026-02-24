@@ -18,15 +18,18 @@ Example (decorator)::
 
     from nucleusiq.plugins import before_model, wrap_tool_call, ModelRequest
 
+
     @before_model
     def log(request: ModelRequest) -> None:
         print(f"LLM call #{request.call_count} to {request.model}")
+
 
     agent = Agent(..., plugins=[log])
 
 Example (class-based)::
 
     from nucleusiq.plugins import BasePlugin, ModelRequest
+
 
     class RetryPlugin(BasePlugin):
         async def wrap_model_call(self, request, handler):
@@ -37,27 +40,27 @@ Example (class-based)::
 """
 
 from nucleusiq.plugins.base import (
-    BasePlugin,
     AgentContext,
-    ModelRequest,
-    ToolRequest,
-    ModelHandler,
-    ToolHandler,
+    BasePlugin,
+    CallNext,
     # Backward compat aliases
     ModelCallContext,
+    ModelHandler,
+    ModelRequest,
     ToolCallContext,
-    CallNext,
+    ToolHandler,
+    ToolRequest,
 )
-from nucleusiq.plugins.errors import PluginHalt, PluginError
-from nucleusiq.plugins.manager import PluginManager
 from nucleusiq.plugins.decorators import (
-    before_agent,
     after_agent,
-    before_model,
     after_model,
+    before_agent,
+    before_model,
     wrap_model_call,
     wrap_tool_call,
 )
+from nucleusiq.plugins.errors import PluginError, PluginHalt
+from nucleusiq.plugins.manager import PluginManager
 
 __all__ = [
     # Core

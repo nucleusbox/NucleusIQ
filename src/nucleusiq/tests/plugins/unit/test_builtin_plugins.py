@@ -1,14 +1,13 @@
 """Unit tests for built-in plugins."""
 
-import pytest
 from unittest.mock import AsyncMock
 
+import pytest
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
-from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.plugins.builtin.model_call_limit import ModelCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
-
+from nucleusiq.plugins.errors import PluginHalt
 
 # ------------------------------------------------------------------ #
 # ModelCallLimitPlugin                                                 #
@@ -107,9 +106,7 @@ class TestToolRetryPlugin:
     async def test_retries_on_failure(self):
         p = ToolRetryPlugin(max_retries=2, base_delay=0.01)
         req = ToolRequest(agent_name="a", tool_name="t")
-        handler = AsyncMock(
-            side_effect=[ValueError("fail"), ValueError("fail"), "ok"]
-        )
+        handler = AsyncMock(side_effect=[ValueError("fail"), ValueError("fail"), "ok"])
         result = await p.wrap_tool_call(req, handler)
         assert result == "ok"
         assert handler.call_count == 3

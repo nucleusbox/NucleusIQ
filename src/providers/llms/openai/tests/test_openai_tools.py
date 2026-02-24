@@ -9,7 +9,6 @@ Tests cover:
 - Tool spec generation
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -18,11 +17,11 @@ src_dir = Path(__file__).parent.parent.parent / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
+
 import pytest
-from typing import Dict, Any, List
+from nucleusiq.tools import BaseTool
 from nucleusiq_openai import OpenAITool
 from nucleusiq_openai.tools.openai_tool import NATIVE_TOOL_TYPES
-from nucleusiq.tools import BaseTool
 
 
 class TestOpenAIToolConstants:
@@ -196,11 +195,7 @@ class TestMCPTool:
 
     def test_mcp_tool_with_require_approval_dict(self):
         """Test MCP tool with require_approval as dict."""
-        require_approval = {
-            "never": {
-                "tool_names": ["roll", "search"]
-            }
-        }
+        require_approval = {"never": {"tool_names": ["roll", "search"]}}
         tool = OpenAITool.mcp(
             server_label="test",
             server_description="Test server",

@@ -1,19 +1,16 @@
 """Unit tests for PluginManager."""
 
-import pytest
-from typing import Optional, Any
 from unittest.mock import AsyncMock
 
+import pytest
 from nucleusiq.plugins.base import (
-    BasePlugin,
     AgentContext,
+    BasePlugin,
     ModelRequest,
     ToolRequest,
 )
-from nucleusiq.plugins.manager import PluginManager
 from nucleusiq.plugins.errors import PluginHalt
-from nucleusiq.agents.chat_models import ToolCallRequest
-
+from nucleusiq.plugins.manager import PluginManager
 
 # ------------------------------------------------------------------ #
 # Helpers                                                              #
@@ -320,7 +317,9 @@ class TestExecuteToolCall:
     async def test_no_plugins(self):
         pm = PluginManager()
         req = ToolRequest(
-            agent_name="a", tool_name="calc", tool_args={"x": 1},
+            agent_name="a",
+            tool_name="calc",
+            tool_args={"x": 1},
             tool_call_id="tc_1",
         )
         mock_exec = AsyncMock(return_value=42)

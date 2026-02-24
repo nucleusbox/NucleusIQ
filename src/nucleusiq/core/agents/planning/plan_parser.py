@@ -7,7 +7,7 @@ Extracted from ``Agent._parse_plan_response()``.
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from nucleusiq.agents.plan import PlanResponse, PlanStepResponse
 
@@ -15,7 +15,7 @@ from nucleusiq.agents.plan import PlanResponse, PlanStepResponse
 class PlanParser:
     """Parses LLM responses into PlanResponse models."""
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: logging.Logger | None = None):
         self._logger = logger or logging.getLogger(__name__)
 
     def parse(self, response: str) -> PlanResponse:
@@ -31,7 +31,7 @@ class PlanParser:
         """
 
         # Helper function to extract JSON with balanced brackets
-        def _extract_balanced_json(text: str, start_pos: int) -> Optional[str]:
+        def _extract_balanced_json(text: str, start_pos: int) -> str | None:
             """Extract JSON object using balanced bracket matching to handle nested structures."""
             brace_count = 0
             in_string = False
@@ -57,7 +57,7 @@ class PlanParser:
             return None
 
         # Method 1: Try to extract JSON from markdown code blocks
-        json_str: Optional[str] = None
+        json_str: str | None = None
         code_block_match = re.search(
             r"```(?:json)?\s*(\{)",
             response,
@@ -98,7 +98,7 @@ class PlanParser:
             "for better reliability."
         )
         step_responses: List[PlanStepResponse] = []
-        current_step: Optional[Dict[str, Any]] = None
+        current_step: Dict[str, Any] | None = None
 
         for line in response.split("\n"):
             line = line.strip()
@@ -121,9 +121,7 @@ class PlanParser:
             elif current_step:
                 # Check if line contains action information
                 if "action" in line.lower() and ":" in line:
-                    action_match = re.search(
-                        r"action[:\s]+(.+)", line, re.IGNORECASE
-                    )
+                    action_match = re.search(r"action[:\s]+(.+)", line, re.IGNORECASE)
                     if action_match and (
                         not current_step.get("action")
                         or current_step.get("action") == "execute"

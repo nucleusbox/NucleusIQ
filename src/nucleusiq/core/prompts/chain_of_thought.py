@@ -1,8 +1,9 @@
 # src/nucleusiq/prompts/chain_of_thought.py
 
-from typing import Optional, Dict, Any
-from pydantic import Field
+from typing import Any, Dict
+
 from nucleusiq.prompts.base import BasePrompt
+from pydantic import Field
 
 
 class ChainOfThoughtPrompt(BasePrompt):
@@ -14,11 +15,11 @@ class ChainOfThoughtPrompt(BasePrompt):
     # Specific fields for Chain-of-Thought Prompting
     use_cot: bool = Field(
         default=True,
-        description="Whether to enforce Chain-of-Thought reasoning. Must always be True for ChainOfThoughtPrompt."
+        description="Whether to enforce Chain-of-Thought reasoning. Must always be True for ChainOfThoughtPrompt.",
     )
     cot_instruction: str = Field(
         default="Let's think step by step.",
-        description="The Chain-of-Thought instruction to append if use_cot is True."
+        description="The Chain-of-Thought instruction to append if use_cot is True.",
     )
 
     @property
@@ -28,15 +29,15 @@ class ChainOfThoughtPrompt(BasePrompt):
     # Override default template, input_variables, and optional_variables
     template: str = Field(
         default="{system}\n\n{user}\n\n{cot_instruction}",
-        description="Default template for Chain-of-Thought Prompting."
+        description="Default template for Chain-of-Thought Prompting.",
     )
     input_variables: list = Field(
         default_factory=lambda: ["system", "user"],
-        description="Required input variables for Chain-of-Thought Prompting."
+        description="Required input variables for Chain-of-Thought Prompting.",
     )
     optional_variables: list = Field(
         default_factory=lambda: ["cot_instruction", "use_cot"],
-        description="Optional variables for Chain-of-Thought Prompting."
+        description="Optional variables for Chain-of-Thought Prompting.",
     )
 
     #
@@ -44,10 +45,10 @@ class ChainOfThoughtPrompt(BasePrompt):
     #
     def configure(
         self,
-        system: Optional[str] = None,
-        user: Optional[str] = None,
-        use_cot: Optional[bool] = None,
-        cot_instruction: Optional[str] = None
+        system: str | None = None,
+        user: str | None = None,
+        use_cot: bool | None = None,
+        cot_instruction: str | None = None,
     ) -> "ChainOfThoughtPrompt":
         """
         Configure multiple parameters at once.
@@ -64,7 +65,9 @@ class ChainOfThoughtPrompt(BasePrompt):
         # Validate use_cot
         if use_cot is not None:
             if use_cot is False:
-                raise ValueError("use_cot cannot be set to False for ChainOfThoughtPrompt.")
+                raise ValueError(
+                    "use_cot cannot be set to False for ChainOfThoughtPrompt."
+                )
             self.use_cot = True  # Force True if user tries to pass True
 
         # If user provided a new cot_instruction
@@ -89,7 +92,9 @@ class ChainOfThoughtPrompt(BasePrompt):
         """
         # If the user tries to set it false or we got None, forcibly ensure it's True
         if not self.use_cot:
-            raise ValueError("ChainOfThoughtPrompt requires use_cot=True (cannot be False).")
+            raise ValueError(
+                "ChainOfThoughtPrompt requires use_cot=True (cannot be False)."
+            )
 
         # If CoT is true but cot_instruction is empty, default it
         c_instr = combined_vars.get("cot_instruction", "").strip()

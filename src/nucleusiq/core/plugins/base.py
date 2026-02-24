@@ -19,7 +19,9 @@ Example (class-based)::
                 except Exception:
                     if attempt == 2:
                         raise
-                    request = request.with_(metadata={**request.metadata, "retry": attempt})
+                    request = request.with_(
+                        metadata={**request.metadata, "retry": attempt}
+                    )
 
 Example (decorator)::
 
@@ -32,15 +34,20 @@ from __future__ import annotations
 
 import json
 from abc import ABC
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Protocol,
+)
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 if TYPE_CHECKING:
-    from nucleusiq.agents.task import Task
-    from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
-    from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
-    from nucleusiq.memory.base import BaseMemory
+    pass
 
 
 # ------------------------------------------------------------------ #
@@ -51,13 +58,13 @@ if TYPE_CHECKING:
 class ModelHandler(Protocol):
     """Typed callable for wrap_model_call handlers."""
 
-    async def __call__(self, request: "ModelRequest") -> Any: ...
+    async def __call__(self, request: ModelRequest) -> Any: ...
 
 
 class ToolHandler(Protocol):
     """Typed callable for wrap_tool_call handlers."""
 
-    async def __call__(self, request: "ToolRequest") -> Any: ...
+    async def __call__(self, request: ToolRequest) -> Any: ...
 
 
 # ------------------------------------------------------------------ #
@@ -77,7 +84,9 @@ class AgentContext(BaseModel):
     task: Any = Field(description="Task instance being executed")
     state: Any = Field(description="Current AgentState enum value")
     config: Any = Field(description="AgentConfig instance")
-    memory: Optional[Any] = Field(default=None, description="BaseMemory instance if configured")
+    memory: Any | None = Field(
+        default=None, description="BaseMemory instance if configured"
+    )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Mutable dict for plugins to share data",
@@ -105,12 +114,16 @@ class ModelRequest(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     model: str = "default"
-    messages: List[Any] = Field(default_factory=list, description="ChatMessage list to be sent")
-    tools: Optional[List[Dict[str, Any]]] = Field(
+    messages: List[Any] = Field(
+        default_factory=list, description="ChatMessage list to be sent"
+    )
+    tools: List[Dict[str, Any]] | None = Field(
         default=None, description="LLM-formatted tool specifications"
     )
     max_tokens: int = 1024
-    call_count: int = Field(default=0, description="Number of LLM calls so far in this execution")
+    call_count: int = Field(
+        default=0, description="Number of LLM calls so far in this execution"
+    )
     agent_name: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -119,7 +132,7 @@ class ModelRequest(BaseModel):
         description="Additional LLM call kwargs (structured output, LLM params, etc.)",
     )
 
-    def with_(self, **updates: Any) -> "ModelRequest":
+    def with_(self, **updates: Any) -> ModelRequest:
         """Create an immutable copy with specific fields replaced.
 
         Uses Pydantic's native ``model_copy(update=...)`` under the hood,
@@ -137,7 +150,7 @@ class ModelRequest(BaseModel):
         Merges the typed fields with ``extra_kwargs`` so the LLM receives
         everything it needs in a single dict.
         """
-        from nucleusiq.agents.chat_models import messages_to_dicts, ChatMessage
+        from nucleusiq.agents.chat_models import ChatMessage
 
         raw_msgs = []
         for m in self.messages:
@@ -173,14 +186,16 @@ class ToolRequest(BaseModel):
 
     tool_name: str
     tool_args: Dict[str, Any] = Field(default_factory=dict)
-    tool_call_id: Optional[str] = None
-    call_count: int = Field(default=0, description="Number of tool calls so far in this execution")
+    tool_call_id: str | None = None
+    call_count: int = Field(
+        default=0, description="Number of tool calls so far in this execution"
+    )
     agent_name: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     _tool_call_request: Any = PrivateAttr(default=None)
 
-    def with_(self, **updates: Any) -> "ToolRequest":
+    def with_(self, **updates: Any) -> ToolRequest:
         """Create an immutable copy with specific fields replaced."""
         new = self.model_copy(update=updates)
         new._tool_call_request = self._tool_call_request
@@ -227,7 +242,9 @@ class BasePlugin(ABC):
     **Wrap hooks** — Receive ``(request, handler)`` and control execution::
 
         class RetryPlugin(BasePlugin):
-            async def wrap_model_call(self, request: ModelRequest, handler: ModelHandler) -> Any:
+            async def wrap_model_call(
+                self, request: ModelRequest, handler: ModelHandler
+            ) -> Any:
                 try:
                     return await handler(request)
                 except Exception:
@@ -245,7 +262,7 @@ class BasePlugin(ABC):
     # Agent-level hooks                                                    #
     # ------------------------------------------------------------------ #
 
-    async def before_agent(self, ctx: AgentContext) -> Optional[AgentContext]:
+    async def before_agent(self, ctx: AgentContext) -> AgentContext | None:
         """Called before the agent dispatches to an execution mode.
 
         Return ``None`` to leave the context unchanged, or a modified
@@ -265,7 +282,7 @@ class BasePlugin(ABC):
     # Model-level hooks                                                    #
     # ------------------------------------------------------------------ #
 
-    async def before_model(self, request: ModelRequest) -> Optional[ModelRequest]:
+    async def before_model(self, request: ModelRequest) -> ModelRequest | None:
         """Called before each LLM call.
 
         Return ``None`` for no change, a ``ModelRequest`` (via ``.with_()``)
@@ -301,9 +318,7 @@ class BasePlugin(ABC):
     # Tool-level hooks                                                     #
     # ------------------------------------------------------------------ #
 
-    async def wrap_tool_call(
-        self, request: ToolRequest, handler: ToolHandler
-    ) -> Any:
+    async def wrap_tool_call(self, request: ToolRequest, handler: ToolHandler) -> Any:
         """Wrap a tool execution (chain-of-responsibility).
 
         Call ``await handler(request)`` to proceed or return directly

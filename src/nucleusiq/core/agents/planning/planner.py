@@ -9,22 +9,23 @@ Static helpers (``get_plan_schema``, ``get_plan_function_spec``) remain
 here since they are part of the planning contract.
 """
 
-import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
 
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.plan import Plan, PlanStep
+from nucleusiq.agents.plan import Plan
 from nucleusiq.agents.planning.plan_creator import PlanCreator
 from nucleusiq.agents.planning.plan_executor import PlanExecutor
 from nucleusiq.agents.planning.prompt_strategy import (
-    PlanPromptStrategy,
     DefaultPlanPromptStrategy,
+    PlanPromptStrategy,
+)
+from nucleusiq.agents.planning.schema import (
+    get_plan_function_spec as _get_plan_function_spec,
 )
 from nucleusiq.agents.planning.schema import (
     get_plan_schema as _get_plan_schema,
-    get_plan_function_spec as _get_plan_function_spec,
 )
+from nucleusiq.agents.task import Task
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -37,8 +38,8 @@ class Planner:
 
         planner = Planner(agent)
         context = await planner.get_context(task)
-        plan    = await planner.create_plan(task, context)
-        result  = await planner.execute_plan(task, plan)
+        plan = await planner.create_plan(task, context)
+        result = await planner.execute_plan(task, plan)
 
     Custom prompt strategy::
 
@@ -55,7 +56,7 @@ class Planner:
     def __init__(
         self,
         agent: "Agent",
-        prompt_strategy: Optional[PlanPromptStrategy] = None,
+        prompt_strategy: PlanPromptStrategy | None = None,
     ):
         self._agent = agent
         self._logger = agent._logger
@@ -93,9 +94,7 @@ class Planner:
     # Context                                                             #
     # ------------------------------------------------------------------ #
 
-    async def get_context(
-        self, task: Union[Task, Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    async def get_context(self, task: Task | Dict[str, Any]) -> Dict[str, Any]:
         """Retrieve relevant context for task execution."""
         task_dict = task.to_dict() if isinstance(task, Task) else task
         context: Dict[str, Any] = {
@@ -105,9 +104,7 @@ class Planner:
             "timestamp": datetime.now().isoformat(),
         }
         if self._agent.memory:
-            memory_context = await self._agent.memory.aget_relevant_context(
-                task_dict
-            )
+            memory_context = await self._agent.memory.aget_relevant_context(task_dict)
             context["memory"] = memory_context
         return context
 
@@ -117,7 +114,7 @@ class Planner:
 
     async def create_plan(
         self,
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
         context: Dict[str, Any],
     ) -> Plan:
         """Create an execution plan using the LLM."""
@@ -125,15 +122,15 @@ class Planner:
 
     async def execute_plan(
         self,
-        task: Union[Task, Dict[str, Any]],
-        plan: Union[Plan, List[Dict[str, Any]]],
+        task: Task | Dict[str, Any],
+        plan: Plan | List[Dict[str, Any]],
     ) -> Any:
         """Execute a task following a multi-step plan."""
         return await self._executor.execute_plan(self._agent, task, plan)
 
     def construct_planning_prompt(
         self,
-        task: Union[Task, Dict[str, Any]],
+        task: Task | Dict[str, Any],
         context: Dict[str, Any],
     ) -> str:
         """Build the structured planning prompt."""
@@ -143,8 +140,7 @@ class Planner:
         return self._prompt_strategy.build_planning_prompt(
             task_objective=task_obj,
             tool_names=[
-                getattr(t, "name", "unknown")
-                for t in (self._agent.tools or [])
+                getattr(t, "name", "unknown") for t in (self._agent.tools or [])
             ],
             role=self._agent.role,
             objective=self._agent.objective,

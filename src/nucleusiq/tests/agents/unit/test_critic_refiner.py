@@ -8,11 +8,11 @@ Tests the Generate → Verify → Revise architecture:
 """
 
 import json
-import pytest
-import asyncio
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.components.critic import (
     Critic,
     CritiqueResult,
@@ -20,15 +20,14 @@ from nucleusiq.agents.components.critic import (
     _truncate,
 )
 from nucleusiq.agents.components.refiner import Refiner
+from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
 from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.task import Task
-from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
-from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
-
 
 # ================================================================== #
 # Test helpers                                                        #
 # ================================================================== #
+
 
 def _make_task(objective: str = "Test task") -> Task:
     return Task(id="test-1", objective=objective)
@@ -38,14 +37,17 @@ def _make_step(
     step_num: int = 1,
     action: str = "execute",
     details: str = "Test step",
-    args: Optional[Dict[str, Any]] = None,
+    args: Dict[str, Any] | None = None,
 ) -> PlanStep:
     return PlanStep(
-        step=step_num, action=action, details=details, args=args,
+        step=step_num,
+        action=action,
+        details=details,
+        args=args,
     )
 
 
-def _make_plan(steps: Optional[List[PlanStep]] = None) -> Plan:
+def _make_plan(steps: List[PlanStep] | None = None) -> Plan:
     task = _make_task()
     if steps is None:
         steps = [_make_step(1, "execute", "Step 1")]
@@ -54,6 +56,7 @@ def _make_plan(steps: Optional[List[PlanStep]] = None) -> Plan:
 
 class FakeFunction:
     """Simple mock for tool call function info (avoids MagicMock .name issue)."""
+
     def __init__(self, name: str, arguments: str = "{}"):
         self.name = name
         self.arguments = arguments
@@ -61,12 +64,14 @@ class FakeFunction:
 
 class FakeToolCall:
     """Simple mock for a tool call object."""
+
     def __init__(self, function: FakeFunction):
         self.function = function
 
 
 class FakeMessage:
     """Simple mock for LLM message."""
+
     def __init__(self, content=None, tool_calls=None):
         self.content = content
         self.tool_calls = tool_calls
@@ -75,15 +80,15 @@ class FakeMessage:
 class FakeLLMResponse:
     """Mimics MockLLM.LLMResponse structure."""
 
-    def __init__(self, content: Optional[str] = None, tool_calls=None):
+    def __init__(self, content: str | None = None, tool_calls=None):
         msg = FakeMessage(content=content, tool_calls=tool_calls)
         self.choices = [MagicMock(message=msg)]
 
 
 def _make_agent(
     llm_response: Any = None,
-    tools: Optional[List] = None,
-    config: Optional[AgentConfig] = None,
+    tools: List | None = None,
+    config: AgentConfig | None = None,
     has_llm: bool = True,
 ) -> MagicMock:
     """Create a mock Agent with configurable LLM response."""
@@ -118,8 +123,8 @@ def _make_agent(
 # CritiqueResult Model Tests                                          #
 # ================================================================== #
 
-class TestCritiqueResult:
 
+class TestCritiqueResult:
     def test_default_values(self):
         cr = CritiqueResult(verdict=Verdict.PASS)
         assert cr.verdict == Verdict.PASS
@@ -155,7 +160,6 @@ class TestCritiqueResult:
 
 
 class TestVerdict:
-
     def test_enum_values(self):
         assert Verdict.PASS.value == "pass"
         assert Verdict.FAIL.value == "fail"
@@ -171,40 +175,56 @@ class TestVerdict:
 # Critic Tests                                                         #
 # ================================================================== #
 
-class TestCriticReviewStep:
 
+class TestCriticReviewStep:
     @pytest.mark.asyncio
     async def test_pass_verdict_from_json(self):
-        response = FakeLLMResponse(content=json.dumps({
-            "verdict": "pass",
-            "score": 0.95,
-            "feedback": "Result is correct and complete",
-            "issues": [],
-            "suggestions": [],
-        }))
+        response = FakeLLMResponse(
+            content=json.dumps(
+                {
+                    "verdict": "pass",
+                    "score": 0.95,
+                    "feedback": "Result is correct and complete",
+                    "issues": [],
+                    "suggestions": [],
+                }
+            )
+        )
         agent = _make_agent(llm_response=response)
         critic = Critic()
 
         result = await critic.review_step(
-            agent, "Add 2 + 3", _make_step(), "5", {},
+            agent,
+            "Add 2 + 3",
+            _make_step(),
+            "5",
+            {},
         )
         assert result.verdict == Verdict.PASS
         assert result.score == 0.95
 
     @pytest.mark.asyncio
     async def test_fail_verdict_from_json(self):
-        response = FakeLLMResponse(content=json.dumps({
-            "verdict": "fail",
-            "score": 0.2,
-            "feedback": "Calculation is wrong",
-            "issues": ["2 + 3 should be 5, got 6"],
-            "suggestions": ["Recalculate the sum"],
-        }))
+        response = FakeLLMResponse(
+            content=json.dumps(
+                {
+                    "verdict": "fail",
+                    "score": 0.2,
+                    "feedback": "Calculation is wrong",
+                    "issues": ["2 + 3 should be 5, got 6"],
+                    "suggestions": ["Recalculate the sum"],
+                }
+            )
+        )
         agent = _make_agent(llm_response=response)
         critic = Critic()
 
         result = await critic.review_step(
-            agent, "Add 2 + 3", _make_step(), "6", {},
+            agent,
+            "Add 2 + 3",
+            _make_step(),
+            "6",
+            {},
         )
         assert result.verdict == Verdict.FAIL
         assert result.score == 0.2
@@ -213,16 +233,24 @@ class TestCriticReviewStep:
 
     @pytest.mark.asyncio
     async def test_uncertain_verdict(self):
-        response = FakeLLMResponse(content=json.dumps({
-            "verdict": "uncertain",
-            "score": 0.5,
-            "feedback": "Cannot verify this",
-        }))
+        response = FakeLLMResponse(
+            content=json.dumps(
+                {
+                    "verdict": "uncertain",
+                    "score": 0.5,
+                    "feedback": "Cannot verify this",
+                }
+            )
+        )
         agent = _make_agent(llm_response=response)
         critic = Critic()
 
         result = await critic.review_step(
-            agent, "Complex task", _make_step(), "some result", {},
+            agent,
+            "Complex task",
+            _make_step(),
+            "some result",
+            {},
         )
         assert result.verdict == Verdict.UNCERTAIN
 
@@ -232,7 +260,11 @@ class TestCriticReviewStep:
         critic = Critic()
 
         result = await critic.review_step(
-            agent, "task", _make_step(), "result", {},
+            agent,
+            "task",
+            _make_step(),
+            "result",
+            {},
         )
         assert result.verdict == Verdict.PASS
         assert result.score == 1.0
@@ -244,7 +276,11 @@ class TestCriticReviewStep:
         critic = Critic()
 
         result = await critic.review_step(
-            agent, "task", _make_step(), "result", {},
+            agent,
+            "task",
+            _make_step(),
+            "result",
+            {},
         )
         assert result.verdict == Verdict.UNCERTAIN
         assert "failed" in result.feedback.lower()
@@ -256,21 +292,35 @@ class TestCriticReviewStep:
         critic = Critic()
 
         result = await critic.review_step(
-            agent, "task", _make_step(), "result", {},
+            agent,
+            "task",
+            _make_step(),
+            "result",
+            {},
         )
         assert result.verdict == Verdict.UNCERTAIN
 
     @pytest.mark.asyncio
     async def test_context_included_in_prompt(self):
-        response = FakeLLMResponse(content=json.dumps({
-            "verdict": "pass", "score": 0.9, "feedback": "OK",
-        }))
+        response = FakeLLMResponse(
+            content=json.dumps(
+                {
+                    "verdict": "pass",
+                    "score": 0.9,
+                    "feedback": "OK",
+                }
+            )
+        )
         agent = _make_agent(llm_response=response)
         critic = Critic()
 
         context = {"step_1": "previous result", "step_1_action": "tool1"}
         await critic.review_step(
-            agent, "task", _make_step(2), "result", context,
+            agent,
+            "task",
+            _make_step(2),
+            "result",
+            context,
         )
         call_args = agent.llm.call.call_args
         prompt = call_args.kwargs["messages"][0]["content"]
@@ -279,15 +329,18 @@ class TestCriticReviewStep:
 
 
 class TestCriticReviewFinal:
-
     @pytest.mark.asyncio
     async def test_final_pass_with_messages(self):
         """Critic receives conversation messages and returns PASS."""
-        response = FakeLLMResponse(content=json.dumps({
-            "verdict": "pass",
-            "score": 0.9,
-            "feedback": "Result satisfies the task",
-        }))
+        response = FakeLLMResponse(
+            content=json.dumps(
+                {
+                    "verdict": "pass",
+                    "score": 0.9,
+                    "feedback": "Result satisfies the task",
+                }
+            )
+        )
         agent = _make_agent(llm_response=response)
         critic = Critic()
 
@@ -296,7 +349,10 @@ class TestCriticReviewFinal:
             ChatMessage(role="assistant", content="5"),
         ]
         result = await critic.review_final(
-            agent, "Calculate 2+3", final_result="5", messages=messages,
+            agent,
+            "Calculate 2+3",
+            final_result="5",
+            messages=messages,
         )
         assert result.verdict == Verdict.PASS
         call_args = agent.llm.call.call_args
@@ -306,17 +362,25 @@ class TestCriticReviewFinal:
     @pytest.mark.asyncio
     async def test_final_pass_legacy_plan(self):
         """Critic falls back to plan-based prompt when no messages."""
-        response = FakeLLMResponse(content=json.dumps({
-            "verdict": "pass",
-            "score": 0.9,
-            "feedback": "Result satisfies the task",
-        }))
+        response = FakeLLMResponse(
+            content=json.dumps(
+                {
+                    "verdict": "pass",
+                    "score": 0.9,
+                    "feedback": "Result satisfies the task",
+                }
+            )
+        )
         agent = _make_agent(llm_response=response)
         critic = Critic()
 
         plan = _make_plan()
         result = await critic.review_final(
-            agent, "Calculate 2+3", plan=plan, results=["5"], final_result="5",
+            agent,
+            "Calculate 2+3",
+            plan=plan,
+            results=["5"],
+            final_result="5",
         )
         assert result.verdict == Verdict.PASS
 
@@ -326,13 +390,14 @@ class TestCriticReviewFinal:
         critic = Critic()
 
         result = await critic.review_final(
-            agent, "task", final_result="res",
+            agent,
+            "task",
+            final_result="res",
         )
         assert result.verdict == Verdict.PASS
 
 
 class TestCriticParsing:
-
     def test_parse_json_in_markdown_fence(self):
         critic = Critic()
         content = '```json\n{"verdict": "pass", "score": 0.8, "feedback": "OK"}\n```'
@@ -364,9 +429,7 @@ class TestCriticParsing:
 
     def test_parse_non_json_ambiguous(self):
         critic = Critic()
-        response = FakeLLMResponse(
-            content="I'm not sure what to make of this result."
-        )
+        response = FakeLLMResponse(content="I'm not sure what to make of this result.")
         result = critic._parse_response(response)
         assert result.verdict == Verdict.UNCERTAIN
 
@@ -378,11 +441,13 @@ class TestCriticParsing:
 
 
 class TestCriticPromptConstruction:
-
     def test_step_review_prompt_structure(self):
         step = _make_step(1, "add", "Add two numbers")
         prompt = Critic._build_step_review_prompt(
-            "Calculate 2+3", step, "5", {},
+            "Calculate 2+3",
+            step,
+            "5",
+            {},
         )
         assert "Original Task" in prompt
         assert "Calculate 2+3" in prompt
@@ -394,18 +459,26 @@ class TestCriticPromptConstruction:
         step = _make_step(2, "multiply", "Multiply result")
         ctx = {"step_1": "5", "step_1_action": "add"}
         prompt = Critic._build_step_review_prompt(
-            "task", step, "25", ctx,
+            "task",
+            step,
+            "25",
+            ctx,
         )
         assert "step_1" in prompt
         assert "5" in prompt
 
     def test_final_review_prompt_structure(self):
-        plan = _make_plan([
-            _make_step(1, "add", "Add numbers"),
-            _make_step(2, "format", "Format result"),
-        ])
+        plan = _make_plan(
+            [
+                _make_step(1, "add", "Add numbers"),
+                _make_step(2, "format", "Format result"),
+            ]
+        )
         prompt = Critic._build_final_review_prompt(
-            "Calculate and format", plan, ["5", "Result: 5"], "Result: 5",
+            "Calculate and format",
+            plan,
+            ["5", "Result: 5"],
+            "Result: 5",
         )
         assert "Original Task" in prompt
         assert "Calculate and format" in prompt
@@ -417,8 +490,8 @@ class TestCriticPromptConstruction:
 # Refiner Tests                                                        #
 # ================================================================== #
 
-class TestRefinerStep:
 
+class TestRefinerStep:
     @pytest.mark.asyncio
     async def test_llm_revision_for_execute_step(self):
         response = FakeLLMResponse(content="Corrected result: 5")
@@ -434,8 +507,12 @@ class TestRefinerStep:
         )
 
         result = await refiner.refine_step(
-            agent, "Add 2+3", _make_step(), "wrong result",
-            critique, {},
+            agent,
+            "Add 2+3",
+            _make_step(),
+            "wrong result",
+            critique,
+            {},
         )
         assert result == "Corrected result: 5"
 
@@ -443,29 +520,50 @@ class TestRefinerStep:
     async def test_tool_reexecution_for_tool_step(self):
         tool = MagicMock()
         tool.name = "add"
-        tool.get_spec = MagicMock(return_value={
-            "name": "add",
-            "parameters": {"properties": {"a": {}, "b": {}}, "required": ["a", "b"]},
-        })
+        tool.get_spec = MagicMock(
+            return_value={
+                "name": "add",
+                "parameters": {
+                    "properties": {"a": {}, "b": {}},
+                    "required": ["a", "b"],
+                },
+            }
+        )
 
-        tool_call_response = FakeLLMResponse(content=None, tool_calls=[
-            FakeToolCall(function=FakeFunction("add", '{"a": 2, "b": 3}')),
-        ])
+        tool_call_response = FakeLLMResponse(
+            content=None,
+            tool_calls=[
+                FakeToolCall(function=FakeFunction("add", '{"a": 2, "b": 3}')),
+            ],
+        )
         agent = _make_agent(llm_response=tool_call_response, tools=[tool])
-        agent.llm.convert_tool_specs = MagicMock(return_value=[{
-            "function": {"name": "add", "parameters": {"properties": {"a": {}, "b": {}}}},
-        }])
+        agent.llm.convert_tool_specs = MagicMock(
+            return_value=[
+                {
+                    "function": {
+                        "name": "add",
+                        "parameters": {"properties": {"a": {}, "b": {}}},
+                    },
+                }
+            ]
+        )
         agent._executor.execute = AsyncMock(return_value=5)
 
         critique = CritiqueResult(
-            verdict=Verdict.FAIL, feedback="Wrong args",
+            verdict=Verdict.FAIL,
+            feedback="Wrong args",
             issues=["Used wrong numbers"],
         )
 
         refiner = Refiner()
         step = _make_step(1, "add", "Add two numbers")
         result = await refiner.refine_step(
-            agent, "Add 2+3", step, "wrong", critique, {},
+            agent,
+            "Add 2+3",
+            step,
+            "wrong",
+            critique,
+            {},
         )
         assert result == 5
         agent._executor.execute.assert_awaited_once()
@@ -477,7 +575,12 @@ class TestRefinerStep:
         critique = CritiqueResult(verdict=Verdict.FAIL)
 
         result = await refiner.refine_step(
-            agent, "task", _make_step(), "original", critique, {},
+            agent,
+            "task",
+            _make_step(),
+            "original",
+            critique,
+            {},
         )
         assert result == "original"
 
@@ -489,7 +592,12 @@ class TestRefinerStep:
         critique = CritiqueResult(verdict=Verdict.FAIL)
 
         result = await refiner.refine_step(
-            agent, "task", _make_step(), "original", critique, {},
+            agent,
+            "task",
+            _make_step(),
+            "original",
+            critique,
+            {},
         )
         assert result == "original"
 
@@ -501,13 +609,17 @@ class TestRefinerStep:
         critique = CritiqueResult(verdict=Verdict.FAIL)
 
         result = await refiner.refine_step(
-            agent, "task", _make_step(), "original", critique, {},
+            agent,
+            "task",
+            _make_step(),
+            "original",
+            critique,
+            {},
         )
         assert result == "original"
 
 
 class TestRefinerFinal:
-
     @pytest.mark.asyncio
     async def test_final_revision(self):
         response = FakeLLMResponse(content="Improved final result")
@@ -521,8 +633,12 @@ class TestRefinerFinal:
         plan = _make_plan()
 
         result = await refiner.refine_final(
-            agent, "Summarize data", plan, ["step1 result"],
-            "weak summary", critique,
+            agent,
+            "Summarize data",
+            plan,
+            ["step1 result"],
+            "weak summary",
+            critique,
         )
         assert result == "Improved final result"
 
@@ -533,13 +649,17 @@ class TestRefinerFinal:
         critique = CritiqueResult(verdict=Verdict.FAIL)
 
         result = await refiner.refine_final(
-            agent, "task", _make_plan(), ["r"], "original", critique,
+            agent,
+            "task",
+            _make_plan(),
+            ["r"],
+            "original",
+            critique,
         )
         assert result == "original"
 
 
 class TestRefinerPrompts:
-
     def test_llm_revision_prompt_includes_feedback(self):
         critique = CritiqueResult(
             verdict=Verdict.FAIL,
@@ -549,8 +669,11 @@ class TestRefinerPrompts:
             suggestions=["Use 5 instead"],
         )
         prompt = Refiner._build_llm_revision_prompt(
-            "Add 2+3", _make_step(1, "execute", "Calculate"),
-            "6", critique, {},
+            "Add 2+3",
+            _make_step(1, "execute", "Calculate"),
+            "6",
+            critique,
+            {},
         )
         assert "Calculation error" in prompt
         assert "2+3 != 6" in prompt
@@ -558,17 +681,27 @@ class TestRefinerPrompts:
 
     def test_tool_arg_revision_prompt_includes_spec(self):
         agent = _make_agent()
-        agent.llm.convert_tool_specs = MagicMock(return_value=[{
-            "function": {
-                "name": "add",
-                "parameters": {"properties": {"a": {}, "b": {}}},
-            },
-        }])
+        agent.llm.convert_tool_specs = MagicMock(
+            return_value=[
+                {
+                    "function": {
+                        "name": "add",
+                        "parameters": {"properties": {"a": {}, "b": {}}},
+                    },
+                }
+            ]
+        )
         critique = CritiqueResult(
-            verdict=Verdict.FAIL, issues=["Wrong args"],
+            verdict=Verdict.FAIL,
+            issues=["Wrong args"],
         )
         prompt = Refiner._build_tool_arg_revision_prompt(
-            "task", _make_step(1, "add"), "wrong", critique, {}, agent,
+            "task",
+            _make_step(1, "add"),
+            "wrong",
+            critique,
+            {},
+            agent,
         )
         assert "add" in prompt
         assert "Wrong args" in prompt
@@ -580,13 +713,18 @@ class TestRefinerPrompts:
             issues=["Missing data"],
             suggestions=["Add more detail"],
         )
-        plan = _make_plan([
-            _make_step(1, "search"),
-            _make_step(2, "summarize"),
-        ])
+        plan = _make_plan(
+            [
+                _make_step(1, "search"),
+                _make_step(2, "summarize"),
+            ]
+        )
         prompt = Refiner._build_final_revision_prompt(
-            "Research AI", plan, ["data", "summary"],
-            "weak summary", critique,
+            "Research AI",
+            plan,
+            ["data", "summary"],
+            "weak summary",
+            critique,
         )
         assert "Research AI" in prompt
         assert "Incomplete" in prompt
@@ -596,6 +734,7 @@ class TestRefinerPrompts:
 # ================================================================== #
 # AutonomousMode Integration Tests                                     #
 # ================================================================== #
+
 
 class TestAutonomousModeFull:
     """Integration tests for the new Autonomous Mode architecture.
@@ -679,7 +818,7 @@ class TestAutonomousModeFull:
         mode = AutonomousMode()
         task = _make_task("task")
 
-        with patch.object(StandardMode, 'run', side_effect=fake_std_run):
+        with patch.object(StandardMode, "run", side_effect=fake_std_run):
             result = await mode.run(agent, task)
 
         assert result == "Echo: task"
@@ -735,8 +874,10 @@ class TestAutonomousModeFull:
 
         refiner = Refiner()
         critique = CritiqueResult(
-            verdict=Verdict.FAIL, score=0.2,
-            feedback="Wrong answer", issues=["Tool returned 50 but you said 42"],
+            verdict=Verdict.FAIL,
+            score=0.2,
+            feedback="Wrong answer",
+            issues=["Tool returned 50 but you said 42"],
             suggestions=["Use 50 from the tool result"],
         )
         msg = refiner.build_revision_message(critique)
@@ -759,8 +900,10 @@ class TestAutonomousModeFull:
         ]
         original_len = len(messages)
         critique = CritiqueResult(
-            verdict=Verdict.FAIL, score=0.2,
-            feedback="Wrong answer", issues=["Tool returned 50 but you said 42"],
+            verdict=Verdict.FAIL,
+            score=0.2,
+            feedback="Wrong answer",
+            issues=["Tool returned 50 but you said 42"],
             suggestions=["Use 50 from the tool result"],
         )
         refiner = Refiner()
@@ -775,7 +918,6 @@ class TestAutonomousModeFull:
 
 
 class TestAutonomousModeConfig:
-
     def test_config_has_critique_rounds(self):
         config = AgentConfig()
         assert config.critique_rounds == 3
@@ -789,8 +931,8 @@ class TestAutonomousModeConfig:
 # Utility Tests                                                        #
 # ================================================================== #
 
-class TestTruncate:
 
+class TestTruncate:
     def test_short_text_unchanged(self):
         assert _truncate("hello", 100) == "hello"
 

@@ -1,15 +1,12 @@
 """Unit tests for BasePlugin and request models."""
 
 import pytest
-from typing import Optional, Any
-
 from nucleusiq.plugins.base import (
-    BasePlugin,
     AgentContext,
+    BasePlugin,
     ModelRequest,
     ToolRequest,
 )
-
 
 # ------------------------------------------------------------------ #
 # AgentContext                                                         #
@@ -18,7 +15,9 @@ from nucleusiq.plugins.base import (
 
 class TestAgentContext:
     def test_minimal_creation(self):
-        ctx = AgentContext(agent_name="test", task="do something", state="idle", config={})
+        ctx = AgentContext(
+            agent_name="test", task="do something", state="idle", config={}
+        )
         assert ctx.agent_name == "test"
         assert ctx.metadata == {}
         assert ctx.memory is None

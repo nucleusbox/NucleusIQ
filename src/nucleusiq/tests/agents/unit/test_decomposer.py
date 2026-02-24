@@ -11,21 +11,19 @@ Covers:
 """
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from nucleusiq.agents.components.decomposer import (
     Decomposer,
     TaskAnalysis,
-    _SUB_AGENT_MAX_LLM_CALLS,
 )
-from nucleusiq.agents.task import Task
 from nucleusiq.agents.config.agent_config import AgentConfig
-
+from nucleusiq.agents.task import Task
 
 # ================================================================== #
 # Test helpers                                                         #
 # ================================================================== #
+
 
 class FakeMessage:
     def __init__(self, content):
@@ -57,8 +55,8 @@ def _make_parent(llm_content: str = "", tools=None):
 # TaskAnalysis                                                         #
 # ================================================================== #
 
-class TestTaskAnalysis:
 
+class TestTaskAnalysis:
     def test_defaults(self):
         ta = TaskAnalysis(is_complex=False)
         assert not ta.is_complex
@@ -79,8 +77,8 @@ class TestTaskAnalysis:
 # analyze()                                                            #
 # ================================================================== #
 
-class TestAnalyze:
 
+class TestAnalyze:
     async def test_classifies_simple_task(self):
         parent = _make_parent(json.dumps({"complexity": "simple"}))
         d = Decomposer()
@@ -89,14 +87,20 @@ class TestAnalyze:
         assert result.sub_tasks == []
 
     async def test_classifies_complex_task(self):
-        parent = _make_parent(json.dumps({
-            "gate1": True, "gate2": True, "gate3": True,
-            "complexity": "complex",
-            "sub_tasks": [
-                {"id": "s1", "objective": "Research topic A"},
-                {"id": "s2", "objective": "Research topic B"},
-            ],
-        }))
+        parent = _make_parent(
+            json.dumps(
+                {
+                    "gate1": True,
+                    "gate2": True,
+                    "gate3": True,
+                    "complexity": "complex",
+                    "sub_tasks": [
+                        {"id": "s1", "objective": "Research topic A"},
+                        {"id": "s2", "objective": "Research topic B"},
+                    ],
+                }
+            )
+        )
         d = Decomposer()
         result = await d.analyze(parent, Task(id="t1", objective="Compare A and B"))
         assert result.is_complex
@@ -120,8 +124,8 @@ class TestAnalyze:
 # _parse_analysis()                                                    #
 # ================================================================== #
 
-class TestParseAnalysis:
 
+class TestParseAnalysis:
     def test_parses_simple(self):
         resp = FakeLLMResponse(json.dumps({"complexity": "simple"}))
         d = Decomposer()
@@ -129,14 +133,20 @@ class TestParseAnalysis:
         assert not ta.is_complex
 
     def test_parses_complex(self):
-        resp = FakeLLMResponse(json.dumps({
-            "gate1": True, "gate2": True, "gate3": True,
-            "complexity": "complex",
-            "sub_tasks": [
-                {"id": "s1", "objective": "Do A"},
-                {"id": "s2", "objective": "Do B"},
-            ],
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "gate1": True,
+                    "gate2": True,
+                    "gate3": True,
+                    "complexity": "complex",
+                    "sub_tasks": [
+                        {"id": "s1", "objective": "Do A"},
+                        {"id": "s2", "objective": "Do B"},
+                    ],
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert ta.is_complex
@@ -155,21 +165,25 @@ class TestParseAnalysis:
         assert not ta.is_complex
 
     def test_complex_with_empty_subtasks_becomes_simple(self):
-        resp = FakeLLMResponse(json.dumps({
-            "complexity": "complex",
-            "sub_tasks": [],
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "complexity": "complex",
+                    "sub_tasks": [],
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert not ta.is_complex
 
     def test_handles_json_in_markdown(self):
         resp = FakeLLMResponse(
-            'Here is my analysis:\n```json\n'
+            "Here is my analysis:\n```json\n"
             '{"gate1": true, "gate2": true, "gate3": true, '
             '"complexity": "complex", "sub_tasks": ['
             '{"id": "a", "objective": "X"}, {"id": "b", "objective": "Y"}]}'
-            '\n```'
+            "\n```"
         )
         d = Decomposer()
         ta = d._parse_analysis(resp)
@@ -180,91 +194,132 @@ class TestParseAnalysis:
 # Gate Enforcement                                                      #
 # ================================================================== #
 
+
 class TestGateEnforcement:
     """Verify the three-gate checklist is enforced structurally."""
 
     def test_gate2_false_overrides_complex_to_simple(self):
-        resp = FakeLLMResponse(json.dumps({
-            "gate1": True, "gate2": False, "gate3": True,
-            "complexity": "complex",
-            "sub_tasks": [
-                {"id": "s1", "objective": "A"},
-                {"id": "s2", "objective": "B"},
-            ],
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "gate1": True,
+                    "gate2": False,
+                    "gate3": True,
+                    "complexity": "complex",
+                    "sub_tasks": [
+                        {"id": "s1", "objective": "A"},
+                        {"id": "s2", "objective": "B"},
+                    ],
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert not ta.is_complex
         assert ta.sub_tasks == []
 
     def test_gate1_false_overrides_complex_to_simple(self):
-        resp = FakeLLMResponse(json.dumps({
-            "gate1": False, "gate2": True, "gate3": True,
-            "complexity": "complex",
-            "sub_tasks": [
-                {"id": "s1", "objective": "A"},
-                {"id": "s2", "objective": "B"},
-            ],
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "gate1": False,
+                    "gate2": True,
+                    "gate3": True,
+                    "complexity": "complex",
+                    "sub_tasks": [
+                        {"id": "s1", "objective": "A"},
+                        {"id": "s2", "objective": "B"},
+                    ],
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert not ta.is_complex
 
     def test_gate3_false_overrides_complex_to_simple(self):
-        resp = FakeLLMResponse(json.dumps({
-            "gate1": True, "gate2": True, "gate3": False,
-            "complexity": "complex",
-            "sub_tasks": [
-                {"id": "s1", "objective": "A"},
-                {"id": "s2", "objective": "B"},
-            ],
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "gate1": True,
+                    "gate2": True,
+                    "gate3": False,
+                    "complexity": "complex",
+                    "sub_tasks": [
+                        {"id": "s1", "objective": "A"},
+                        {"id": "s2", "objective": "B"},
+                    ],
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert not ta.is_complex
 
     def test_all_gates_true_with_enough_subtasks_is_complex(self):
-        resp = FakeLLMResponse(json.dumps({
-            "gate1": True, "gate2": True, "gate3": True,
-            "complexity": "complex",
-            "sub_tasks": [
-                {"id": "s1", "objective": "A"},
-                {"id": "s2", "objective": "B"},
-            ],
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "gate1": True,
+                    "gate2": True,
+                    "gate3": True,
+                    "complexity": "complex",
+                    "sub_tasks": [
+                        {"id": "s1", "objective": "A"},
+                        {"id": "s2", "objective": "B"},
+                    ],
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert ta.is_complex
         assert len(ta.sub_tasks) == 2
 
     def test_all_gates_true_but_one_subtask_becomes_simple(self):
-        resp = FakeLLMResponse(json.dumps({
-            "gate1": True, "gate2": True, "gate3": True,
-            "complexity": "complex",
-            "sub_tasks": [{"id": "s1", "objective": "A"}],
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "gate1": True,
+                    "gate2": True,
+                    "gate3": True,
+                    "complexity": "complex",
+                    "sub_tasks": [{"id": "s1", "objective": "A"}],
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert not ta.is_complex
         assert ta.sub_tasks == []
 
     def test_missing_gates_default_to_false(self):
-        resp = FakeLLMResponse(json.dumps({
-            "complexity": "complex",
-            "sub_tasks": [
-                {"id": "s1", "objective": "A"},
-                {"id": "s2", "objective": "B"},
-            ],
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "complexity": "complex",
+                    "sub_tasks": [
+                        {"id": "s1", "objective": "A"},
+                        {"id": "s2", "objective": "B"},
+                    ],
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert not ta.is_complex
 
     def test_simple_classification_ignores_gates(self):
-        resp = FakeLLMResponse(json.dumps({
-            "gate1": True, "gate2": True, "gate3": True,
-            "complexity": "simple",
-        }))
+        resp = FakeLLMResponse(
+            json.dumps(
+                {
+                    "gate1": True,
+                    "gate2": True,
+                    "gate3": True,
+                    "complexity": "simple",
+                }
+            )
+        )
         d = Decomposer()
         ta = d._parse_analysis(resp)
         assert not ta.is_complex
@@ -274,8 +329,8 @@ class TestGateEnforcement:
 # create_sub_agent()                                                   #
 # ================================================================== #
 
-class TestCreateSubAgent:
 
+class TestCreateSubAgent:
     @patch("nucleusiq.agents.agent.Agent")
     async def test_creates_agent_with_correct_name(self, MockAgent):
         instance = MagicMock()
@@ -325,8 +380,8 @@ class TestCreateSubAgent:
 # run_sub_tasks()                                                      #
 # ================================================================== #
 
-class TestRunSubTasks:
 
+class TestRunSubTasks:
     @patch.object(Decomposer, "create_sub_agent")
     async def test_runs_sub_tasks_and_collects_results(self, mock_create):
         sub_agent = MagicMock()
@@ -397,10 +452,7 @@ class TestRunSubTasks:
 
         d = Decomposer()
         parent = _make_parent()
-        tasks = [
-            {"id": f"s{i}", "objective": f"Task {i}"}
-            for i in range(3)
-        ]
+        tasks = [{"id": f"s{i}", "objective": f"Task {i}"} for i in range(3)]
         findings = await d.run_sub_tasks(parent, tasks)
         assert len(findings) == 3
 
@@ -409,8 +461,8 @@ class TestRunSubTasks:
 # build_synthesis_prompt()                                             #
 # ================================================================== #
 
-class TestBuildSynthesisPrompt:
 
+class TestBuildSynthesisPrompt:
     def test_includes_original_task(self):
         prompt = Decomposer.build_synthesis_prompt(
             "Analyze market trends",
@@ -431,7 +483,8 @@ class TestBuildSynthesisPrompt:
 
     def test_instructs_synthesis(self):
         prompt = Decomposer.build_synthesis_prompt(
-            "Task", [{"objective": "X", "result": "Y"}],
+            "Task",
+            [{"objective": "X", "result": "Y"}],
         )
         assert "SYNTHESIS INSTRUCTIONS" in prompt
         assert "FINAL ANSWER" in prompt
@@ -446,8 +499,8 @@ class TestBuildSynthesisPrompt:
 # Config integration                                                   #
 # ================================================================== #
 
-class TestConfigFields:
 
+class TestConfigFields:
     def test_max_sub_agents_default(self):
         config = AgentConfig()
         assert config.max_sub_agents == 5

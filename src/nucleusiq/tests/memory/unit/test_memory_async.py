@@ -1,8 +1,8 @@
 """Extended async tests for SummaryMemory and SummaryWindowMemory with mock LLM."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from nucleusiq.memory.summary import SummaryMemory
 from nucleusiq.memory.summary_window import SummaryWindowMemory
 
@@ -11,9 +11,7 @@ def _mock_llm(content="Summary result"):
     llm = MagicMock()
     msg = MagicMock()
     msg.content = content
-    llm.call = AsyncMock(
-        return_value=MagicMock(choices=[MagicMock(message=msg)])
-    )
+    llm.call = AsyncMock(return_value=MagicMock(choices=[MagicMock(message=msg)]))
     return llm
 
 
@@ -23,7 +21,6 @@ def _mock_llm(content="Summary result"):
 
 
 class TestSummaryMemoryWithLLM:
-
     @pytest.mark.asyncio
     async def test_aadd_message_with_llm(self):
         llm = _mock_llm("Condensed summary")
@@ -88,7 +85,6 @@ class TestSummaryMemoryWithLLM:
 
 
 class TestSummaryWindowMemoryWithLLM:
-
     @pytest.mark.asyncio
     async def test_aadd_within_window(self):
         llm = _mock_llm()

@@ -7,9 +7,7 @@ Trade-off: unbounded token growth.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
-from pydantic import Field
+from typing import Any, Dict, List
 
 from nucleusiq.memory.base import BaseMemory
 
@@ -30,7 +28,7 @@ class FullHistoryMemory(BaseMemory):
         self._messages.append({"role": role, "content": content})
 
     def get_context(
-        self, query: Optional[str] = None, **kwargs: Any
+        self, query: str | None = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         return list(self._messages)
 

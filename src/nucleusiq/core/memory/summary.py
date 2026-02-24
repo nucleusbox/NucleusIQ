@@ -10,14 +10,13 @@ provided, falls back to keeping the last raw message as the summary.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-
-from pydantic import Field, ConfigDict
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from nucleusiq.memory.base import BaseMemory
+from pydantic import ConfigDict, Field
 
 if TYPE_CHECKING:
-    from nucleusiq.llms.base_llm import BaseLLM
+    pass
 
 
 _SUMMARIZE_PROMPT = (
@@ -34,7 +33,7 @@ class SummaryMemory(BaseMemory):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    llm: Optional[Any] = Field(
+    llm: Any | None = Field(
         default=None,
         description="BaseLLM instance used for summarization.",
     )
@@ -90,7 +89,7 @@ class SummaryMemory(BaseMemory):
             self._summary = self._extract_text(response)
 
     def get_context(
-        self, query: Optional[str] = None, **kwargs: Any
+        self, query: str | None = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         if not self._summary:
             return []
@@ -112,9 +111,7 @@ class SummaryMemory(BaseMemory):
 
     # -- Async (preferred path — agent always calls this) ----------------
 
-    async def aadd_message(
-        self, role: str, content: str, **kwargs: Any
-    ) -> None:
+    async def aadd_message(self, role: str, content: str, **kwargs: Any) -> None:
         self._message_count += 1
         if not self.llm:
             self._summary = f"[{role}]: {content}"

@@ -1,9 +1,8 @@
 """Extra tests for SummaryWindowMemory — sync compact paths with LLM."""
 
-import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from nucleusiq.memory.summary_window import SummaryWindowMemory
 
 
@@ -11,14 +10,11 @@ def _mock_llm(content="Summary"):
     llm = MagicMock()
     msg = MagicMock()
     msg.content = content
-    llm.call = AsyncMock(
-        return_value=MagicMock(choices=[MagicMock(message=msg)])
-    )
+    llm.call = AsyncMock(return_value=MagicMock(choices=[MagicMock(message=msg)]))
     return llm
 
 
 class TestSummaryWindowSyncCompact:
-
     def test_sync_compact_no_overflow(self):
         mem = SummaryWindowMemory(window_size=5)
         mem.add_message("user", "a")
@@ -62,7 +58,10 @@ class TestSummaryWindowSyncCompact:
         assert overflow == []
 
     def test_format_messages(self):
-        msgs = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+        msgs = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ]
         result = SummaryWindowMemory._format_messages(msgs)
         assert "[user]: hi" in result
         assert "[assistant]: hello" in result

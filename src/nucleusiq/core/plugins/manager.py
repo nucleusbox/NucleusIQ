@@ -9,17 +9,14 @@ chain-of-responsibility pattern for ``wrap_model_call`` and
 from __future__ import annotations
 
 import logging
-from typing import Any, Awaitable, Callable, List, Optional
+from typing import Any, Awaitable, Callable, List
 
 from nucleusiq.plugins.base import (
-    BasePlugin,
     AgentContext,
+    BasePlugin,
     ModelRequest,
     ToolRequest,
-    ModelHandler,
-    ToolHandler,
 )
-from nucleusiq.plugins.errors import PluginHalt
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +28,7 @@ class PluginManager:
     for node hooks and outermost-first for wrap hooks.
     """
 
-    def __init__(self, plugins: Optional[List[BasePlugin]] = None) -> None:
+    def __init__(self, plugins: List[BasePlugin] | None = None) -> None:
         self._plugins: List[BasePlugin] = list(plugins or [])
         self._model_call_count: int = 0
         self._tool_call_count: int = 0
@@ -123,6 +120,7 @@ class PluginManager:
             request: ModelRequest with all call parameters
             final_call: The actual ``agent.llm.call`` coroutine factory
         """
+
         async def innermost(req: ModelRequest) -> Any:
             return await final_call(**req.to_call_kwargs())
 
@@ -130,11 +128,10 @@ class PluginManager:
         for plugin in reversed(self._plugins):
             prev = handler
 
-            async def _make_handler(
-                p: BasePlugin, nxt: Callable
-            ) -> Callable:
+            async def _make_handler(p: BasePlugin, nxt: Callable) -> Callable:
                 async def h(r: ModelRequest) -> Any:
                     return await p.wrap_model_call(r, nxt)
+
                 return h
 
             handler = await _make_handler(plugin, prev)
@@ -159,6 +156,7 @@ class PluginManager:
             request: ToolRequest describing the tool invocation
             final_call: The actual ``executor.execute(tc)`` coroutine factory
         """
+
         async def innermost(req: ToolRequest) -> Any:
             tc = req.to_tool_call_request()
             return await final_call(tc)
@@ -167,11 +165,10 @@ class PluginManager:
         for plugin in reversed(self._plugins):
             prev = handler
 
-            async def _make_handler(
-                p: BasePlugin, nxt: Callable
-            ) -> Callable:
+            async def _make_handler(p: BasePlugin, nxt: Callable) -> Callable:
                 async def h(r: ToolRequest) -> Any:
                     return await p.wrap_tool_call(r, nxt)
+
                 return h
 
             handler = await _make_handler(plugin, prev)

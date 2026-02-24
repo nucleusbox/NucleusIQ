@@ -24,21 +24,15 @@ def get_plan_schema() -> Dict[str, Any]:
                         },
                         "action": {
                             "type": "string",
-                            "description": (
-                                "Action/tool name or 'execute'"
-                            ),
+                            "description": ("Action/tool name or 'execute'"),
                         },
                         "args": {
                             "type": "object",
-                            "description": (
-                                "Arguments for the action/tool"
-                            ),
+                            "description": ("Arguments for the action/tool"),
                         },
                         "details": {
                             "type": "string",
-                            "description": (
-                                "Human-readable description"
-                            ),
+                            "description": ("Human-readable description"),
                         },
                     },
                     "required": ["step", "action", "args"],
@@ -59,8 +53,7 @@ def get_plan_function_spec() -> Dict[str, Any]:
         "function": {
             "name": "create_plan",
             "description": (
-                "Create a structured execution plan with "
-                "step-by-step actions"
+                "Create a structured execution plan with step-by-step actions"
             ),
             "parameters": get_plan_schema(),
         },

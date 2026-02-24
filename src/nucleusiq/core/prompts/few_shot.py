@@ -1,8 +1,10 @@
 # src/nucleusiq/prompts/few_shot.py
 
-from typing import List, Dict, Optional, Any
-from pydantic import Field
+from typing import Any, Dict, List
+
 from nucleusiq.prompts.base import BasePrompt
+from pydantic import Field
+
 
 class FewShotPrompt(BasePrompt):
     """
@@ -12,21 +14,18 @@ class FewShotPrompt(BasePrompt):
 
     # Fields unique to Few-Shot prompting
     examples: List[Dict[str, str]] = Field(
-        default_factory=list,
-        description="List of examples with input-output pairs."
+        default_factory=list, description="List of examples with input-output pairs."
     )
     example_separator: str = Field(
-        default="\n\n",
-        description="Separator between examples."
+        default="\n\n", description="Separator between examples."
     )
 
     use_cot: bool = Field(
         default=False,
-        description="Whether to append a CoT instruction to the system prompt."
+        description="Whether to append a CoT instruction to the system prompt.",
     )
     cot_instruction: str = Field(
-        default="",
-        description="The Chain-of-Thought instruction to append."
+        default="", description="The Chain-of-Thought instruction to append."
     )
 
     @property
@@ -36,15 +35,15 @@ class FewShotPrompt(BasePrompt):
     # Override defaults for template, input_variables, optional_variables
     template: str = Field(
         default="{system}\n\n{examples}\n\n{context}\n\n{user}\n\n{cot_instruction}",
-        description="Default template for Few-Shot Prompting."
+        description="Default template for Few-Shot Prompting.",
     )
     input_variables: List[str] = Field(
         default_factory=lambda: ["system", "user", "examples"],
-        description="These three are mandatory by the time we format the prompt."
+        description="These three are mandatory by the time we format the prompt.",
     )
     optional_variables: List[str] = Field(
         default_factory=lambda: ["context", "use_cot", "cot_instruction"],
-        description="Additional optional fields for Few-Shot."
+        description="Additional optional fields for Few-Shot.",
     )
 
     # -----------------------------
@@ -75,7 +74,7 @@ class FewShotPrompt(BasePrompt):
             FewShotPrompt: The updated prompt instance.
         """
         for ex in examples:
-            self.add_example(ex['input'], ex['output'])
+            self.add_example(ex["input"], ex["output"])
         return self
 
     # -----------------------------
@@ -83,12 +82,12 @@ class FewShotPrompt(BasePrompt):
     # -----------------------------
     def configure(
         self,
-        system: Optional[str] = None,
-        context: Optional[str] = None,
-        user: Optional[str] = None,
-        use_cot: Optional[bool] = None,
-        cot_instruction: Optional[str] = None,
-        examples: Optional[List[Dict[str, str]]] = None
+        system: str | None = None,
+        context: str | None = None,
+        user: str | None = None,
+        use_cot: bool | None = None,
+        cot_instruction: str | None = None,
+        examples: List[Dict[str, str]] | None = None,
     ) -> "FewShotPrompt":
         """
         Configure multiple parameters at once, including examples.
@@ -108,7 +107,11 @@ class FewShotPrompt(BasePrompt):
         if use_cot is not None:
             if use_cot:
                 # If user didn't provide `cot_instruction`, default to "Let's think step by step."
-                cot_instruction_safe = cot_instruction if cot_instruction is not None else "Let's think step by step."
+                cot_instruction_safe = (
+                    cot_instruction
+                    if cot_instruction is not None
+                    else "Let's think step by step."
+                )
             else:
                 # If user sets CoT to false, clear the instruction
                 cot_instruction_safe = ""
@@ -132,7 +135,7 @@ class FewShotPrompt(BasePrompt):
             self.add_examples(examples)
 
         return self
-    
+
     #
     # Overriding format_prompt() to enforce "examples" must not be empty
     #
@@ -141,8 +144,9 @@ class FewShotPrompt(BasePrompt):
         Hook to enforce that 'examples' is non-empty before final prompt creation.
         """
         if not self.examples:  # or combined_vars.get('examples', []) is empty
-            raise ValueError("FewShotPrompt requires at least one example (examples list is empty).")
-
+            raise ValueError(
+                "FewShotPrompt requires at least one example (examples list is empty)."
+            )
 
     # -----------------------------
     # Final construction logic
@@ -158,15 +162,19 @@ class FewShotPrompt(BasePrompt):
         user_prompt = kwargs.get("user", "")
         use_cot_flag = kwargs.get("use_cot", False)
         # If using CoT, we might have a default or provided instruction
-        c_instruction = kwargs.get("cot_instruction", "").strip() if use_cot_flag else ""
+        c_instruction = (
+            kwargs.get("cot_instruction", "").strip() if use_cot_flag else ""
+        )
 
         # Format the examples
         if self.examples:
             # Join them
-            formatted_examples = self.example_separator.join([
-                f"Input: {ex['input']}\nOutput: {ex['output']}"
-                for ex in self.examples
-            ])
+            formatted_examples = self.example_separator.join(
+                [
+                    f"Input: {ex['input']}\nOutput: {ex['output']}"
+                    for ex in self.examples
+                ]
+            )
             # If there's a system prompt, we prepend examples to it
             if system_prompt:
                 system_prompt = f"{system_prompt.strip()}\n\n{formatted_examples}"

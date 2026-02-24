@@ -8,10 +8,10 @@ Usage:
     python native_code_interpreter_example.py
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 
 _src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
@@ -24,7 +24,9 @@ from nucleusiq.agents.config import AgentConfig
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +44,9 @@ async def main():
 
     # 2. Create code interpreter tool
     code_interp = OpenAITool.code_interpreter()
-    logger.info(f"Tool: {code_interp.name}  |  type: {code_interp.tool_type}  |  native: {code_interp.is_native}")
+    logger.info(
+        f"Tool: {code_interp.name}  |  type: {code_interp.tool_type}  |  native: {code_interp.is_native}"
+    )
 
     spec = code_interp.get_spec()
     logger.info(f"Spec: {spec}")

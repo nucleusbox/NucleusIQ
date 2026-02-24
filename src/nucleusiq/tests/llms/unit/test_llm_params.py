@@ -11,10 +11,8 @@ Covers:
 """
 
 import pytest
-from pydantic import ValidationError
-
 from nucleusiq.llms.llm_params import LLMParams
-
+from pydantic import ValidationError
 
 # ===================================================================== #
 # Construction & Validation                                              #

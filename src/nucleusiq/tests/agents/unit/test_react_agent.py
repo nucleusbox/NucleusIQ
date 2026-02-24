@@ -1,12 +1,11 @@
 """Tests for ReActAgent."""
 
 import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Any, Dict, List, Optional
+from unittest.mock import AsyncMock, MagicMock
 
-from nucleusiq.agents.react_agent import ReActAgent
+import pytest
 from nucleusiq.agents.config import AgentState
+from nucleusiq.agents.react_agent import ReActAgent
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 
@@ -24,6 +23,7 @@ def _make_agent(**overrides):
 
 def _mock_llm_returning(*messages):
     """Create a MockLLM subclass that returns preset messages in sequence."""
+
     class SequenceLLM(MockLLM):
         def __init__(self):
             super().__init__()
@@ -45,7 +45,6 @@ def _mock_llm_returning(*messages):
 
 
 class TestReActAgentNoLLM:
-
     @pytest.mark.asyncio
     async def test_echo_without_llm_dict(self):
         agent = _make_agent()
@@ -65,7 +64,6 @@ class TestReActAgentNoLLM:
 
 
 class TestReActAgentWithMockLLM:
-
     @pytest.mark.asyncio
     async def test_final_answer_in_content(self):
         msg = MockLLM.Message(
@@ -152,9 +150,7 @@ class TestReActAgentWithMockLLM:
             content="Thought: use native.",
             function_call={"name": "web", "arguments": "{}"},
         )
-        final_msg = MockLLM.Message(
-            content="Action: Final Answer\nAction Input: done"
-        )
+        final_msg = MockLLM.Message(content="Action: Final Answer\nAction Input: done")
         llm = _mock_llm_returning(tool_msg, final_msg)
 
         native_tool = MagicMock()
@@ -187,7 +183,6 @@ class TestReActAgentWithMockLLM:
 
 
 class TestReActParseHelpers:
-
     def test_extract_content_dict(self):
         agent = _make_agent()
         assert agent._extract_content({"content": "hello"}) == "hello"
@@ -225,22 +220,17 @@ class TestReActParseHelpers:
     def test_parse_response_answer_synonyms(self):
         agent = _make_agent()
         content = "Thought: done.\nAction: answer\nAction Input: 42"
-        _, action = agent._parse_react_response(
-            content, MagicMock(function_call=None)
-        )
+        _, action = agent._parse_react_response(content, MagicMock(function_call=None))
         assert action["type"] == "final_answer"
 
     def test_parse_response_unknown_action_bad_json(self):
         agent = _make_agent()
         content = "Thought: hm\nAction: something\nAction Input: not json"
-        _, action = agent._parse_react_response(
-            content, MagicMock(function_call=None)
-        )
+        _, action = agent._parse_react_response(content, MagicMock(function_call=None))
         assert action["type"] == "unknown"
 
 
 class TestReActHistoryAccessors:
-
     @pytest.mark.asyncio
     async def test_history_empty(self):
         agent = _make_agent()
@@ -263,7 +253,6 @@ class TestReActHistoryAccessors:
 
 
 class TestBuildReactMessages:
-
     def test_basic_dict_task(self):
         agent = _make_agent()
         msgs = agent._build_react_messages({"objective": "Do something"})

@@ -2,11 +2,11 @@
 Pytest configuration and fixtures for NucleusIQ tests.
 """
 
-import pytest
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+
+import pytest
 
 # Add src directory to path for imports
 src_dir = Path(__file__).parent.parent / "src"
@@ -15,7 +15,7 @@ if str(src_dir) not in sys.path:
 
 
 @pytest.fixture
-def openai_api_key() -> Optional[str]:
+def openai_api_key() -> str | None:
     """Fixture for OpenAI API key."""
     return os.getenv("OPENAI_API_KEY")
 
@@ -32,4 +32,3 @@ def mock_openai_client():
     """Fixture for mock OpenAI client (for unit tests)."""
     # This can be extended with a proper mock if needed
     pass
-

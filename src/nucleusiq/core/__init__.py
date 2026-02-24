@@ -12,6 +12,7 @@ __version__ = "0.1.0"
 # This makes OPENAI_API_KEY etc. available no matter which submodule is imported.
 try:
     from pathlib import Path
+
     from dotenv import load_dotenv
 
     _repo_root = Path(__file__).resolve().parents[2]
@@ -21,4 +22,3 @@ try:
 except Exception:
     # Never fail import due to dotenv loading.
     pass
-

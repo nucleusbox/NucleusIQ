@@ -20,20 +20,19 @@ Validation pipeline (3 layers, short-circuits on failure):
 
 from __future__ import annotations
 
-import logging
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
+from nucleusiq.agents.chat_models import ChatMessage
+from nucleusiq.agents.components.decomposer import Decomposer, TaskAnalysis
+from nucleusiq.agents.components.progress import ExecutionProgress
+from nucleusiq.agents.components.validation import ValidationPipeline, ValidationResult
+from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.agents.task import Task
-from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
-from nucleusiq.agents.chat_models import ChatMessage
-from nucleusiq.agents.components.decomposer import Decomposer, TaskAnalysis
-from nucleusiq.agents.components.validation import ValidationPipeline, ValidationResult
-from nucleusiq.agents.components.progress import ExecutionProgress, StepRecord
 from nucleusiq.plugins.errors import PluginHalt
 
 
@@ -45,7 +44,7 @@ class AutonomousMode(BaseExecutionMode):
     All paths: external validation (tool checks + plugins) with structured retry.
     """
 
-    async def run(self, agent: "Agent", task: Any) -> Any:
+    async def run(self, agent: Agent, task: Any) -> Any:
         if isinstance(task, dict):
             task = Task.from_dict(task)
 
@@ -72,7 +71,7 @@ class AutonomousMode(BaseExecutionMode):
     # Simple path: Standard mode + validate + retry                        #
     # ------------------------------------------------------------------ #
 
-    async def _run_simple(self, agent: "Agent", task: Task) -> Any:
+    async def _run_simple(self, agent: Agent, task: Task) -> Any:
         """Execute via Standard mode with validation and structured retry."""
         max_retries = getattr(agent.config, "max_retries", 3)
         validation = ValidationPipeline(logger=agent._logger)
@@ -89,7 +88,10 @@ class AutonomousMode(BaseExecutionMode):
         for attempt in range(max_retries):
             label = "EXECUTE" if attempt == 0 else "RETRY"
             agent._logger.info(
-                "Attempt %d/%d [%s]", attempt + 1, max_retries, label,
+                "Attempt %d/%d [%s]",
+                attempt + 1,
+                max_retries,
+                label,
             )
 
             step.mark_executing()
@@ -97,7 +99,10 @@ class AutonomousMode(BaseExecutionMode):
 
             try:
                 result = await std_mode._tool_call_loop(
-                    agent, task, messages, tool_specs,
+                    agent,
+                    task,
+                    messages,
+                    tool_specs,
                 )
             except PluginHalt:
                 raise
@@ -117,7 +122,10 @@ class AutonomousMode(BaseExecutionMode):
             vr = await validation.validate(agent, result, messages)
             agent._logger.info(
                 "Attempt %d/%d [VALIDATE]: valid=%s layer=%s",
-                attempt + 1, max_retries, vr.valid, vr.layer,
+                attempt + 1,
+                max_retries,
+                vr.valid,
+                vr.layer,
             )
 
             if vr.valid:
@@ -145,7 +153,7 @@ class AutonomousMode(BaseExecutionMode):
 
     async def _run_complex(
         self,
-        agent: "Agent",
+        agent: Agent,
         task: Task,
         decomposer: Decomposer,
         analysis: TaskAnalysis,
@@ -170,17 +178,20 @@ class AutonomousMode(BaseExecutionMode):
 
         sub_step.mark_completed(f"{len(findings)} findings collected")
         agent._logger.info(
-            "Decomposition complete: %d findings collected", len(findings),
+            "Decomposition complete: %d findings collected",
+            len(findings),
         )
 
         # Step 2: Synthesize with validation + retry
         synth_step = progress.add_step("synthesize", "Combine findings")
         synth_prompt = decomposer.build_synthesis_prompt(
-            task.objective, findings,
+            task.objective,
+            findings,
         )
         tool_specs = std_mode._get_tool_specs(agent)
         messages = std_mode.build_messages(
-            agent, Task(id=f"{task.id}-synth", objective=synth_prompt),
+            agent,
+            Task(id=f"{task.id}-synth", objective=synth_prompt),
         )
 
         result = None
@@ -188,7 +199,9 @@ class AutonomousMode(BaseExecutionMode):
             label = "SYNTHESIZE" if attempt == 0 else "RETRY"
             agent._logger.info(
                 "Synthesis attempt %d/%d [%s]",
-                attempt + 1, max_retries, label,
+                attempt + 1,
+                max_retries,
+                label,
             )
 
             synth_step.mark_executing()
@@ -196,7 +209,10 @@ class AutonomousMode(BaseExecutionMode):
 
             try:
                 result = await std_mode._tool_call_loop(
-                    agent, task, messages, tool_specs,
+                    agent,
+                    task,
+                    messages,
+                    tool_specs,
                 )
             except PluginHalt:
                 raise
@@ -211,7 +227,10 @@ class AutonomousMode(BaseExecutionMode):
             vr = await validation.validate(agent, result, messages)
             agent._logger.info(
                 "Synthesis attempt %d/%d [VALIDATE]: valid=%s layer=%s",
-                attempt + 1, max_retries, vr.valid, vr.layer,
+                attempt + 1,
+                max_retries,
+                vr.valid,
+                vr.layer,
             )
 
             if vr.valid:

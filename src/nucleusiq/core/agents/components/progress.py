@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
-
+from typing import Any, Dict, List, Literal
 
 StepStatus = Literal["pending", "executing", "completed", "failed", "skipped"]
 
@@ -22,11 +21,11 @@ class StepRecord:
     step_id: str
     objective: str
     status: StepStatus = "pending"
-    result: Optional[str] = None
-    error: Optional[str] = None
+    result: str | None = None
+    error: str | None = None
     attempts: int = 0
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    started_at: str | None = None
+    completed_at: str | None = None
 
     def mark_executing(self) -> None:
         self.status = "executing"

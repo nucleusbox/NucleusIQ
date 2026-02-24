@@ -12,14 +12,14 @@ Characteristics:
 - Single LLM call
 """
 
-from typing import Any, Dict, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
+from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.task import Task
-from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.plugins.errors import PluginHalt
 
 
@@ -55,8 +55,7 @@ class DirectMode(BaseExecutionMode):
 
             # Model returned empty content — task may need tools/planning
             agent._logger.warning(
-                "LLM returned no content in DIRECT mode "
-                "(task may require tools)"
+                "LLM returned no content in DIRECT mode (task may require tools)"
             )
             agent.state = AgentState.COMPLETED
             objective = self.get_objective(task)
@@ -69,8 +68,6 @@ class DirectMode(BaseExecutionMode):
         except PluginHalt:
             raise
         except Exception as e:
-            agent._logger.error(
-                "Error during direct execution: %s", str(e)
-            )
+            agent._logger.error("Error during direct execution: %s", str(e))
             agent.state = AgentState.ERROR
             return f"Echo: {self.get_objective(task)}"

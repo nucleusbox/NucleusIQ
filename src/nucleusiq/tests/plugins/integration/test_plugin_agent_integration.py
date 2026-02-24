@@ -1,33 +1,29 @@
 """Integration tests: Agent + Plugin pipeline end-to-end using MockLLM."""
 
+from typing import Any
+
 import pytest
-from typing import Any, Optional
-from unittest.mock import AsyncMock
-
 from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.task import Task
 from nucleusiq.agents.config.agent_config import AgentConfig
+from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tools.base_tool import BaseTool
-
 from nucleusiq.plugins.base import (
-    BasePlugin,
     AgentContext,
+    BasePlugin,
     ModelRequest,
     ToolRequest,
 )
+from nucleusiq.plugins.builtin.model_call_limit import ModelCallLimitPlugin
 from nucleusiq.plugins.decorators import (
-    before_agent,
     after_agent,
-    before_model,
     after_model,
+    before_agent,
+    before_model,
     wrap_model_call,
     wrap_tool_call,
 )
 from nucleusiq.plugins.errors import PluginHalt
-from nucleusiq.plugins.builtin.model_call_limit import ModelCallLimitPlugin
-from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
-
+from nucleusiq.tools.base_tool import BaseTool
 
 # ------------------------------------------------------------------ #
 # Helpers                                                              #
@@ -53,6 +49,7 @@ def make_task(objective="Hello"):
 def add_tool():
     def add(a: int, b: int) -> int:
         return a + b
+
     return BaseTool.from_function(add, name="add", description="Add two numbers")
 
 
@@ -118,6 +115,7 @@ class TestDirectModeWithPlugins:
     @pytest.mark.asyncio
     async def test_before_model_observe_returns_none(self):
         """Returning None from before_model should not break execution."""
+
         @before_model
         def just_log(request: ModelRequest) -> None:
             pass  # pure observer
@@ -144,9 +142,9 @@ class TestDirectModeWithPlugins:
     async def test_wrap_model_call_intercepts(self):
         @wrap_model_call
         async def cache(request: ModelRequest, handler):
-            return MockLLM.LLMResponse([
-                MockLLM.Choice(MockLLM.Message(content="from_cache"))
-            ])
+            return MockLLM.LLMResponse(
+                [MockLLM.Choice(MockLLM.Message(content="from_cache"))]
+            )
 
         agent = make_agent(plugins=[cache])
         result = await agent.execute(make_task("Hi"))

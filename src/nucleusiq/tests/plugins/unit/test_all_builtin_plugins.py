@@ -5,36 +5,33 @@ Covers: construction validation, happy paths, edge cases, error paths,
 multi-plugin interaction, and immutability guarantees.
 """
 
-import asyncio
 import time
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, call
-
-from nucleusiq.plugins.base import BasePlugin, ModelRequest, ToolRequest, AgentContext
-from nucleusiq.plugins.errors import PluginHalt, PluginError
-from nucleusiq.plugins.manager import PluginManager
-from nucleusiq.plugins.builtin.model_call_limit import ModelCallLimitPlugin
-from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
-from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
-from nucleusiq.plugins.builtin.model_fallback import ModelFallbackPlugin
-from nucleusiq.plugins.builtin.pii_guard import PIIGuardPlugin, _luhn_check, BUILTIN_PATTERNS
+from nucleusiq.plugins.base import AgentContext, BasePlugin, ModelRequest, ToolRequest
+from nucleusiq.plugins.builtin.context_window import ContextWindowPlugin
 from nucleusiq.plugins.builtin.human_approval import (
-    HumanApprovalPlugin,
     ApprovalHandler,
     ConsoleApprovalHandler,
+    HumanApprovalPlugin,
     PolicyApprovalHandler,
 )
-from nucleusiq.plugins.builtin.context_window import ContextWindowPlugin, _approximate_tokens
+from nucleusiq.plugins.builtin.model_call_limit import ModelCallLimitPlugin
+from nucleusiq.plugins.builtin.model_fallback import ModelFallbackPlugin
+from nucleusiq.plugins.builtin.pii_guard import PIIGuardPlugin, _luhn_check
+from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_guard import ToolGuardPlugin
-
+from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
+from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.plugins.manager import PluginManager
 
 # ====================================================================
 # 1. ModelCallLimitPlugin
 # ====================================================================
 
-class TestModelCallLimitPluginDetailed:
 
+class TestModelCallLimitPluginDetailed:
     def test_name_is_model_call_limit(self):
         assert ModelCallLimitPlugin().name == "model_call_limit"
 
@@ -78,7 +75,9 @@ class TestModelCallLimitPluginDetailed:
     @pytest.mark.asyncio
     async def test_does_not_modify_request(self):
         p = ModelCallLimitPlugin(max_calls=10)
-        req = ModelRequest(model="gpt-4o", call_count=3, messages=[{"role": "user", "content": "hi"}])
+        req = ModelRequest(
+            model="gpt-4o", call_count=3, messages=[{"role": "user", "content": "hi"}]
+        )
         result = await p.before_model(req)
         assert result is None
 
@@ -95,8 +94,8 @@ class TestModelCallLimitPluginDetailed:
 # 2. ToolCallLimitPlugin
 # ====================================================================
 
-class TestToolCallLimitPluginDetailed:
 
+class TestToolCallLimitPluginDetailed:
     def test_name_is_tool_call_limit(self):
         assert ToolCallLimitPlugin().name == "tool_call_limit"
 
@@ -119,7 +118,9 @@ class TestToolCallLimitPluginDetailed:
     async def test_at_limit_calls_handler(self):
         p = ToolCallLimitPlugin(max_calls=5)
         handler = AsyncMock(return_value="ok")
-        result = await p.wrap_tool_call(ToolRequest(tool_name="t", call_count=5), handler)
+        result = await p.wrap_tool_call(
+            ToolRequest(tool_name="t", call_count=5), handler
+        )
         assert result == "ok"
 
     @pytest.mark.asyncio
@@ -142,7 +143,10 @@ class TestToolCallLimitPluginDetailed:
     async def test_limit_1(self):
         p = ToolCallLimitPlugin(max_calls=1)
         handler = AsyncMock(return_value="ok")
-        assert await p.wrap_tool_call(ToolRequest(tool_name="t", call_count=1), handler) == "ok"
+        assert (
+            await p.wrap_tool_call(ToolRequest(tool_name="t", call_count=1), handler)
+            == "ok"
+        )
         with pytest.raises(PluginHalt):
             await p.wrap_tool_call(ToolRequest(tool_name="t", call_count=2), handler)
 
@@ -151,8 +155,8 @@ class TestToolCallLimitPluginDetailed:
 # 3. ToolRetryPlugin
 # ====================================================================
 
-class TestToolRetryPluginDetailed:
 
+class TestToolRetryPluginDetailed:
     def test_name_is_tool_retry(self):
         assert ToolRetryPlugin().name == "tool_retry"
 
@@ -226,8 +230,8 @@ class TestToolRetryPluginDetailed:
 # 4. ModelFallbackPlugin
 # ====================================================================
 
-class TestModelFallbackPluginDetailed:
 
+class TestModelFallbackPluginDetailed:
     def test_name(self):
         assert ModelFallbackPlugin(fallbacks=["m"]).name == "model_fallback"
 
@@ -255,11 +259,13 @@ class TestModelFallbackPluginDetailed:
     async def test_first_fallback_succeeds(self):
         p = ModelFallbackPlugin(fallbacks=["fb1", "fb2"])
         calls = []
+
         async def handler(r):
             calls.append(r.model)
             if r.model == "primary":
                 raise RuntimeError("down")
             return f"from_{r.model}"
+
         result = await p.wrap_model_call(ModelRequest(model="primary"), handler)
         assert result == "from_fb1"
         assert calls == ["primary", "fb1"]
@@ -267,18 +273,22 @@ class TestModelFallbackPluginDetailed:
     @pytest.mark.asyncio
     async def test_second_fallback_succeeds(self):
         p = ModelFallbackPlugin(fallbacks=["fb1", "fb2"])
+
         async def handler(r):
             if r.model in ("primary", "fb1"):
                 raise RuntimeError("fail")
             return "from_fb2"
+
         result = await p.wrap_model_call(ModelRequest(model="primary"), handler)
         assert result == "from_fb2"
 
     @pytest.mark.asyncio
     async def test_all_fail_raises_last_error(self):
         p = ModelFallbackPlugin(fallbacks=["fb1"])
+
         async def handler(r):
             raise RuntimeError(f"err_{r.model}")
+
         with pytest.raises(RuntimeError, match="err_fb1"):
             await p.wrap_model_call(ModelRequest(model="primary"), handler)
 
@@ -293,12 +303,18 @@ class TestModelFallbackPluginDetailed:
     async def test_fallback_preserves_other_request_fields(self):
         p = ModelFallbackPlugin(fallbacks=["fb1"])
         received_requests = []
+
         async def handler(r):
             received_requests.append(r)
             if r.model == "primary":
                 raise RuntimeError("fail")
             return "ok"
-        req = ModelRequest(model="primary", max_tokens=2048, messages=[{"role": "user", "content": "hi"}])
+
+        req = ModelRequest(
+            model="primary",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": "hi"}],
+        )
         await p.wrap_model_call(req, handler)
         fb_req = received_requests[1]
         assert fb_req.model == "fb1"
@@ -308,10 +324,12 @@ class TestModelFallbackPluginDetailed:
     @pytest.mark.asyncio
     async def test_original_request_immutable(self):
         p = ModelFallbackPlugin(fallbacks=["fb1"])
+
         async def handler(r):
             if r.model == "primary":
                 raise RuntimeError("fail")
             return "ok"
+
         req = ModelRequest(model="primary")
         await p.wrap_model_call(req, handler)
         assert req.model == "primary"
@@ -321,8 +339,8 @@ class TestModelFallbackPluginDetailed:
 # 5. PIIGuardPlugin
 # ====================================================================
 
-class TestPIIGuardPluginDetailed:
 
+class TestPIIGuardPluginDetailed:
     def test_name(self):
         assert PIIGuardPlugin(pii_types=["email"]).name == "pii_guard"
 
@@ -367,7 +385,9 @@ class TestPIIGuardPluginDetailed:
     @pytest.mark.asyncio
     async def test_redact_email_in_dict_message(self):
         p = PIIGuardPlugin(pii_types=["email"])
-        req = ModelRequest(messages=[{"role": "user", "content": "reach me at alice@corp.io"}])
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "reach me at alice@corp.io"}]
+        )
         result = await p.before_model(req)
         assert result is not None
         assert "[REDACTED_EMAIL]" in result.messages[0]["content"]
@@ -376,7 +396,9 @@ class TestPIIGuardPluginDetailed:
     @pytest.mark.asyncio
     async def test_redact_multiple_emails(self):
         p = PIIGuardPlugin(pii_types=["email"])
-        req = ModelRequest(messages=[{"role": "user", "content": "a@b.com and c@d.com"}])
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "a@b.com and c@d.com"}]
+        )
         result = await p.before_model(req)
         assert result.messages[0]["content"].count("[REDACTED_EMAIL]") == 2
 
@@ -392,7 +414,9 @@ class TestPIIGuardPluginDetailed:
     @pytest.mark.asyncio
     async def test_redact_ip_address(self):
         p = PIIGuardPlugin(pii_types=["ip_address"])
-        req = ModelRequest(messages=[{"role": "user", "content": "host 10.0.0.1 is down"}])
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "host 10.0.0.1 is down"}]
+        )
         result = await p.before_model(req)
         assert "[REDACTED_IP_ADDRESS]" in result.messages[0]["content"]
 
@@ -406,18 +430,22 @@ class TestPIIGuardPluginDetailed:
     @pytest.mark.asyncio
     async def test_no_pii_returns_none(self):
         p = PIIGuardPlugin(pii_types=["email", "phone", "ssn"])
-        req = ModelRequest(messages=[{"role": "user", "content": "Hello world, no PII here!"}])
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "Hello world, no PII here!"}]
+        )
         assert await p.before_model(req) is None
 
     @pytest.mark.asyncio
     async def test_redact_across_multiple_messages(self):
         p = PIIGuardPlugin(pii_types=["email"])
-        req = ModelRequest(messages=[
-            {"role": "system", "content": "You are a helper."},
-            {"role": "user", "content": "Email me at x@y.com"},
-            {"role": "assistant", "content": "Sure!"},
-            {"role": "user", "content": "Also z@w.org"},
-        ])
+        req = ModelRequest(
+            messages=[
+                {"role": "system", "content": "You are a helper."},
+                {"role": "user", "content": "Email me at x@y.com"},
+                {"role": "assistant", "content": "Sure!"},
+                {"role": "user", "content": "Also z@w.org"},
+            ]
+        )
         result = await p.before_model(req)
         assert "[REDACTED_EMAIL]" in result.messages[1]["content"]
         assert "[REDACTED_EMAIL]" in result.messages[3]["content"]
@@ -475,14 +503,21 @@ class TestPIIGuardPluginDetailed:
     @pytest.mark.asyncio
     async def test_block_clean_message_passes(self):
         p = PIIGuardPlugin(pii_types=["email"], strategy="block")
-        assert await p.before_model(ModelRequest(messages=[{"role": "user", "content": "safe text"}])) is None
+        assert (
+            await p.before_model(
+                ModelRequest(messages=[{"role": "user", "content": "safe text"}])
+            )
+            is None
+        )
 
     # -- custom regex patterns --
 
     @pytest.mark.asyncio
     async def test_custom_api_key_redacted(self):
         p = PIIGuardPlugin(custom_patterns={"api_key": r"sk-[a-zA-Z0-9]{20,}"})
-        req = ModelRequest(messages=[{"role": "user", "content": "key is sk-abc123def456ghi789jkl"}])
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "key is sk-abc123def456ghi789jkl"}]
+        )
         result = await p.before_model(req)
         assert "[REDACTED_API_KEY]" in result.messages[0]["content"]
 
@@ -499,7 +534,9 @@ class TestPIIGuardPluginDetailed:
         p = PIIGuardPlugin(pii_types=["email"], apply_to_output=True)
         resp = MagicMock()
         resp.content = "reply to alice@corp.com"
-        resp.model_copy = MagicMock(return_value=MagicMock(content="reply to [REDACTED_EMAIL]"))
+        resp.model_copy = MagicMock(
+            return_value=MagicMock(content="reply to [REDACTED_EMAIL]")
+        )
         result = await p.after_model(ModelRequest(), resp)
         resp.model_copy.assert_called_once()
 
@@ -532,10 +569,13 @@ class TestPIIGuardPluginDetailed:
 # 6. HumanApprovalPlugin
 # ====================================================================
 
-class TestHumanApprovalPluginDetailed:
 
+class TestHumanApprovalPluginDetailed:
     def test_name(self):
-        assert HumanApprovalPlugin(approval_callback=lambda n, a: True).name == "human_approval"
+        assert (
+            HumanApprovalPlugin(approval_callback=lambda n, a: True).name
+            == "human_approval"
+        )
 
     # -- sync callback --
 
@@ -559,6 +599,7 @@ class TestHumanApprovalPluginDetailed:
     async def test_async_approve(self):
         async def cb(n, a):
             return True
+
         p = HumanApprovalPlugin(approval_callback=cb)
         handler = AsyncMock(return_value="ok")
         assert await p.wrap_tool_call(ToolRequest(tool_name="t"), handler) == "ok"
@@ -567,6 +608,7 @@ class TestHumanApprovalPluginDetailed:
     async def test_async_deny(self):
         async def cb(n, a):
             return False
+
         p = HumanApprovalPlugin(approval_callback=cb)
         handler = AsyncMock()
         result = await p.wrap_tool_call(ToolRequest(tool_name="t"), handler)
@@ -578,13 +620,17 @@ class TestHumanApprovalPluginDetailed:
     @pytest.mark.asyncio
     async def test_callback_receives_name_and_args(self):
         received = {}
+
         def cb(name, args):
             received["name"] = name
             received["args"] = args
             return True
+
         p = HumanApprovalPlugin(approval_callback=cb)
         handler = AsyncMock(return_value="ok")
-        await p.wrap_tool_call(ToolRequest(tool_name="search", tool_args={"q": "hello"}), handler)
+        await p.wrap_tool_call(
+            ToolRequest(tool_name="search", tool_args={"q": "hello"}), handler
+        )
         assert received == {"name": "search", "args": {"q": "hello"}}
 
     # -- require_approval list --
@@ -619,9 +665,11 @@ class TestHumanApprovalPluginDetailed:
     @pytest.mark.asyncio
     async def test_auto_approve_bypasses_callback(self):
         call_count = {"n": 0}
+
         def cb(n, a):
             call_count["n"] += 1
             return False
+
         p = HumanApprovalPlugin(approval_callback=cb, auto_approve=["math"])
         handler = AsyncMock(return_value="42")
         assert await p.wrap_tool_call(ToolRequest(tool_name="math"), handler) == "42"
@@ -641,7 +689,9 @@ class TestHumanApprovalPluginDetailed:
 
     @pytest.mark.asyncio
     async def test_custom_deny_message(self):
-        p = HumanApprovalPlugin(approval_callback=lambda n, a: False, deny_message="NOPE")
+        p = HumanApprovalPlugin(
+            approval_callback=lambda n, a: False, deny_message="NOPE"
+        )
         handler = AsyncMock()
         result = await p.wrap_tool_call(ToolRequest(tool_name="x"), handler)
         assert "NOPE" in result
@@ -660,7 +710,6 @@ class TestHumanApprovalPluginDetailed:
 
 
 class TestApprovalHandlerConstruction:
-
     def test_cannot_pass_both_handler_and_callback(self):
         class DummyHandler(ApprovalHandler):
             async def decide(self, n, a):
@@ -696,7 +745,6 @@ class TestApprovalHandlerConstruction:
 
 
 class TestCustomApprovalHandler:
-
     @pytest.mark.asyncio
     async def test_handler_decide_approve(self):
         class AlwaysApprove(ApprovalHandler):
@@ -724,8 +772,10 @@ class TestCustomApprovalHandler:
         class TrackingHandler(ApprovalHandler):
             def __init__(self):
                 self.approved = []
+
             async def decide(self, n, a):
                 return True
+
             async def on_approve(self, n, a):
                 self.approved.append(n)
 
@@ -740,8 +790,10 @@ class TestCustomApprovalHandler:
         class TrackingHandler(ApprovalHandler):
             def __init__(self):
                 self.denied = []
+
             async def decide(self, n, a):
                 return False
+
             async def on_deny(self, n, a):
                 self.denied.append(n)
 
@@ -757,10 +809,13 @@ class TestCustomApprovalHandler:
             def __init__(self):
                 self.approve_calls = 0
                 self.deny_calls = 0
+
             async def decide(self, n, a):
                 return False
+
             async def on_approve(self, n, a):
                 self.approve_calls += 1
+
             async def on_deny(self, n, a):
                 self.deny_calls += 1
 
@@ -793,6 +848,7 @@ class TestCustomApprovalHandler:
         class NeverApprove(ApprovalHandler):
             def __init__(self):
                 self.called = False
+
             async def decide(self, n, a):
                 self.called = True
                 return False
@@ -821,7 +877,6 @@ class TestCustomApprovalHandler:
 
 
 class TestPolicyApprovalHandler:
-
     @pytest.mark.asyncio
     async def test_safe_tool_approved(self):
         h = PolicyApprovalHandler(safe_tools=["add", "search"])
@@ -892,8 +947,12 @@ class TestPolicyApprovalHandler:
         p = HumanApprovalPlugin(approval_handler=h)
         tool_handler = AsyncMock(return_value="ok")
 
-        assert await p.wrap_tool_call(ToolRequest(tool_name="add"), tool_handler) == "ok"
-        result = await p.wrap_tool_call(ToolRequest(tool_name="delete_file"), tool_handler)
+        assert (
+            await p.wrap_tool_call(ToolRequest(tool_name="add"), tool_handler) == "ok"
+        )
+        result = await p.wrap_tool_call(
+            ToolRequest(tool_name="delete_file"), tool_handler
+        )
         assert "denied" in result.lower()
 
         assert len(h.audit_log) == 2
@@ -916,8 +975,8 @@ class TestPolicyApprovalHandler:
 # 7. ContextWindowPlugin
 # ====================================================================
 
-class TestContextWindowPluginDetailed:
 
+class TestContextWindowPluginDetailed:
     def test_name(self):
         assert ContextWindowPlugin(max_messages=10).name == "context_window"
 
@@ -1007,7 +1066,9 @@ class TestContextWindowPluginDetailed:
 
     @pytest.mark.asyncio
     async def test_token_over_limit_trims(self):
-        p = ContextWindowPlugin(max_tokens=60, keep_recent=1, token_counter=len, placeholder=None)
+        p = ContextWindowPlugin(
+            max_tokens=60, keep_recent=1, token_counter=len, placeholder=None
+        )
         msgs = [{"role": "user", "content": "x" * 30} for _ in range(5)]
         result = await p.before_model(ModelRequest(messages=msgs))
         assert result is not None
@@ -1016,7 +1077,9 @@ class TestContextWindowPluginDetailed:
     @pytest.mark.asyncio
     async def test_custom_token_counter(self):
         word_count = lambda s: len(s.split())
-        p = ContextWindowPlugin(max_tokens=5, keep_recent=1, token_counter=word_count, placeholder=None)
+        p = ContextWindowPlugin(
+            max_tokens=5, keep_recent=1, token_counter=word_count, placeholder=None
+        )
         msgs = [
             {"role": "system", "content": "be helpful"},  # 2 words
             {"role": "user", "content": "one two three"},  # 3 words
@@ -1030,7 +1093,13 @@ class TestContextWindowPluginDetailed:
 
     @pytest.mark.asyncio
     async def test_message_limit_applied_before_token_limit(self):
-        p = ContextWindowPlugin(max_messages=5, max_tokens=10000, keep_recent=2, placeholder=None, token_counter=len)
+        p = ContextWindowPlugin(
+            max_messages=5,
+            max_tokens=10000,
+            keep_recent=2,
+            placeholder=None,
+            token_counter=len,
+        )
         msgs = [{"role": "user", "content": f"m{i}"} for i in range(20)]
         result = await p.before_model(ModelRequest(messages=msgs))
         assert len(result.messages) == 3  # 1 head + 2 recent
@@ -1051,8 +1120,8 @@ class TestContextWindowPluginDetailed:
 # 8. ToolGuardPlugin
 # ====================================================================
 
-class TestToolGuardPluginDetailed:
 
+class TestToolGuardPluginDetailed:
     def test_name(self):
         assert ToolGuardPlugin(blocked=["x"]).name == "tool_guard"
 
@@ -1080,7 +1149,9 @@ class TestToolGuardPluginDetailed:
     async def test_unblocked_tool_executes(self):
         p = ToolGuardPlugin(blocked=["rm"])
         handler = AsyncMock(return_value="found")
-        assert await p.wrap_tool_call(ToolRequest(tool_name="search"), handler) == "found"
+        assert (
+            await p.wrap_tool_call(ToolRequest(tool_name="search"), handler) == "found"
+        )
 
     @pytest.mark.asyncio
     async def test_multiple_blocked_tools(self):
@@ -1118,17 +1189,24 @@ class TestToolGuardPluginDetailed:
     async def test_static_string_deny(self):
         p = ToolGuardPlugin(blocked=["bad"], on_deny="Forbidden!")
         handler = AsyncMock()
-        assert await p.wrap_tool_call(ToolRequest(tool_name="bad"), handler) == "Forbidden!"
+        assert (
+            await p.wrap_tool_call(ToolRequest(tool_name="bad"), handler)
+            == "Forbidden!"
+        )
 
     @pytest.mark.asyncio
     async def test_callable_deny_receives_name_and_args(self):
         received = {}
+
         def deny_fn(name, args):
             received.update(name=name, args=args)
             return "denied"
+
         p = ToolGuardPlugin(blocked=["x"], on_deny=deny_fn)
         handler = AsyncMock()
-        await p.wrap_tool_call(ToolRequest(tool_name="x", tool_args={"k": "v"}), handler)
+        await p.wrap_tool_call(
+            ToolRequest(tool_name="x", tool_args={"k": "v"}), handler
+        )
         assert received == {"name": "x", "args": {"k": "v"}}
 
     @pytest.mark.asyncio
@@ -1153,15 +1231,17 @@ class TestToolGuardPluginDetailed:
 # Multi-plugin pipeline tests
 # ====================================================================
 
-class TestMultiPluginPipeline:
 
+class TestMultiPluginPipeline:
     @pytest.mark.asyncio
     async def test_model_limit_with_fallback(self):
         """ModelCallLimit halts before Fallback even gets a chance."""
-        mgr = PluginManager([
-            ModelCallLimitPlugin(max_calls=2),
-            ModelFallbackPlugin(fallbacks=["fb1"]),
-        ])
+        mgr = PluginManager(
+            [
+                ModelCallLimitPlugin(max_calls=2),
+                ModelFallbackPlugin(fallbacks=["fb1"]),
+            ]
+        )
         req = ModelRequest(call_count=3)
         with pytest.raises(PluginHalt):
             await mgr.run_before_model(req)
@@ -1169,10 +1249,12 @@ class TestMultiPluginPipeline:
     @pytest.mark.asyncio
     async def test_tool_guard_then_retry(self):
         """ToolGuard blocks before ToolRetry even attempts."""
-        mgr = PluginManager([
-            ToolGuardPlugin(blocked=["bad"]),
-            ToolRetryPlugin(max_retries=3, base_delay=0.001),
-        ])
+        mgr = PluginManager(
+            [
+                ToolGuardPlugin(blocked=["bad"]),
+                ToolRetryPlugin(max_retries=3, base_delay=0.001),
+            ]
+        )
         handler = AsyncMock(return_value="ok")
         result = await mgr.execute_tool_call(ToolRequest(tool_name="bad"), handler)
         assert "blocked" in result.lower()
@@ -1181,21 +1263,27 @@ class TestMultiPluginPipeline:
     @pytest.mark.asyncio
     async def test_pii_guard_before_model_limit(self):
         """PII is redacted, then limit check passes."""
-        mgr = PluginManager([
-            PIIGuardPlugin(pii_types=["email"]),
-            ModelCallLimitPlugin(max_calls=10),
-        ])
-        req = ModelRequest(messages=[{"role": "user", "content": "hi@there.com"}], call_count=1)
+        mgr = PluginManager(
+            [
+                PIIGuardPlugin(pii_types=["email"]),
+                ModelCallLimitPlugin(max_calls=10),
+            ]
+        )
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "hi@there.com"}], call_count=1
+        )
         result = await mgr.run_before_model(req)
         assert "[REDACTED_EMAIL]" in result.messages[0]["content"]
 
     @pytest.mark.asyncio
     async def test_approval_then_guard(self):
         """Approval runs first (auto-approve), then guard blocks."""
-        mgr = PluginManager([
-            HumanApprovalPlugin(approval_callback=lambda n, a: True),
-            ToolGuardPlugin(blocked=["bad"]),
-        ])
+        mgr = PluginManager(
+            [
+                HumanApprovalPlugin(approval_callback=lambda n, a: True),
+                ToolGuardPlugin(blocked=["bad"]),
+            ]
+        )
         handler = AsyncMock(return_value="ok")
         result = await mgr.execute_tool_call(ToolRequest(tool_name="bad"), handler)
         assert "blocked" in result.lower()
@@ -1203,18 +1291,22 @@ class TestMultiPluginPipeline:
     @pytest.mark.asyncio
     async def test_all_8_plugins_together(self):
         """Smoke test: all 8 plugins registered without errors."""
-        mgr = PluginManager([
-            ModelCallLimitPlugin(max_calls=100),
-            ToolCallLimitPlugin(max_calls=100),
-            ToolRetryPlugin(max_retries=1, base_delay=0.001),
-            ModelFallbackPlugin(fallbacks=["fb"]),
-            PIIGuardPlugin(pii_types=["email"]),
-            HumanApprovalPlugin(approval_callback=lambda n, a: True),
-            ContextWindowPlugin(max_messages=50),
-            ToolGuardPlugin(blocked=["bad"]),
-        ])
+        mgr = PluginManager(
+            [
+                ModelCallLimitPlugin(max_calls=100),
+                ToolCallLimitPlugin(max_calls=100),
+                ToolRetryPlugin(max_retries=1, base_delay=0.001),
+                ModelFallbackPlugin(fallbacks=["fb"]),
+                PIIGuardPlugin(pii_types=["email"]),
+                HumanApprovalPlugin(approval_callback=lambda n, a: True),
+                ContextWindowPlugin(max_messages=50),
+                ToolGuardPlugin(blocked=["bad"]),
+            ]
+        )
         assert len(mgr.plugins) == 8
-        req = ModelRequest(messages=[{"role": "user", "content": "hello"}], call_count=1)
+        req = ModelRequest(
+            messages=[{"role": "user", "content": "hello"}], call_count=1
+        )
         result = await mgr.run_before_model(req)
         assert result is None or isinstance(result, ModelRequest)
 
@@ -1225,11 +1317,11 @@ class TestMultiPluginPipeline:
 
 
 class TestBasePluginDefaults:
-
     @pytest.mark.asyncio
     async def test_default_name_is_class_name(self):
         class MyCustomPlugin(BasePlugin):
             pass
+
         p = MyCustomPlugin()
         assert p.name == "MyCustomPlugin"
 
@@ -1237,6 +1329,7 @@ class TestBasePluginDefaults:
     async def test_repr(self):
         class FancyPlugin(BasePlugin):
             pass
+
         p = FancyPlugin()
         assert "FancyPlugin" in repr(p)
         assert "name=" in repr(p)
@@ -1245,6 +1338,7 @@ class TestBasePluginDefaults:
     async def test_before_agent_default_returns_none(self):
         class Noop(BasePlugin):
             pass
+
         p = Noop()
         ctx = AgentContext(agent_name="test", task={"id": "1"}, state="idle", config={})
         result = await p.before_agent(ctx)
@@ -1254,6 +1348,7 @@ class TestBasePluginDefaults:
     async def test_after_agent_default_returns_result(self):
         class Noop(BasePlugin):
             pass
+
         p = Noop()
         ctx = AgentContext(agent_name="test", task={"id": "1"}, state="idle", config={})
         result = await p.after_agent(ctx, "hello")
@@ -1263,6 +1358,7 @@ class TestBasePluginDefaults:
     async def test_before_model_default_returns_none(self):
         class Noop(BasePlugin):
             pass
+
         p = Noop()
         result = await p.before_model(ModelRequest(messages=[], call_count=1))
         assert result is None
@@ -1271,6 +1367,7 @@ class TestBasePluginDefaults:
     async def test_after_model_default_returns_response(self):
         class Noop(BasePlugin):
             pass
+
         p = Noop()
         result = await p.after_model(ModelRequest(messages=[], call_count=1), "resp")
         assert result == "resp"
@@ -1279,6 +1376,7 @@ class TestBasePluginDefaults:
     async def test_wrap_model_call_default_calls_handler(self):
         class Noop(BasePlugin):
             pass
+
         p = Noop()
         handler = AsyncMock(return_value="model_result")
         req = ModelRequest(messages=[], call_count=1)
@@ -1290,6 +1388,7 @@ class TestBasePluginDefaults:
     async def test_wrap_tool_call_default_calls_handler(self):
         class Noop(BasePlugin):
             pass
+
         p = Noop()
         handler = AsyncMock(return_value="tool_result")
         req = ToolRequest(tool_name="t")
@@ -1299,7 +1398,6 @@ class TestBasePluginDefaults:
 
 
 class TestToolRequestMethods:
-
     def test_with_creates_new_request(self):
         orig = ToolRequest(tool_name="add", tool_args={"a": 1})
         modified = orig.with_(tool_args={"a": 2})
@@ -1307,7 +1405,9 @@ class TestToolRequestMethods:
         assert orig.tool_args == {"a": 1}
 
     def test_to_tool_call_request(self):
-        req = ToolRequest(tool_name="search", tool_args={"q": "test"}, tool_call_id="tc_1")
+        req = ToolRequest(
+            tool_name="search", tool_args={"q": "test"}, tool_call_id="tc_1"
+        )
         tc = req.to_tool_call_request()
         assert tc.name == "search"
         assert tc.id == "tc_1"
@@ -1320,7 +1420,6 @@ class TestToolRequestMethods:
 
 
 class TestPluginManagerCoverage:
-
     def test_has_plugins_true(self):
         mgr = PluginManager([ModelCallLimitPlugin()])
         assert mgr.has_plugins() is True
@@ -1351,7 +1450,9 @@ class TestPluginManagerCoverage:
     async def test_run_before_agent(self):
         class ModifyCtx(BasePlugin):
             async def before_agent(self, ctx):
-                return AgentContext(agent_name="m", task={"id": "modified"}, state="s", config={})
+                return AgentContext(
+                    agent_name="m", task={"id": "modified"}, state="s", config={}
+                )
 
         mgr = PluginManager([ModifyCtx()])
         ctx = AgentContext(agent_name="t", task={"id": "orig"}, state="s", config={})
@@ -1450,21 +1551,31 @@ class TestPluginManagerCoverage:
 
 
 from nucleusiq.plugins.decorators import (
-    before_agent as before_agent_dec,
     after_agent as after_agent_dec,
-    before_model as before_model_dec,
+)
+from nucleusiq.plugins.decorators import (
     after_model as after_model_dec,
+)
+from nucleusiq.plugins.decorators import (
+    before_agent as before_agent_dec,
+)
+from nucleusiq.plugins.decorators import (
+    before_model as before_model_dec,
+)
+from nucleusiq.plugins.decorators import (
     wrap_model_call as wrap_model_call_dec,
+)
+from nucleusiq.plugins.decorators import (
     wrap_tool_call as wrap_tool_call_dec,
 )
 
 
 class TestDecoratorPlugins:
-
     def test_before_agent_creates_plugin(self):
         @before_agent_dec
         def my_hook(ctx):
             return None
+
         assert isinstance(my_hook, BasePlugin)
         assert my_hook.name == "my_hook"
 
@@ -1482,7 +1593,9 @@ class TestDecoratorPlugins:
     async def test_before_agent_async_function(self):
         @before_agent_dec
         async def check_it(ctx):
-            return AgentContext(agent_name="t", task={"id": "modified"}, state="s", config={})
+            return AgentContext(
+                agent_name="t", task={"id": "modified"}, state="s", config={}
+            )
 
         ctx = AgentContext(agent_name="t", task={}, state="s", config={})
         result = await check_it.before_agent(ctx)
@@ -1492,6 +1605,7 @@ class TestDecoratorPlugins:
         @after_agent_dec
         def my_hook(ctx, result):
             return result
+
         assert isinstance(my_hook, BasePlugin)
         assert my_hook.name == "my_hook"
 
@@ -1509,6 +1623,7 @@ class TestDecoratorPlugins:
         @before_model_dec
         def log_model(request):
             return None
+
         assert isinstance(log_model, BasePlugin)
         assert log_model.name == "log_model"
 
@@ -1535,6 +1650,7 @@ class TestDecoratorPlugins:
         @after_model_dec
         def log_resp(request, response):
             return response
+
         assert isinstance(log_resp, BasePlugin)
 
     @pytest.mark.asyncio
@@ -1543,13 +1659,16 @@ class TestDecoratorPlugins:
         def censor(request, response):
             return "censored"
 
-        result = await censor.after_model(ModelRequest(messages=[], call_count=1), "secret")
+        result = await censor.after_model(
+            ModelRequest(messages=[], call_count=1), "secret"
+        )
         assert result == "censored"
 
     def test_wrap_model_call_creates_plugin(self):
         @wrap_model_call_dec
         async def retry(request, handler):
             return await handler(request)
+
         assert isinstance(retry, BasePlugin)
         assert retry.name == "retry"
 
@@ -1569,6 +1688,7 @@ class TestDecoratorPlugins:
         @wrap_tool_call_dec
         async def guard(request, handler):
             return await handler(request)
+
         assert isinstance(guard, BasePlugin)
         assert guard.name == "guard"
 
@@ -1581,8 +1701,14 @@ class TestDecoratorPlugins:
             return await handler(request)
 
         handler = AsyncMock(return_value="ok")
-        assert await block_bad.wrap_tool_call(ToolRequest(tool_name="bad"), handler) == "blocked"
-        assert await block_bad.wrap_tool_call(ToolRequest(tool_name="good"), handler) == "ok"
+        assert (
+            await block_bad.wrap_tool_call(ToolRequest(tool_name="bad"), handler)
+            == "blocked"
+        )
+        assert (
+            await block_bad.wrap_tool_call(ToolRequest(tool_name="good"), handler)
+            == "ok"
+        )
 
     @pytest.mark.asyncio
     async def test_wrap_tool_call_sync_function(self):
@@ -1590,7 +1716,9 @@ class TestDecoratorPlugins:
         def sync_guard(request, handler):
             return "sync_blocked"
 
-        result = await sync_guard.wrap_tool_call(ToolRequest(tool_name="t"), AsyncMock())
+        result = await sync_guard.wrap_tool_call(
+            ToolRequest(tool_name="t"), AsyncMock()
+        )
         assert result == "sync_blocked"
 
 
@@ -1600,7 +1728,6 @@ class TestDecoratorPlugins:
 
 
 class TestPIIGuardEdgeCases:
-
     @pytest.mark.asyncio
     async def test_mask_credit_card(self):
         p = PIIGuardPlugin(pii_types=["credit_card"], strategy="mask")
@@ -1685,7 +1812,6 @@ class TestPIIGuardEdgeCases:
 
 
 class TestContextWindowEdgeCases:
-
     @pytest.mark.asyncio
     async def test_token_trim_budget_exhausted(self):
         """When head+tail already exceed budget, no middle is kept."""
@@ -1704,7 +1830,9 @@ class TestContextWindowEdgeCases:
         result = await p.before_model(req)
         assert result is not None
         assert len(result.messages) < 5
-        contents = [m.get("content", "") if isinstance(m, dict) else "" for m in result.messages]
+        contents = [
+            m.get("content", "") if isinstance(m, dict) else "" for m in result.messages
+        ]
         assert "middle1" not in contents
         assert "middle2" not in contents
         assert "middle3" not in contents
@@ -1738,11 +1866,11 @@ class TestContextWindowEdgeCases:
 
 
 class TestConsoleApprovalHandler:
-
     @pytest.mark.asyncio
     async def test_approve_yes(self, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "y")
         from nucleusiq.plugins.builtin.human_approval import ConsoleApprovalHandler
+
         h = ConsoleApprovalHandler()
         assert await h.decide("search", {"q": "test"}) is True
 
@@ -1750,6 +1878,7 @@ class TestConsoleApprovalHandler:
     async def test_approve_full_yes(self, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "yes")
         from nucleusiq.plugins.builtin.human_approval import ConsoleApprovalHandler
+
         h = ConsoleApprovalHandler()
         assert await h.decide("search", {}) is True
 
@@ -1757,6 +1886,7 @@ class TestConsoleApprovalHandler:
     async def test_deny_no(self, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "n")
         from nucleusiq.plugins.builtin.human_approval import ConsoleApprovalHandler
+
         h = ConsoleApprovalHandler()
         assert await h.decide("delete", {}) is False
 
@@ -1764,6 +1894,7 @@ class TestConsoleApprovalHandler:
     async def test_deny_random_input(self, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "maybe")
         from nucleusiq.plugins.builtin.human_approval import ConsoleApprovalHandler
+
         h = ConsoleApprovalHandler()
         assert await h.decide("delete", {}) is False
 
@@ -1774,7 +1905,6 @@ class TestConsoleApprovalHandler:
 
 
 class TestPIIGuardCreditCardBranches:
-
     @pytest.mark.asyncio
     async def test_detect_skips_invalid_credit_card(self):
         """_detect with credit_card type skips numbers that fail Luhn check."""
@@ -1822,7 +1952,6 @@ class TestPIIGuardCreditCardBranches:
 
 
 class TestPIIGuardSanitizeMessagesObjectContent:
-
     @pytest.mark.asyncio
     async def test_sanitize_messages_with_object_having_content(self):
         """Message objects with .content attribute are sanitized."""
@@ -1842,7 +1971,6 @@ class TestPIIGuardSanitizeMessagesObjectContent:
 
 
 class TestPIIGuardAfterModelEdgeCases:
-
     @pytest.mark.asyncio
     async def test_after_model_non_model_copy_response(self):
         """Response object without model_copy gets a warning, no crash."""
@@ -1868,7 +1996,6 @@ class TestPIIGuardAfterModelEdgeCases:
 
 
 class TestContextWindowTokenMiddleKept:
-
     @pytest.mark.asyncio
     async def test_token_trim_keeps_some_middle(self):
         """Token limit trims some middle messages but keeps recent ones."""
@@ -1889,10 +2016,10 @@ class TestContextWindowTokenMiddleKept:
 
 
 class TestDecoratorAfterModelSync:
-
     @pytest.mark.asyncio
     async def test_after_model_sync_decorator(self):
         """after_model decorator with a sync function."""
+
         @after_model_dec
         def add_prefix(request, response):
             return f"checked_{response}"
@@ -1904,7 +2031,6 @@ class TestDecoratorAfterModelSync:
 
 
 class TestModelRequestToCallKwargs:
-
     def test_to_call_kwargs_with_dict_messages(self):
         req = ModelRequest(
             messages=[{"role": "user", "content": "hello"}],
@@ -1928,6 +2054,7 @@ class TestModelRequestToCallKwargs:
 
     def test_to_call_kwargs_with_chat_message(self):
         from nucleusiq.agents.chat_models import ChatMessage
+
         msg = ChatMessage(role="assistant", content="hi")
         req = ModelRequest(messages=[msg], model="gpt-4", call_count=1)
         kwargs = req.to_call_kwargs()

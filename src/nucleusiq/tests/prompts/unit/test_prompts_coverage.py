@@ -1,19 +1,14 @@
 """Tests covering gaps in prompts/auto_chain_of_thought.py, base.py, factory.py."""
 
-import os
 import json
-import tempfile
-import pytest
-from typing import Any, Dict, List
 
+import pytest
+from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.auto_chain_of_thought import AutoChainOfThoughtPrompt
-from nucleusiq.prompts.base import BasePrompt
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.chain_of_thought import ChainOfThoughtPrompt
+from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.few_shot import FewShotPrompt
 from nucleusiq.prompts.zero_shot import ZeroShotPrompt
-from nucleusiq.llms.mock_llm import MockLLM
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AutoChainOfThoughtPrompt
@@ -21,7 +16,6 @@ from nucleusiq.llms.mock_llm import MockLLM
 
 
 class TestAutoChainOfThought:
-
     def test_technique_name(self):
         p = AutoChainOfThoughtPrompt(llm=MockLLM())
         assert p.technique_name == "auto_chain_of_thought"
@@ -85,7 +79,6 @@ class TestAutoChainOfThought:
 
 
 class TestPromptFactory:
-
     def test_all_techniques_registered(self):
         for tech in PromptTechnique:
             assert tech.value in PromptFactory.prompt_classes
@@ -113,7 +106,6 @@ class TestPromptFactory:
 
 
 class TestBasePromptSaveLoad:
-
     def test_save_load_json(self, tmp_path):
         p = ZeroShotPrompt()
         p.configure(system="Test system", user="Test user")
@@ -159,7 +151,6 @@ class TestBasePromptSaveLoad:
 
 
 class TestBasePromptMethods:
-
     def test_set_metadata(self):
         p = ZeroShotPrompt()
         p.set_metadata({"author": "test"})

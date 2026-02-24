@@ -16,14 +16,15 @@ Run with: python plugin_memory_example.py
 Requires OPENAI_API_KEY environment variable.
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 from typing import Any
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
@@ -33,24 +34,25 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
-from nucleusiq_openai import BaseOpenAI
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
-from nucleusiq.tools import BaseTool
-
 from nucleusiq.plugins import (
-    BasePlugin,
     AgentContext,
+    BasePlugin,
     ModelRequest,
     ToolRequest,
-    before_agent,
     after_agent,
-    before_model,
     after_model,
+    before_agent,
+    before_model,
     wrap_tool_call,
 )
 from nucleusiq.plugins.builtin import ModelCallLimitPlugin
+from nucleusiq.tools import BaseTool
+from nucleusiq_openai import BaseOpenAI
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -58,11 +60,14 @@ logger = logging.getLogger(__name__)
 # 1. Decorator-based plugins (simple one-off hooks)
 # ============================================================================
 
+
 @before_agent
 async def log_task_start(ctx: AgentContext) -> None:
     """Logs every task. Returns None = no change to context."""
     task_obj = getattr(ctx.task, "objective", str(ctx.task))
-    logger.info(f"[plugin:log_task_start] Agent '{ctx.agent_name}' received: {task_obj}")
+    logger.info(
+        f"[plugin:log_task_start] Agent '{ctx.agent_name}' received: {task_obj}"
+    )
 
 
 @after_agent
@@ -109,6 +114,7 @@ async def log_tool_execution(request: ToolRequest, handler):
 # 2. Class-based plugin (multi-hook audit trail)
 # ============================================================================
 
+
 class AuditTrailPlugin(BasePlugin):
     """Records a structured audit trail of the entire execution."""
 
@@ -120,27 +126,33 @@ class AuditTrailPlugin(BasePlugin):
         return "audit_trail"
 
     async def before_agent(self, ctx: AgentContext) -> None:
-        self.events.append({
-            "hook": "before_agent",
-            "agent": ctx.agent_name,
-            "task": getattr(ctx.task, "objective", str(ctx.task)),
-        })
+        self.events.append(
+            {
+                "hook": "before_agent",
+                "agent": ctx.agent_name,
+                "task": getattr(ctx.task, "objective", str(ctx.task)),
+            }
+        )
 
     async def after_agent(self, ctx: AgentContext, result: Any) -> Any:
-        self.events.append({
-            "hook": "after_agent",
-            "agent": ctx.agent_name,
-            "result_length": len(str(result)),
-        })
+        self.events.append(
+            {
+                "hook": "after_agent",
+                "agent": ctx.agent_name,
+                "result_length": len(str(result)),
+            }
+        )
         return result
 
     async def before_model(self, request: ModelRequest) -> None:
-        self.events.append({
-            "hook": "before_model",
-            "model": request.model,
-            "call_count": request.call_count,
-            "message_count": len(request.messages),
-        })
+        self.events.append(
+            {
+                "hook": "before_model",
+                "model": request.model,
+                "call_count": request.call_count,
+                "message_count": len(request.messages),
+            }
+        )
 
     def print_trail(self) -> None:
         logger.info("\n--- Audit Trail ---")
@@ -152,6 +164,7 @@ class AuditTrailPlugin(BasePlugin):
 # ============================================================================
 # Example 1: Conversational Memory + Decorator Plugins
 # ============================================================================
+
 
 async def example_memory_with_plugins():
     """Agent remembers conversation context; plugins log every step."""
@@ -178,27 +191,30 @@ async def example_memory_with_plugins():
     )
     await agent.initialize()
 
-    result1 = await agent.execute({
-        "id": "1",
-        "objective": "Hello! My name is Brijesh and I am the creator of NucleusIQ.",
-    })
+    result1 = await agent.execute(
+        {
+            "id": "1",
+            "objective": "Hello! My name is Brijesh and I am the creator of NucleusIQ.",
+        }
+    )
     logger.info(f"Turn 1 response: {result1}\n")
 
-    result2 = await agent.execute({
-        "id": "2",
-        "objective": "Who is the creator of NucleusIQ?",
-    })
+    result2 = await agent.execute(
+        {
+            "id": "2",
+            "objective": "Who is the creator of NucleusIQ?",
+        }
+    )
     logger.info(f"Turn 2 response: {result2}\n")
 
-    assert "Brijesh" in str(result2), (
-        f"Expected 'Brijesh' in response, got: {result2}"
-    )
+    assert "Brijesh" in str(result2), f"Expected 'Brijesh' in response, got: {result2}"
     logger.info("Memory verification passed: agent remembered 'Brijesh'")
 
 
 # ============================================================================
 # Example 2: Tool Agent + Audit Trail Plugin + Model Call Limit
 # ============================================================================
+
 
 async def example_tools_with_audit_and_limit():
     """Agent uses tools; audit trail records everything; limit prevents runaway."""
@@ -215,7 +231,9 @@ async def example_tools_with_audit_and_limit():
         return a * b
 
     add_tool = BaseTool.from_function(add, name="add", description="Add two numbers")
-    mul_tool = BaseTool.from_function(multiply, name="multiply", description="Multiply two numbers")
+    mul_tool = BaseTool.from_function(
+        multiply, name="multiply", description="Multiply two numbers"
+    )
 
     llm = BaseOpenAI(model_name="gpt-4o-mini")
     memory = MemoryFactory.create_memory(MemoryStrategy.SLIDING_WINDOW, window_size=10)
@@ -237,10 +255,12 @@ async def example_tools_with_audit_and_limit():
     )
     await agent.initialize()
 
-    result = await agent.execute({
-        "id": "calc-1",
-        "objective": "What is 25 + 17?",
-    })
+    result = await agent.execute(
+        {
+            "id": "calc-1",
+            "objective": "What is 25 + 17?",
+        }
+    )
     logger.info(f"Calculation result: {result}\n")
     audit.print_trail()
 
@@ -248,6 +268,7 @@ async def example_tools_with_audit_and_limit():
 # ============================================================================
 # Example 3: Summary Memory for Long Conversations + Plugins
 # ============================================================================
+
 
 async def example_summary_memory_with_plugins():
     """Uses summary memory to keep conversations compact while plugins monitor."""
@@ -288,19 +309,24 @@ async def example_summary_memory_with_plugins():
     ]
 
     for i, message in enumerate(conversations, 1):
-        result = await agent.execute({
-            "id": f"turn-{i}",
-            "objective": message,
-        })
+        result = await agent.execute(
+            {
+                "id": f"turn-{i}",
+                "objective": message,
+            }
+        )
         logger.info(f"Turn {i}: {str(result)[:150]}\n")
 
-    logger.info(f"Audit trail has {len(audit.events)} events across {len(conversations)} turns")
+    logger.info(
+        f"Audit trail has {len(audit.events)} events across {len(conversations)} turns"
+    )
     audit.print_trail()
 
 
 # ============================================================================
 # Main
 # ============================================================================
+
 
 async def main():
     if not os.getenv("OPENAI_API_KEY"):

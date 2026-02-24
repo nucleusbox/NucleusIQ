@@ -25,7 +25,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List
 
 from nucleusiq.plugins.base import BasePlugin, ModelRequest
 
@@ -73,11 +73,11 @@ class ContextWindowPlugin(BasePlugin):
 
     def __init__(
         self,
-        max_messages: Optional[int] = None,
-        max_tokens: Optional[int] = None,
+        max_messages: int | None = None,
+        max_tokens: int | None = None,
         keep_recent: int = 10,
-        token_counter: Optional[Callable[[str], int]] = None,
-        placeholder: Optional[str] = "[Earlier messages trimmed for context window]",
+        token_counter: Callable[[str], int] | None = None,
+        placeholder: str | None = "[Earlier messages trimmed for context window]",
     ) -> None:
         if max_messages is None and max_tokens is None:
             raise ValueError("At least one of max_messages or max_tokens is required")
@@ -140,7 +140,11 @@ class ContextWindowPlugin(BasePlugin):
         if budget <= 0:
             result = head + tail
         else:
-            middle = messages[keep_start:-keep_end] if keep_end > 0 else messages[keep_start:]
+            middle = (
+                messages[keep_start:-keep_end]
+                if keep_end > 0
+                else messages[keep_start:]
+            )
             kept_middle: List[Any] = []
             used = 0
             for msg in reversed(middle):
@@ -161,11 +165,13 @@ class ContextWindowPlugin(BasePlugin):
                 self._max_tokens,
             )
             if self._placeholder and len(result) > keep_start:
-                result.insert(keep_start, {"role": "system", "content": self._placeholder})
+                result.insert(
+                    keep_start, {"role": "system", "content": self._placeholder}
+                )
 
         return result
 
-    async def before_model(self, request: ModelRequest) -> Optional[ModelRequest]:
+    async def before_model(self, request: ModelRequest) -> ModelRequest | None:
         messages = list(request.messages)
 
         if self._max_messages is not None:

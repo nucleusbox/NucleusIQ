@@ -13,7 +13,6 @@ Tests cover:
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -21,21 +20,18 @@ src_dir = Path(__file__).parent.parent.parent / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-import pytest
-from typing import Dict, Any, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any, Dict, List
 
+import pytest
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
-from nucleusiq.agents.task import Task
-from nucleusiq.agents.plan import Plan, PlanStep, PlanResponse, PlanStepResponse
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
-from nucleusiq.agents.planning.planner import Planner
+from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.planning.plan_parser import PlanParser
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
-from nucleusiq.tools import BaseTool
+from nucleusiq.agents.planning.planner import Planner
+from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
-
+from nucleusiq.tools import BaseTool
 
 # --------------------------------------------------------------------------- #
 # Mock Tools                                                                  #
@@ -106,12 +102,17 @@ class ContentOnlyMockLLM(MockLLM):
 class PlanningMockLLM(MockLLM):
     """Returns create_plan tool call for autonomous planning."""
 
-    def __init__(self, plan_steps: Optional[List[Dict[str, Any]]] = None, **kwargs):
+    def __init__(self, plan_steps: List[Dict[str, Any]] | None = None, **kwargs):
         super().__init__(**kwargs)
         self._call_count = 0
         self.plan_steps = plan_steps or [
             {"step": 1, "action": "add", "args": {"a": 5, "b": 3}, "details": "5+3"},
-            {"step": 2, "action": "multiply", "args": {"a": "$step_1", "b": 2}, "details": "8*2"},
+            {
+                "step": 2,
+                "action": "multiply",
+                "args": {"a": "$step_1", "b": 2},
+                "details": "8*2",
+            },
         ]
 
     async def call(self, **kwargs) -> Any:
@@ -127,11 +128,16 @@ class PlanningMockLLM(MockLLM):
         # If create_plan tool is requested, return plan via tool call
         if "create_plan" in tool_names:
             plan_data = {"steps": self.plan_steps}
-            tool_calls = [{
-                "id": "call_plan_1",
-                "type": "function",
-                "function": {"name": "create_plan", "arguments": json.dumps(plan_data)},
-            }]
+            tool_calls = [
+                {
+                    "id": "call_plan_1",
+                    "type": "function",
+                    "function": {
+                        "name": "create_plan",
+                        "arguments": json.dumps(plan_data),
+                    },
+                }
+            ]
             msg = self.Message(content=None, function_call=None, tool_calls=tool_calls)
             return self.LLMResponse([self.Choice(msg)])
 
@@ -343,9 +349,12 @@ class TestPlanExecutionCoverage:
         )
         await agent.initialize()
         task = Task(id="t1", objective="Hello")
-        plan = Plan(task=task, steps=[
-            PlanStep(step=1, action="execute", task=task),
-        ])
+        plan = Plan(
+            task=task,
+            steps=[
+                PlanStep(step=1, action="execute", task=task),
+            ],
+        )
         result = await Planner(agent).execute_plan(task, plan)
         assert result is not None
         assert agent.state == AgentState.COMPLETED
@@ -364,9 +373,12 @@ class TestPlanExecutionCoverage:
         )
         await agent.initialize()
         task = Task(id="t1", objective="Add numbers")
-        plan = Plan(task=task, steps=[
-            PlanStep(step=1, action="add", args={"a": 10, "b": 20}, task=task),
-        ])
+        plan = Plan(
+            task=task,
+            steps=[
+                PlanStep(step=1, action="add", args={"a": 10, "b": 20}, task=task),
+            ],
+        )
         result = await Planner(agent).execute_plan(task, plan)
         assert result == 30
         assert agent.state == AgentState.COMPLETED
@@ -386,10 +398,13 @@ class TestPlanExecutionCoverage:
         )
         await agent.initialize()
         task = Task(id="t1", objective="(5+3)*2")
-        plan = Plan(task=task, steps=[
-            PlanStep(step=1, action="add", args={"a": 5, "b": 3}),
-            PlanStep(step=2, action="multiply", args={"a": "$step_1", "b": 2}),
-        ])
+        plan = Plan(
+            task=task,
+            steps=[
+                PlanStep(step=1, action="add", args={"a": 5, "b": 3}),
+                PlanStep(step=2, action="multiply", args={"a": "$step_1", "b": 2}),
+            ],
+        )
         result = await Planner(agent).execute_plan(task, plan)
         assert result == 16
         assert agent.state == AgentState.COMPLETED
@@ -407,9 +422,12 @@ class TestPlanExecutionCoverage:
         )
         await agent.initialize()
         task = Task(id="t1", objective="Test")
-        plan = Plan(task=task, steps=[
-            PlanStep(step=1, action="unknown_action", args={}),
-        ])
+        plan = Plan(
+            task=task,
+            steps=[
+                PlanStep(step=1, action="unknown_action", args={}),
+            ],
+        )
         result = await Planner(agent).execute_plan(task, plan)
         assert "Skipped unknown action" in str(result)
         assert agent.state == AgentState.COMPLETED
@@ -520,7 +538,10 @@ class TestMessageBuildingCoverage:
         await agent.initialize()
         task = Task(id="t1", objective="Hello")
         messages = MessageBuilder.build(
-            task, prompt=agent.prompt, role=agent.role, objective=agent.objective,
+            task,
+            prompt=agent.prompt,
+            role=agent.role,
+            objective=agent.objective,
         )
         assert any(m.role == "system" for m in messages)
         assert any("Assistant" in (m.content or "") for m in messages)
@@ -537,12 +558,19 @@ class TestMessageBuildingCoverage:
         )
         await agent.initialize()
         task = Task(id="t1", objective="Task")
-        plan = Plan(task=task, steps=[
-            PlanStep(step=1, action="a"),
-            PlanStep(step=2, action="b"),
-        ])
+        plan = Plan(
+            task=task,
+            steps=[
+                PlanStep(step=1, action="a"),
+                PlanStep(step=2, action="b"),
+            ],
+        )
         messages = MessageBuilder.build(
-            task, plan, prompt=agent.prompt, role=agent.role, objective=agent.objective,
+            task,
+            plan,
+            prompt=agent.prompt,
+            role=agent.role,
+            objective=agent.objective,
         )
         assert any("Execution Plan" in (m.content or "") for m in messages)
 
@@ -806,12 +834,16 @@ class TestErrorHandlingCoverage:
             @property
             def technique_name(self) -> str:
                 return "test"
+
             def _construct_prompt(self, **kwargs) -> str:
                 return kwargs.get("user", "")
+
             def process_result(self, x):
                 return f"Processed: {x}"
 
-        prompt = PromptWithProcessResult(template="x", system="You are helpful", user="Answer")
+        prompt = PromptWithProcessResult(
+            template="x", system="You are helpful", user="Answer"
+        )
         agent = Agent(
             name="Test",
             role="A",
@@ -846,9 +878,12 @@ class TestStepFailureCoverage:
         await agent.initialize()
         task = Task(id="t1", objective="Add")
         # Step with missing required args - will fail
-        plan = Plan(task=task, steps=[
-            PlanStep(step=1, action="add", args={}),  # Missing a, b
-        ])
+        plan = Plan(
+            task=task,
+            steps=[
+                PlanStep(step=1, action="add", args={}),  # Missing a, b
+            ],
+        )
         result = await Planner(agent).execute_plan(task, plan)
         assert "Error:" in str(result)
         assert agent.state == AgentState.ERROR
