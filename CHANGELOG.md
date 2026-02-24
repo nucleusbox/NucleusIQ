@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.0] — 2026-02-24
+## [0.2.0] — 2026-02-25
+
+### Added
+
+- **Configurable tool limits per execution mode**: Direct (5), Standard (30), Autonomous (100) — configurable via `AgentConfig.max_tool_calls`
+- **Tool support in DirectMode** — up to 5 tool calls (previously no tools)
+- **Critic/Refiner integration in AutonomousMode** — replaces simple LLM review (Layer 3) and generic retry with independent verification and targeted correction
+- **Tool limit validation** — agent raises `ValueError` at execution time if more tools are configured than the mode allows
+- **`AgentConfig.get_effective_max_tool_calls()`** — centralized method for mode-aware tool limits
+- 198 new tests for tool limits, DirectMode tool support, and Critic/Refiner flow
+
+### Removed
+
+- **Deprecated `planning/` module** — `PlanCreator`, `PlanExecutor`, `PlanParser`, `Planner`, `PlanPromptStrategy`, `schema` (~1,200 lines). Autonomous mode uses `Decomposer` for task breakdown instead.
+- Removed `AgentConfig` fields: `use_planning`, `planning_max_tokens`, `planning_timeout`
+- Removed 428 planning-related tests (`test_planning_coverage.py`)
 
 ### Changed
 
@@ -16,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded issue templates to YAML forms (bug report, feature request, question)
 - Added CONTRIBUTING.md with full development guide
 - Streamlined RELEASE.md and removed obsolete FIRST_RELEASE_TODO.md
+- StandardMode now uses `AgentConfig.get_effective_max_tool_calls()` (default 30) instead of internal constant
+- Updated README with execution modes comparison table
+- Updated all examples and docs to remove planning references
+
+### Testing
+
+- **1,323 tests passing** (1,207 core + 116 OpenAI provider, 2 skipped)
 
 ---
 
@@ -38,7 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `AUTONOMOUS` — orchestration with parallel execution, external validation, structured retry, and progress tracking
 - **Autonomous Mode** with `ValidationPipeline` (3-layer validation: tool checks → plugin validators → optional LLM review), `ProgressTracker`, and `Decomposer` for complex task parallelization
 - **`ResultValidatorPlugin`** — abstract base class for domain-specific external validation (the framework orchestrates, the LLM executes, external signals validate)
-- **Planning System** — `Planner` facade with `PlanCreator`, `PlanExecutor`, `PlanParser`, and `PlanPromptStrategy` (Protocol + DI)
 - **ReAct Agent** — Reasoning + Acting pattern implementation
 - **Structured Output** — schema-based output parsing and validation
 - **`AgentConfig`** — Pydantic configuration with execution mode, retry settings, and sub-agent limits
@@ -104,7 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.2.0
+### Planned for v0.2.x
 
 - Streaming support (`execute_stream()`)
 - Usage / token tracking
@@ -112,6 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned for v0.3.0
 
+- ReAct agent integration into mode system
+- Chain-of-Thought as agent type
 - Multimodal inputs (vision, audio)
 - Gemini provider (`nucleusiq-gemini`)
 - Ollama provider (`nucleusiq-ollama`)
