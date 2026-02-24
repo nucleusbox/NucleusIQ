@@ -144,10 +144,10 @@ jobs:
         run: pip install ruff
 
       - name: Ruff check (linting)
-        run: ruff check src/ --output-format=github
+        run: ruff check src/ --config ruff.toml --output-format=github
 
       - name: Ruff format check
-        run: ruff format --check src/
+        run: ruff format --check src/ --config ruff.toml
 
   # ── Import check — verify all public exports work ──────────────────
   import-check:

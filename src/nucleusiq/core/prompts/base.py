@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Self, Type, TypeVar
+import sys
+from typing import Any, Callable, Dict, List, Type, TypeVar
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
