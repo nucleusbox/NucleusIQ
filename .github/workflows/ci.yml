@@ -48,7 +48,9 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -q --tb=short --override-ini="addopts=" \
+          python -m pytest tests/ -q --tb=short \
+            --import-mode=importlib \
+            --override-ini="addopts=" \
             --cov=nucleusiq --cov-report=xml:coverage.xml
 
       - name: Upload coverage
@@ -94,7 +96,8 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -q --tb=short --override-ini="addopts=" \
+          python -m pytest tests/ -q --tb=short \
+            --override-ini="addopts=" \
             --cov=nucleusiq_openai --cov-report=xml:coverage.xml
 
       - name: Upload coverage
@@ -119,7 +122,7 @@ jobs:
         run: |
           uv venv
           uv sync --all-groups
-          uv run pytest tests/ -q --tb=short -x --override-ini="addopts="
+          uv run pytest tests/ -q --tb=short -x --import-mode=importlib --override-ini="addopts="
 
       - name: OpenAI — uv sync + test
         working-directory: src/providers/llms/openai
