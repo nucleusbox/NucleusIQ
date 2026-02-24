@@ -48,7 +48,7 @@ Clone the monorepo and install in editable mode with dev dependencies.
 ### With uv (recommended)
 
 ```bash
-git clone https://github.com/nucleusbox/NucleusIQ.git
+git clone https://github.com/nucleusbox-dev/NucleusIQ.git
 cd NucleusIQ
 
 # Core package — install + dev deps
@@ -69,7 +69,7 @@ uv run pytest tests/ -q
 ### With pip
 
 ```bash
-git clone https://github.com/nucleusbox/NucleusIQ.git
+git clone https://github.com/nucleusbox-dev/NucleusIQ.git
 cd NucleusIQ
 
 # Create a virtual environment

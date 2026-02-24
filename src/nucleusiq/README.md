@@ -4,7 +4,7 @@
 
 Includes agents, prompts, tools, and utilities.
 
-See the main [README](https://github.com/nucleusbox/NucleusIQ) for full documentation.
+See the main [README](https://github.com/nucleusbox-dev/NucleusIQ) for full documentation.
 
 ## Install
 

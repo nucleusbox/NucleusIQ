@@ -32,9 +32,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nucleusbox/NucleusIQ"
-Repository = "https://github.com/nucleusbox/NucleusIQ"
-Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
+Homepage = "https://github.com/nucleusbox-dev/NucleusIQ"
+Repository = "https://github.com/nucleusbox-dev/NucleusIQ"
+Issues = "https://github.com/nucleusbox-dev/NucleusIQ/issues"
 
 # ---------------------------------------------------------------------------
 # Dependency groups (PEP 735)

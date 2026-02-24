@@ -8,8 +8,8 @@ Welcome! Thank you for your interest in contributing. Whether you're fixing bugs
 
 Found a bug? Help us fix it:
 
-1. **Search** [existing issues](https://github.com/nucleusbox/NucleusIQ/issues) to check if it's already reported
-2. **Open a new issue** using the [Bug Report](https://github.com/nucleusbox/NucleusIQ/issues/new?template=bug_report.yml) template
+1. **Search** [existing issues](https://github.com/nucleusbox-dev/NucleusIQ/issues) to check if it's already reported
+2. **Open a new issue** using the [Bug Report](https://github.com/nucleusbox-dev/NucleusIQ/issues/new?template=bug_report.yml) template
 3. Include a minimal, reproducible example -- maintainers can't fix what they can't reproduce
 4. Be patient while we triage -- we'll follow up if we need more info
 
@@ -17,8 +17,8 @@ Found a bug? Help us fix it:
 
 Have an idea?
 
-1. **Search** [existing issues](https://github.com/nucleusbox/NucleusIQ/issues?q=label%3Aenhancement) for similar requests
-2. **Open a new issue** using the [Feature Request](https://github.com/nucleusbox/NucleusIQ/issues/new?template=feature_request.yml) template
+1. **Search** [existing issues](https://github.com/nucleusbox-dev/NucleusIQ/issues?q=label%3Aenhancement) for similar requests
+2. **Open a new issue** using the [Feature Request](https://github.com/nucleusbox-dev/NucleusIQ/issues/new?template=feature_request.yml) template
 3. Describe the use case and why it would be valuable -- code examples are welcome
 
 ### Improve Documentation
@@ -28,8 +28,8 @@ Documentation improvements are always welcome. Fix typos, clarify explanations, 
 ### Contribute Code
 
 Looking for something to work on? Check issues labeled:
-- [`good first issue`](https://github.com/nucleusbox/NucleusIQ/labels/good%20first%20issue) -- great for new contributors
-- [`help wanted`](https://github.com/nucleusbox/NucleusIQ/labels/help%20wanted) -- we'd love your help on these
+- [`good first issue`](https://github.com/nucleusbox-dev/NucleusIQ/labels/good%20first%20issue) -- great for new contributors
+- [`help wanted`](https://github.com/nucleusbox-dev/NucleusIQ/labels/help%20wanted) -- we'd love your help on these
 
 If you start working on an issue, comment on it so others know. This avoids duplicate work.
 
@@ -46,7 +46,7 @@ If you start working on an issue, comment on it so others know. This avoids dupl
 ### Clone and set up
 
 ```bash
-git clone https://github.com/nucleusbox/NucleusIQ.git
+git clone https://github.com/nucleusbox-dev/NucleusIQ.git
 cd NucleusIQ
 ```
 
@@ -207,7 +207,7 @@ docs/                             # Documentation
 
 ## Quick Links
 
-- [Issue tracker](https://github.com/nucleusbox/NucleusIQ/issues)
+- [Issue tracker](https://github.com/nucleusbox-dev/NucleusIQ/issues)
 - [Installation guide](INSTALLATION.md)
 - [Changelog](CHANGELOG.md)
 - [Release process](RELEASE.md)

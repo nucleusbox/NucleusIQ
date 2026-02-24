@@ -6,9 +6,9 @@ body:
     attributes:
       value: |
         Before asking, please check:
-        - [README](https://github.com/nucleusbox/NucleusIQ/blob/main/README.md)
-        - [Installation guide](https://github.com/nucleusbox/NucleusIQ/blob/main/INSTALLATION.md)
-        - [Existing issues](https://github.com/nucleusbox/NucleusIQ/issues?q=is%3Aissue)
+        - [README](https://github.com/nucleusbox-dev/NucleusIQ/blob/main/README.md)
+        - [Installation guide](https://github.com/nucleusbox-dev/NucleusIQ/blob/main/INSTALLATION.md)
+        - [Existing issues](https://github.com/nucleusbox-dev/NucleusIQ/issues?q=is%3Aissue)
 
   - type: textarea
     id: question

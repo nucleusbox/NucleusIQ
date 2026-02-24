@@ -45,11 +45,11 @@ openai = ["nucleusiq-openai"]
 clustering = ["scikit-learn>=1.0"]
 
 [project.urls]
-Homepage = "https://github.com/nucleusbox/NucleusIQ"
-Documentation = "https://github.com/nucleusbox/NucleusIQ#readme"
-Repository = "https://github.com/nucleusbox/NucleusIQ"
-Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
-Changelog = "https://github.com/nucleusbox/NucleusIQ/releases"
+Homepage = "https://github.com/nucleusbox-dev/NucleusIQ"
+Documentation = "https://github.com/nucleusbox-dev/NucleusIQ#readme"
+Repository = "https://github.com/nucleusbox-dev/NucleusIQ"
+Issues = "https://github.com/nucleusbox-dev/NucleusIQ/issues"
+Changelog = "https://github.com/nucleusbox-dev/NucleusIQ/releases"
 
 # ---------------------------------------------------------------------------
 # Dependency groups (PEP 735)
