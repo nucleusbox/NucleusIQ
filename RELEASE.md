@@ -47,7 +47,7 @@ Push the branch, open a PR into `main`, wait for CI to pass, and merge.
 
 ### 3. Release
 
-- Go to [GitHub Releases](https://github.com/nucleusbox-dev/NucleusIQ/releases/new)
+- Go to [GitHub Releases](https://github.com/nucleusbox/NucleusIQ/releases/new)
 - Create a new release with tag `vX.Y.Z` targeting `main`
 - Write release notes (or copy from CHANGELOG)
 - Click **Publish release**

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Installation Help
-    url: https://github.com/nucleusbox-dev/NucleusIQ/blob/main/INSTALLATION.md
+    url: https://github.com/nucleusbox/NucleusIQ/blob/main/INSTALLATION.md
     about: Check the installation guide before opening an issue.
   - name: Changelog
-    url: https://github.com/nucleusbox-dev/NucleusIQ/blob/main/CHANGELOG.md
+    url: https://github.com/nucleusbox/NucleusIQ/blob/main/CHANGELOG.md
     about: See what changed in recent releases.

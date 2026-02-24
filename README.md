@@ -1,6 +1,6 @@
 # NucleusIQ
 
-[![CI](https://github.com/nucleusbox-dev/NucleusIQ/actions/workflows/ci.yml/badge.svg)](https://github.com/nucleusbox-dev/NucleusIQ/actions/workflows/ci.yml)
+[![CI](https://github.com/nucleusbox/NucleusIQ/actions/workflows/ci.yml/badge.svg)](https://github.com/nucleusbox/NucleusIQ/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/nucleusiq)](https://pypi.org/project/nucleusiq/)
 [![Python](https://img.shields.io/pypi/pyversions/nucleusiq)](https://pypi.org/project/nucleusiq/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
