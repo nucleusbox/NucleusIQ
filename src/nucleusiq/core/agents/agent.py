@@ -6,7 +6,7 @@ Routes execution to mode strategies (Direct, Standard, Autonomous)
 via a pluggable registry.  All heavy logic lives in:
 
 - ``modes/``       — execution strategies
-- ``planning/``    — plan creation & execution
+- ``components/``  — executor, decomposer, critic, refiner, validation
 - ``messaging/``   — LLM message construction
 """
 
@@ -41,24 +41,22 @@ class Agent(BaseAgent):
     (DirectMode, StandardMode, AutonomousMode) via a pluggable registry.
 
     Execution Modes (Gearbox Strategy):
-    - "direct": Fast, simple, no tools (Gear 1)
-    - "standard": Tool-enabled, linear execution (Gear 2) - default
-    - "autonomous": Full reasoning loop with planning and self-correction (Gear 3)
+    - "direct": Fast, optional tools, max 5 tool calls (Gear 1)
+    - "standard": Tool-enabled loop, max 30 tool calls (Gear 2) - default
+    - "autonomous": Orchestration + Critic/Refiner, max 100 tool calls (Gear 3)
 
     Prompt Precedence:
     - If ``prompt`` is provided, it takes precedence over ``role``/``objective``
       for LLM message construction during execution.
     - If ``prompt`` is None, ``role`` and ``objective`` are used to construct
       the system message: "You are a {role}. Your objective is to {objective}."
-    - ``role`` and ``objective`` are always used for planning context, even
-      when prompt exists.
 
     Example:
         # With prompt (prompt takes precedence)
         agent = Agent(
             name="CalculatorBot",
-            role="Calculator",              # Used for planning context only
-            objective="Perform calculations", # Used for planning context only
+            role="Calculator",
+            objective="Perform calculations",
             prompt=PromptFactory.create_prompt().configure(
                 system="You are a helpful calculator assistant.",
                 user="Answer questions accurately."
@@ -169,7 +167,7 @@ class Agent(BaseAgent):
             raise
 
     # ------------------------------------------------------------------ #
-    # PLANNING (very simple by default)                                   #
+    # PLAN CREATION (simple default)                                      #
     # ------------------------------------------------------------------ #
 
     async def plan(self, task: Task | Dict[str, Any]) -> Plan:
@@ -177,8 +175,7 @@ class Agent(BaseAgent):
         Create an execution plan for the given task.
 
         By default, returns a simple one-step plan that executes the task
-        directly.  Override this method or use LLM-based planning
-        (``_create_llm_plan``) for more sophisticated multi-step planning.
+        directly.  Override this method for custom multi-step plan creation.
 
         Args:
             task: Task instance or dictionary with 'id' and 'objective' keys
@@ -234,14 +231,13 @@ class Agent(BaseAgent):
         Execute a task using the agent's capabilities.
 
         Execution Flow (Gearbox Strategy):
-        - Direct mode: Fast, simple, no tools
-        - Standard mode: Tool-enabled, linear execution (default)
-        - Autonomous mode: Full reasoning loop with planning and self-correction
+        - Direct mode: Fast, optional tools (max 5 tool calls)
+        - Standard mode: Tool-enabled loop (max 30 tool calls) — default
+        - Autonomous mode: Orchestration + Critic/Refiner (max 100 tool calls)
 
         The execution uses:
         - Task: User's request (what to do) - from task.objective
         - Prompt: Agent's instructions (how to behave) - from self.prompt
-        - Plan: Task decomposition (how to break down) - optional, from plan()
 
         Args:
             task: Task instance or dictionary with 'id' and 'objective' keys
@@ -291,6 +287,20 @@ class Agent(BaseAgent):
             )
             if user_input:
                 await self.memory.aadd_message("user", user_input)
+
+        # Validate tool count against mode limit
+        max_tools = self.config.get_effective_max_tool_calls()
+        if len(self.tools) > max_tools:
+            mode_value = (
+                self.config.execution_mode.value
+                if hasattr(self.config.execution_mode, "value")
+                else str(self.config.execution_mode)
+            )
+            raise ValueError(
+                f"Agent '{self.name}' has {len(self.tools)} tools but "
+                f"{mode_value.upper()} mode allows max {max_tools}. "
+                f"Reduce tools or switch to a higher execution mode."
+            )
 
         # Route to appropriate execution mode (Gearbox Strategy)
 

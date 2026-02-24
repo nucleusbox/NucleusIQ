@@ -505,3 +505,201 @@ class TestExecutionModeIntegration:
 
             assert result is not None
             assert agent.state == AgentState.COMPLETED
+
+
+# ================================================================== #
+# Tool Limit Validation                                                #
+# ================================================================== #
+
+
+def _make_tools(n: int):
+    """Create n distinct mock tools."""
+    tools = []
+    for i in range(n):
+
+        class T(BaseTool):
+            def __init__(self, idx):
+                super().__init__(name=f"tool_{idx}", description=f"Tool {idx}")
+
+            async def initialize(self):
+                pass
+
+            async def execute(self, **kwargs):
+                return f"result_{self._name}"
+
+            def get_spec(self):
+                return {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": {"type": "object", "properties": {}},
+                }
+
+        tools.append(T(i))
+    return tools
+
+
+class TestToolLimitValidation:
+    """Test that tool count is validated against mode limits."""
+
+    @pytest.mark.asyncio
+    async def test_direct_mode_rejects_6_tools(self):
+        """Direct mode allows max 5 tools — 6 should raise."""
+        llm = MockLLM()
+        agent = Agent(
+            name="Test",
+            role="A",
+            objective="B",
+            llm=llm,
+            tools=_make_tools(6),
+            config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
+        )
+        with pytest.raises(ValueError, match="DIRECT mode allows max 5"):
+            await agent.execute(Task(id="t1", objective="Hi"))
+
+    @pytest.mark.asyncio
+    async def test_direct_mode_accepts_5_tools(self):
+        """Direct mode allows exactly 5 tools."""
+        llm = MockLLM()
+        agent = Agent(
+            name="Test",
+            role="A",
+            objective="B",
+            llm=llm,
+            tools=_make_tools(5),
+            config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
+        )
+        result = await agent.execute(Task(id="t1", objective="Hi"))
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_standard_mode_rejects_31_tools(self):
+        """Standard mode allows max 30 tools — 31 should raise."""
+        llm = MockLLM()
+        agent = Agent(
+            name="Test",
+            role="A",
+            objective="B",
+            llm=llm,
+            tools=_make_tools(31),
+            config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
+        )
+        with pytest.raises(ValueError, match="STANDARD mode allows max 30"):
+            await agent.execute(Task(id="t1", objective="Hi"))
+
+    @pytest.mark.asyncio
+    async def test_autonomous_mode_rejects_101_tools(self):
+        """Autonomous mode allows max 100 tools — 101 should raise."""
+        llm = MockLLM()
+        agent = Agent(
+            name="Test",
+            role="A",
+            objective="B",
+            llm=llm,
+            tools=_make_tools(101),
+            config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),
+        )
+        with pytest.raises(ValueError, match="AUTONOMOUS mode allows max 100"):
+            await agent.execute(Task(id="t1", objective="Hi"))
+
+    @pytest.mark.asyncio
+    async def test_custom_max_tool_calls_overrides_default(self):
+        """Custom max_tool_calls allows more tools than mode default."""
+        llm = MockLLM()
+        agent = Agent(
+            name="Test",
+            role="A",
+            objective="B",
+            llm=llm,
+            tools=_make_tools(10),
+            config=AgentConfig(
+                execution_mode=ExecutionMode.DIRECT,
+                max_tool_calls=15,
+            ),
+        )
+        result = await agent.execute(Task(id="t1", objective="Hi"))
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_custom_max_tool_calls_still_validates(self):
+        """Custom max_tool_calls is still validated."""
+        llm = MockLLM()
+        agent = Agent(
+            name="Test",
+            role="A",
+            objective="B",
+            llm=llm,
+            tools=_make_tools(20),
+            config=AgentConfig(
+                execution_mode=ExecutionMode.DIRECT,
+                max_tool_calls=15,
+            ),
+        )
+        with pytest.raises(ValueError, match="DIRECT mode allows max 15"):
+            await agent.execute(Task(id="t1", objective="Hi"))
+
+    def test_get_effective_max_tool_calls_defaults(self):
+        """Test mode defaults for tool limits."""
+        assert AgentConfig(
+            execution_mode=ExecutionMode.DIRECT
+        ).get_effective_max_tool_calls() == 5
+        assert AgentConfig(
+            execution_mode=ExecutionMode.STANDARD
+        ).get_effective_max_tool_calls() == 30
+        assert AgentConfig(
+            execution_mode=ExecutionMode.AUTONOMOUS
+        ).get_effective_max_tool_calls() == 100
+
+    def test_get_effective_max_tool_calls_custom(self):
+        """Test custom override for tool limits."""
+        config = AgentConfig(
+            execution_mode=ExecutionMode.DIRECT,
+            max_tool_calls=42,
+        )
+        assert config.get_effective_max_tool_calls() == 42
+
+
+# ================================================================== #
+# DirectMode Tool Support                                              #
+# ================================================================== #
+
+
+class TestDirectModeToolSupport:
+    """Test that DirectMode can execute tools (up to 5 by default)."""
+
+    @pytest.mark.asyncio
+    async def test_direct_mode_with_tool_executes(self):
+        """DirectMode with a tool should pass tool specs to LLM."""
+        llm = MockLLM()
+        calculator = MockCalculatorTool()
+
+        agent = Agent(
+            name="Test",
+            role="Calculator",
+            objective="Math",
+            llm=llm,
+            tools=[calculator],
+            config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
+        )
+        await agent.initialize()
+
+        result = await agent.execute(Task(id="t1", objective="What is 5+3?"))
+        assert result is not None
+        assert agent.state == AgentState.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_direct_mode_without_tools_still_works(self):
+        """DirectMode without tools should still work as before."""
+        llm = MockLLM()
+        agent = Agent(
+            name="Test",
+            role="A",
+            objective="B",
+            llm=llm,
+            tools=[],
+            config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
+        )
+        await agent.initialize()
+
+        result = await agent.execute(Task(id="t1", objective="Hello"))
+        assert result is not None
+        assert agent.state == AgentState.COMPLETED

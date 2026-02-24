@@ -4,7 +4,7 @@ Base execution mode interface for NucleusIQ agents.
 Each mode implements a distinct execution strategy:
 - DirectMode: Fast, simple, no tools (Gear 1)
 - StandardMode: Tool-enabled, linear execution (Gear 2)
-- AutonomousMode: Full reasoning loop with planning (Gear 3)
+- AutonomousMode: Orchestration + Critic/Refiner verification (Gear 3)
 
 New modes can be registered via ``Agent.register_mode()`` without
 modifying the Agent class (Open/Closed Principle).

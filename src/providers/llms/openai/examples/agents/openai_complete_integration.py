@@ -308,7 +308,6 @@ async def example_autonomous_mode_planning():
         tools=tools,
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,
-            planning_timeout=120,
             step_timeout=60,
         ),
     )

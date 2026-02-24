@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field
 class ExecutionMode(str, Enum):
     """Execution modes (Gearbox Strategy) for agent execution."""
 
-    DIRECT = "direct"  # Gear 1: Fast, simple, no tools
-    STANDARD = "standard"  # Gear 2: Tool-enabled, linear execution (default)
+    DIRECT = "direct"  # Gear 1: Fast, optional tools (max 5)
+    STANDARD = "standard"  # Gear 2: Tool-enabled loop (max 30) — default
     AUTONOMOUS = (
-        "autonomous"  # Gear 3: Full reasoning loop with planning and self-correction
+        "autonomous"  # Gear 3: Orchestration + Critic/Refiner (max 100)
     )
 
 
@@ -33,14 +33,10 @@ class AgentConfig(BaseModel):
         default=True, description="Maintain context within model's window"
     )
     verbose: bool = Field(default=False, description="Enable detailed logging")
-    use_planning: bool = Field(
-        default=False,
-        description="[DEPRECATED] Enable planning mode. Use execution_mode='autonomous' instead. If True, agent will call plan() before execute() to break down complex tasks into steps.",
-    )
     # Gearbox Strategy: Execution Modes
     execution_mode: ExecutionMode = Field(
         default=ExecutionMode.STANDARD,
-        description="Execution mode (gear): DIRECT (fast, no tools), STANDARD (tool-enabled, linear), AUTONOMOUS (full reasoning loop with planning and self-correction)",
+        description="Execution mode (gear): DIRECT (fast, optional tools), STANDARD (tool-enabled loop), AUTONOMOUS (orchestration + verification)",
     )
     require_quality_check: bool = Field(
         default=False,
@@ -54,22 +50,14 @@ class AgentConfig(BaseModel):
     # LLM call budgets (model-agnostic knobs)
     llm_max_tokens: int = Field(
         default=2048,
-        description="Token budget for normal LLM calls (STANDARD mode and general execution).",
-    )
-    planning_max_tokens: int = Field(
-        default=4096,
-        description="Token budget for plan generation calls (AUTONOMOUS planning).",
+        description="Token budget for normal LLM calls.",
     )
     step_inference_max_tokens: int = Field(
         default=2048,
-        description="Token budget for per-step tool-argument inference during plan execution.",
+        description="Token budget for per-step tool-argument inference.",
     )
 
     # Timeout settings (in seconds)
-    planning_timeout: int = Field(
-        default=120,
-        description="Timeout in seconds for plan generation. If exceeded, planning fails or retries.",
-    )
     step_timeout: int = Field(
         default=60,
         description="Timeout in seconds for each step execution. If exceeded, step fails.",
@@ -80,6 +68,15 @@ class AgentConfig(BaseModel):
     step_max_retries: int = Field(
         default=2,
         description="Maximum retries for a failed step before giving up (0 = no retries).",
+    )
+
+    # Tool limits
+    max_tool_calls: int | None = Field(
+        default=None,
+        description=(
+            "Maximum tool calls per execution. If None, uses mode defaults: "
+            "DIRECT=5, STANDARD=30, AUTONOMOUS=100."
+        ),
     )
 
     # Autonomous mode
@@ -101,7 +98,7 @@ class AgentConfig(BaseModel):
         default=False,
         description=(
             "Enable LLM-based review as validation Layer 3 (autonomous mode). "
-            "Off by default — use plugin validators for reliable external checks."
+            "Off by default — use Critic component for independent verification."
         ),
     )
 
@@ -117,6 +114,24 @@ class AgentConfig(BaseModel):
             "(e.g. OpenAILLMParams). Only non-None fields are merged."
         ),
     )
+
+    _MODE_TOOL_DEFAULTS: dict = {"direct": 5, "standard": 30, "autonomous": 100}
+
+    def get_effective_max_tool_calls(self) -> int:
+        """Return the effective tool call limit for the current execution mode.
+
+        If ``max_tool_calls`` is explicitly set, that value is used.
+        Otherwise the mode default is returned (DIRECT=5, STANDARD=30,
+        AUTONOMOUS=100).
+        """
+        if self.max_tool_calls is not None:
+            return self.max_tool_calls
+        mode_val = (
+            self.execution_mode.value
+            if hasattr(self.execution_mode, "value")
+            else str(self.execution_mode)
+        )
+        return self._MODE_TOOL_DEFAULTS.get(mode_val, 30)
 
 
 class AgentMetrics(BaseModel):

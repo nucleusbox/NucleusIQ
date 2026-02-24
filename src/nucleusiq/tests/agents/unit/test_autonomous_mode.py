@@ -3,17 +3,18 @@ Tests for AutonomousMode — structured orchestrator over Standard mode.
 
 Covers:
 - Task routing: simple vs complex (via Decomposer 3-gate)
-- Simple path: execute + validate + retry
-- Complex path: decompose → parallel → synthesize + validate
+- Simple path: execute + validate + Critic/Refiner
+- Complex path: decompose -> parallel -> synthesize + validate + Critic/Refiner
 - Validation pipeline integration
+- Critic + Refiner integration
 - Progress tracking
 - Error handling and graceful fallbacks
-- Retry message construction
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from nucleusiq.agents.components.critic import CritiqueResult, Verdict
 from nucleusiq.agents.components.decomposer import TaskAnalysis
 from nucleusiq.agents.components.validation import ValidationResult
 from nucleusiq.agents.config.agent_config import (
@@ -91,6 +92,28 @@ def _invalid_result(reason="Tool error detected"):
     )
 
 
+def _critic_pass(score=0.9):
+    return CritiqueResult(verdict=Verdict.PASS, score=score, feedback="Looks correct")
+
+
+def _critic_fail(score=0.3):
+    return CritiqueResult(
+        verdict=Verdict.FAIL,
+        score=score,
+        feedback="Answer is incorrect",
+        issues=["Calculation error in step 2"],
+        suggestions=["Re-check the multiplication"],
+    )
+
+
+def _critic_uncertain(score=0.6):
+    return CritiqueResult(
+        verdict=Verdict.UNCERTAIN,
+        score=score,
+        feedback="Not confident",
+    )
+
+
 # ================================================================== #
 # Routing: Simple vs Complex                                           #
 # ================================================================== #
@@ -140,7 +163,7 @@ class TestRouting:
         MockDecomposer,
         mock_simple,
     ):
-        """Analysis error → safe fallback to simple path."""
+        """Analysis error -> safe fallback to simple path."""
         mock_simple.return_value = "fallback result"
         MockDecomposer.return_value.analyze = AsyncMock(
             return_value=TaskAnalysis(is_complex=False, reasoning="Error"),
@@ -175,14 +198,17 @@ class TestRouting:
 
 
 # ================================================================== #
-# Simple Path: execute + validate + retry                              #
+# Simple Path: execute + validate + Critic/Refiner                     #
 # ================================================================== #
 
 
 class TestSimplePath:
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
-    async def test_returns_on_valid_result(self, MockStd, MockValidation):
+    async def test_returns_on_valid_result(
+        self, MockStd, MockValidation, mock_critic
+    ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
         std._get_tool_specs = MagicMock(return_value=[])
@@ -192,6 +218,7 @@ class TestSimplePath:
         MockValidation.return_value.validate = AsyncMock(
             return_value=_valid_result(),
         )
+        mock_critic.return_value = _critic_pass()
 
         agent = _make_agent()
         mode = AutonomousMode()
@@ -199,9 +226,12 @@ class TestSimplePath:
         assert result == "result 42"
         assert agent.state == AgentState.COMPLETED
 
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
-    async def test_retries_on_validation_failure(self, MockStd, MockValidation):
+    async def test_retries_on_validation_failure(
+        self, MockStd, MockValidation, mock_critic
+    ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
         std._get_tool_specs = MagicMock(return_value=[])
@@ -213,6 +243,7 @@ class TestSimplePath:
         MockValidation.return_value.validate = AsyncMock(
             side_effect=[_invalid_result(), _valid_result()],
         )
+        mock_critic.return_value = _critic_pass()
 
         agent = _make_agent(config=AgentConfig(max_retries=3))
         mode = AutonomousMode()
@@ -220,12 +251,98 @@ class TestSimplePath:
         assert result == "correct answer"
         assert std._tool_call_loop.await_count == 2
 
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
+    @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
+    @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
+    async def test_retries_on_critic_fail(
+        self, MockStd, MockValidation, mock_critic
+    ):
+        """Critic FAIL triggers Refiner-based retry instead of generic retry."""
+        std = MockStd.return_value
+        std._ensure_executor = MagicMock()
+        std._get_tool_specs = MagicMock(return_value=[])
+        std.build_messages = MagicMock(return_value=[])
+        std._tool_call_loop = AsyncMock(
+            side_effect=["wrong answer", "correct answer"],
+        )
+
+        MockValidation.return_value.validate = AsyncMock(
+            return_value=_valid_result(),
+        )
+        mock_critic.side_effect = [_critic_fail(), _critic_pass()]
+
+        agent = _make_agent(config=AgentConfig(max_retries=3))
+        mode = AutonomousMode()
+        result = await mode._run_simple(agent, Task(id="t1", objective="X"))
+        assert result == "correct answer"
+        assert std._tool_call_loop.await_count == 2
+        assert mock_critic.await_count == 2
+
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
+    @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
+    @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
+    async def test_uncertain_high_score_accepted(
+        self, MockStd, MockValidation, mock_critic
+    ):
+        """UNCERTAIN with score >= 0.7 is accepted."""
+        std = MockStd.return_value
+        std._ensure_executor = MagicMock()
+        std._get_tool_specs = MagicMock(return_value=[])
+        std.build_messages = MagicMock(return_value=[])
+        std._tool_call_loop = AsyncMock(return_value="maybe correct")
+
+        MockValidation.return_value.validate = AsyncMock(
+            return_value=_valid_result(),
+        )
+        mock_critic.return_value = CritiqueResult(
+            verdict=Verdict.UNCERTAIN, score=0.8, feedback="Probably OK"
+        )
+
+        agent = _make_agent()
+        mode = AutonomousMode()
+        result = await mode._run_simple(agent, Task(id="t1", objective="X"))
+        assert result == "maybe correct"
+        assert agent.state == AgentState.COMPLETED
+
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
+    @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
+    @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
+    async def test_uncertain_low_score_retries(
+        self, MockStd, MockValidation, mock_critic
+    ):
+        """UNCERTAIN with score < 0.7 triggers retry."""
+        std = MockStd.return_value
+        std._ensure_executor = MagicMock()
+        std._get_tool_specs = MagicMock(return_value=[])
+        std.build_messages = MagicMock(return_value=[])
+        std._tool_call_loop = AsyncMock(
+            side_effect=["uncertain answer", "better answer"],
+        )
+
+        MockValidation.return_value.validate = AsyncMock(
+            return_value=_valid_result(),
+        )
+        mock_critic.side_effect = [
+            CritiqueResult(
+                verdict=Verdict.UNCERTAIN, score=0.4, feedback="Not sure"
+            ),
+            _critic_pass(),
+        ]
+
+        agent = _make_agent(config=AgentConfig(max_retries=3))
+        mode = AutonomousMode()
+        result = await mode._run_simple(agent, Task(id="t1", objective="X"))
+        assert result == "better answer"
+        assert std._tool_call_loop.await_count == 2
+
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_returns_last_result_after_max_retries(
         self,
         MockStd,
         MockValidation,
+        mock_critic,
     ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -244,12 +361,14 @@ class TestSimplePath:
         assert std._tool_call_loop.await_count == 2
         assert agent.state == AgentState.COMPLETED
 
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_progress_tracking_on_simple_path(
         self,
         MockStd,
         MockValidation,
+        mock_critic,
     ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -260,6 +379,7 @@ class TestSimplePath:
         MockValidation.return_value.validate = AsyncMock(
             return_value=_valid_result(),
         )
+        mock_critic.return_value = _critic_pass()
 
         agent = _make_agent()
         mode = AutonomousMode()
@@ -276,9 +396,12 @@ class TestSimplePath:
 
 
 class TestComplexPath:
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
-    async def test_decompose_synthesize_valid(self, MockStd, MockValidation):
+    async def test_decompose_synthesize_valid(
+        self, MockStd, MockValidation, mock_critic
+    ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
         std._get_tool_specs = MagicMock(return_value=[])
@@ -288,6 +411,7 @@ class TestComplexPath:
         MockValidation.return_value.validate = AsyncMock(
             return_value=_valid_result(),
         )
+        mock_critic.return_value = _critic_pass()
 
         decomposer = MagicMock()
         decomposer.run_sub_tasks = AsyncMock(
@@ -312,9 +436,12 @@ class TestComplexPath:
         decomposer.run_sub_tasks.assert_awaited_once()
         assert agent.state == AgentState.COMPLETED
 
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
-    async def test_complex_retries_synthesis(self, MockStd, MockValidation):
+    async def test_complex_retries_synthesis(
+        self, MockStd, MockValidation, mock_critic
+    ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
         std._get_tool_specs = MagicMock(return_value=[])
@@ -326,6 +453,7 @@ class TestComplexPath:
         MockValidation.return_value.validate = AsyncMock(
             side_effect=[_invalid_result(), _valid_result()],
         )
+        mock_critic.return_value = _critic_pass()
 
         decomposer = MagicMock()
         decomposer.run_sub_tasks = AsyncMock(
@@ -348,12 +476,14 @@ class TestComplexPath:
         assert result == "good synthesis"
         assert std._tool_call_loop.await_count == 2
 
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
     async def test_complex_progress_has_two_steps(
         self,
         MockStd,
         MockValidation,
+        mock_critic,
     ):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -364,6 +494,7 @@ class TestComplexPath:
         MockValidation.return_value.validate = AsyncMock(
             return_value=_valid_result(),
         )
+        mock_critic.return_value = _critic_pass()
 
         decomposer = MagicMock()
         decomposer.run_sub_tasks = AsyncMock(return_value=[])
@@ -451,7 +582,7 @@ class TestErrorHandling:
 
 
 # ================================================================== #
-# Retry message construction                                           #
+# Validation retry message construction                                #
 # ================================================================== #
 
 
@@ -462,7 +593,7 @@ class TestRetryMessage:
             layer="tool_output",
             reason="Empty result",
         )
-        msg = AutonomousMode._build_retry_message(vr)
+        msg = AutonomousMode._build_validation_retry(vr)
         assert "Empty result" in msg
         assert "fix the issue" in msg
 
@@ -473,6 +604,52 @@ class TestRetryMessage:
             reason="Plugin failed",
             details=["Detail A", "Detail B"],
         )
-        msg = AutonomousMode._build_retry_message(vr)
+        msg = AutonomousMode._build_validation_retry(vr)
         assert "Detail A" in msg
         assert "Detail B" in msg
+
+
+# ================================================================== #
+# Critic integration                                                   #
+# ================================================================== #
+
+
+class TestCriticIntegration:
+    async def test_run_critic_returns_pass_on_success(self):
+        """Test that _run_critic properly calls LLM and parses result."""
+        agent = _make_agent()
+        agent.llm.call = AsyncMock(
+            return_value=MagicMock(
+                choices=[
+                    MagicMock(
+                        message=MagicMock(
+                            content='{"verdict": "pass", "score": 0.9, "feedback": "OK", "issues": [], "suggestions": [], "verifier_answer": null}'
+                        )
+                    )
+                ]
+            )
+        )
+
+        from nucleusiq.agents.components.critic import Critic
+
+        critic = Critic()
+        mode = AutonomousMode()
+        result = await mode._run_critic(
+            agent, critic, "test task", "result 42", []
+        )
+        assert result.verdict == Verdict.PASS
+        assert result.score == 0.9
+
+    async def test_run_critic_falls_back_to_pass_on_error(self):
+        """If Critic itself errors, result is accepted (non-fatal)."""
+        agent = _make_agent()
+        agent.llm.call = AsyncMock(side_effect=RuntimeError("LLM error"))
+
+        from nucleusiq.agents.components.critic import Critic
+
+        critic = Critic()
+        mode = AutonomousMode()
+        result = await mode._run_critic(
+            agent, critic, "test task", "result 42", []
+        )
+        assert result.verdict == Verdict.PASS

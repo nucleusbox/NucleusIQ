@@ -46,17 +46,35 @@ See [INSTALLATION.md](INSTALLATION.md) for full setup instructions (pip, uv, dev
 | **Plugins** | 9 built-in: call limits, retry, fallback, PII guard, human approval, tool guard, context window, result validator |
 | **Structured Output** | Schema-based output parsing with Pydantic, dataclass, TypedDict support |
 
-## Autonomous Mode
+## Execution Modes
 
-The flagship feature — an orchestration layer that adds parallel execution, external validation, and structured retry on top of Standard mode:
+NucleusIQ agents use the **Gearbox Strategy** — three execution modes that scale from simple chat to autonomous reasoning:
 
+| Capability | Direct | Standard | Autonomous |
+|---|---|---|---|
+| Memory | Yes | Yes | Yes |
+| Plugins | Yes | Yes | Yes |
+| Tools | Yes (max 5) | Yes (max 30) | Yes (max 100) |
+| Tool loop | Yes | Yes | Yes |
+| Task decomposition | No | No | Yes |
+| Independent verification (Critic) | No | No | Yes |
+| Targeted correction (Refiner) | No | No | Yes |
+| Validation pipeline | No | No | Yes |
+
+Tool limits are configurable via `AgentConfig(max_tool_calls=N)`. The framework validates tool count at agent creation and raises a clear error if the limit is exceeded.
+
+```python
+# Direct: fast Q&A, simple lookups (max 5 tool calls)
+AgentConfig(execution_mode=ExecutionMode.DIRECT)
+
+# Standard: multi-step tool workflows (max 30 tool calls) — default
+AgentConfig(execution_mode=ExecutionMode.STANDARD)
+
+# Autonomous: orchestration + Critic/Refiner verification (max 100 tool calls)
+AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS)
 ```
-DIRECT     = Single LLM call (no tools)
-STANDARD   = LLM + tools in a conversation loop
-AUTONOMOUS = Standard + parallelism + validation + retry + progress tracking
-```
 
-See the [PE Due Diligence notebook](notebooks/agents/pe_due_diligence.ipynb) for a real-world demo achieving **100% accuracy** on 8 complex financial analyses with external validation.
+See the [PE Due Diligence notebook](notebooks/agents/pe_due_diligence.ipynb) for a real-world demo of Autonomous mode achieving **100% accuracy** on 8 complex financial analyses with external validation.
 
 ## Packages
 
@@ -78,7 +96,7 @@ docs/                      # Documentation
 ## Testing
 
 ```bash
-# Core tests (1242 passing)
+# Core tests (1207 passing, 2 skipped)
 cd src/nucleusiq && python -m pytest tests/ -q
 
 # OpenAI provider tests (116 passing)

@@ -66,7 +66,7 @@ class MessageBuilder:
                     _log.info(
                         "Using prompt.system for execution (overriding role='%s', "
                         "objective='%s'). role/objective will still be used for "
-                        "planning context.",
+                        "execution context.",
                         role,
                         objective,
                     )

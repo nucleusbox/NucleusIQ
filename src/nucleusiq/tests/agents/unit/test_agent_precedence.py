@@ -5,7 +5,6 @@ Tests verify:
 - Prompt takes precedence over role/objective for execution
 - Role/objective are used when prompt is None
 - Warning messages when override occurs
-- Role/objective still used for planning context
 """
 
 import sys
@@ -22,7 +21,6 @@ import pytest
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
-from nucleusiq.agents.planning.planner import Planner
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
@@ -117,7 +115,7 @@ class TestAgentPromptPrecedence:
         """Test that when prompt is set, prompt.system overrides role/objective in system message."""
         task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
 
-        # Agent retains role/objective for planning context even when prompt overrides for execution
+        # Agent retains role/objective for execution context even when prompt overrides
         assert agent_with_prompt.role == "Calculator"
         assert agent_with_prompt.objective == "Perform calculations"
 
@@ -165,18 +163,6 @@ class TestAgentPromptPrecedence:
         assert not any(
             "overriding" in record.message.lower() for record in caplog.records
         )
-
-    @pytest.mark.asyncio
-    async def test_role_objective_used_in_planning_context(self, agent_with_prompt):
-        """Test that role/objective are still used for planning context."""
-        task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
-
-        # Get context (used for planning) — via Planner directly
-        context = await Planner(agent_with_prompt).get_context(task)
-
-        # Verify role/objective are in context
-        assert context["agent_role"] == "Calculator"
-        assert context["agent_objective"] == "Perform calculations"
 
     @pytest.mark.asyncio
     async def test_prompt_user_included_in_messages(self, agent_with_prompt):

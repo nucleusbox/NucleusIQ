@@ -90,7 +90,7 @@ packages = [
     "nucleusiq.agents.config",
     "nucleusiq.agents.messaging",
     "nucleusiq.agents.modes",
-    "nucleusiq.agents.planning",
+
     "nucleusiq.agents.structured_output",
     "nucleusiq.llms",
     "nucleusiq.memory",

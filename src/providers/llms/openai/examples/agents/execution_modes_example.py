@@ -250,7 +250,7 @@ async def example_prompt_precedence():
         "Key Concept: If prompt is provided, it takes precedence over role/objective"
     )
     logger.info("             for LLM message construction during execution.")
-    logger.info("             role/objective are still used for planning context.")
+    logger.info("             role/objective are still used for execution context.")
     logger.info("-" * 80)
 
     # Create LLM
@@ -263,8 +263,8 @@ async def example_prompt_precedence():
     # Create agent WITH prompt (prompt takes precedence)
     agent_with_prompt = Agent(
         name="PromptBot",
-        role="Calculator",  # This is used for planning context only
-        objective="Perform calculations",  # This is used for planning context only
+        role="Calculator",  # Used for execution context when prompt overrides
+        objective="Perform calculations",  # Used for execution context when prompt overrides
         llm=llm,
         prompt=PromptFactory.create_prompt(
             technique=PromptTechnique.ZERO_SHOT

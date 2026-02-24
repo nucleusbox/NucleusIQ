@@ -28,9 +28,7 @@ from nucleusiq.plugins.errors import PluginHalt
 
 
 class StandardMode(BaseExecutionMode):
-    """Gear 2: Standard mode — tool-enabled, linear execution."""
-
-    _DEFAULT_MAX_TOOL_CALLS = 50
+    """Gear 2: Standard mode — tool-enabled, linear execution (max 30 by default)."""
 
     async def run(self, agent: "Agent", task: Task) -> Any:
         """Execute a task with tool-calling loop."""
@@ -88,10 +86,11 @@ class StandardMode(BaseExecutionMode):
         tool_specs: List[Dict[str, Any]],
     ) -> Any:
         """Core tool-calling loop: LLM -> tool -> LLM -> ... -> final answer."""
+        max_tool_calls = agent.config.get_effective_max_tool_calls()
         tool_call_count = 0
         empty_retries_remaining = 1
 
-        while tool_call_count < self._DEFAULT_MAX_TOOL_CALLS:
+        while tool_call_count < max_tool_calls:
             call_kwargs = self.build_call_kwargs(
                 agent, messages, tool_specs or None, max_tokens=2048
             )
@@ -147,14 +146,14 @@ class StandardMode(BaseExecutionMode):
             return (
                 f"Error: LLM did not respond. Task "
                 f"'{objective[:80]}...' may require AUTONOMOUS mode "
-                "for multi-step planning."
+                "for multi-step execution."
             )
 
         agent._logger.warning(
-            "Maximum tool calls (%d) reached", self._DEFAULT_MAX_TOOL_CALLS
+            "Maximum tool calls (%d) reached", max_tool_calls
         )
         agent.state = AgentState.ERROR
-        return f"Error: Maximum tool calls ({self._DEFAULT_MAX_TOOL_CALLS}) reached"
+        return f"Error: Maximum tool calls ({max_tool_calls}) reached"
 
     # ------------------------------------------------------------------ #
     # Tool-call extraction helpers                                       #

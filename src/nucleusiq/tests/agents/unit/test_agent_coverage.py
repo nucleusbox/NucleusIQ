@@ -3,8 +3,6 @@ Comprehensive Agent tests with full code coverage.
 
 Tests cover:
 - All execution modes (DIRECT, STANDARD, AUTONOMOUS)
-- Planning (default, LLM-based, basic fallback)
-- Plan execution (execute steps, tool steps, unknown actions, $step_N resolution)
 - Structured output
 - State management (save/load)
 - Error handling and edge cases
@@ -12,7 +10,6 @@ Tests cover:
 - Delegation
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -20,15 +17,13 @@ src_dir = Path(__file__).parent.parent.parent / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import pytest
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.plan import Plan, PlanStep
-from nucleusiq.agents.planning.plan_parser import PlanParser
-from nucleusiq.agents.planning.planner import Planner
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.tools import BaseTool
@@ -97,52 +92,6 @@ class ContentOnlyMockLLM(MockLLM):
         if hasattr(msg, "tool_calls") and msg.tool_calls:
             msg.tool_calls = None
         return resp
-
-
-class PlanningMockLLM(MockLLM):
-    """Returns create_plan tool call for autonomous planning."""
-
-    def __init__(self, plan_steps: List[Dict[str, Any]] | None = None, **kwargs):
-        super().__init__(**kwargs)
-        self._call_count = 0
-        self.plan_steps = plan_steps or [
-            {"step": 1, "action": "add", "args": {"a": 5, "b": 3}, "details": "5+3"},
-            {
-                "step": 2,
-                "action": "multiply",
-                "args": {"a": "$step_1", "b": 2},
-                "details": "8*2",
-            },
-        ]
-
-    async def call(self, **kwargs) -> Any:
-        self._call_count += 1
-        tools = kwargs.get("tools") or []
-        tool_names = []
-        for t in tools:
-            if isinstance(t, dict) and "function" in t:
-                tool_names.append(t["function"].get("name", ""))
-            else:
-                tool_names.append(t.get("name", ""))
-
-        # If create_plan tool is requested, return plan via tool call
-        if "create_plan" in tool_names:
-            plan_data = {"steps": self.plan_steps}
-            tool_calls = [
-                {
-                    "id": "call_plan_1",
-                    "type": "function",
-                    "function": {
-                        "name": "create_plan",
-                        "arguments": json.dumps(plan_data),
-                    },
-                }
-            ]
-            msg = self.Message(content=None, function_call=None, tool_calls=tool_calls)
-            return self.LLMResponse([self.Choice(msg)])
-
-        # Otherwise use parent behavior
-        return await super().call(**kwargs)
 
 
 class FailingMockLLM(MockLLM):
@@ -332,125 +281,7 @@ class TestAutonomousModeCoverage:
 
 
 # --------------------------------------------------------------------------- #
-# Plan Execution Coverage                                                      #
-# --------------------------------------------------------------------------- #
-
-
-class TestPlanExecutionCoverage:
-    @pytest.mark.asyncio
-    async def test_execute_plan_execute_action(self):
-        llm = MockLLM()
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=llm,
-            config=AgentConfig(verbose=False),
-        )
-        await agent.initialize()
-        task = Task(id="t1", objective="Hello")
-        plan = Plan(
-            task=task,
-            steps=[
-                PlanStep(step=1, action="execute", task=task),
-            ],
-        )
-        result = await Planner(agent).execute_plan(task, plan)
-        assert result is not None
-        assert agent.state == AgentState.COMPLETED
-
-    @pytest.mark.asyncio
-    async def test_execute_plan_tool_action_with_args(self):
-        llm = MockLLM()
-        add_tool = MockAddTool()
-        agent = Agent(
-            name="Test",
-            role="Calc",
-            objective="Math",
-            llm=llm,
-            tools=[add_tool],
-            config=AgentConfig(verbose=False),
-        )
-        await agent.initialize()
-        task = Task(id="t1", objective="Add numbers")
-        plan = Plan(
-            task=task,
-            steps=[
-                PlanStep(step=1, action="add", args={"a": 10, "b": 20}, task=task),
-            ],
-        )
-        result = await Planner(agent).execute_plan(task, plan)
-        assert result == 30
-        assert agent.state == AgentState.COMPLETED
-
-    @pytest.mark.asyncio
-    async def test_execute_plan_step_resolution(self):
-        llm = MockLLM()
-        add_tool = MockAddTool()
-        multiply_tool = MockMultiplyTool()
-        agent = Agent(
-            name="Test",
-            role="Calc",
-            objective="Math",
-            llm=llm,
-            tools=[add_tool, multiply_tool],
-            config=AgentConfig(verbose=False),
-        )
-        await agent.initialize()
-        task = Task(id="t1", objective="(5+3)*2")
-        plan = Plan(
-            task=task,
-            steps=[
-                PlanStep(step=1, action="add", args={"a": 5, "b": 3}),
-                PlanStep(step=2, action="multiply", args={"a": "$step_1", "b": 2}),
-            ],
-        )
-        result = await Planner(agent).execute_plan(task, plan)
-        assert result == 16
-        assert agent.state == AgentState.COMPLETED
-
-    @pytest.mark.asyncio
-    async def test_execute_plan_unknown_action_skipped(self):
-        llm = MockLLM()
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=llm,
-            tools=[],
-            config=AgentConfig(verbose=False),
-        )
-        await agent.initialize()
-        task = Task(id="t1", objective="Test")
-        plan = Plan(
-            task=task,
-            steps=[
-                PlanStep(step=1, action="unknown_action", args={}),
-            ],
-        )
-        result = await Planner(agent).execute_plan(task, plan)
-        assert "Skipped unknown action" in str(result)
-        assert agent.state == AgentState.COMPLETED
-
-    @pytest.mark.asyncio
-    async def test_execute_plan_list_format(self):
-        llm = MockLLM()
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=llm,
-            config=AgentConfig(verbose=False),
-        )
-        await agent.initialize()
-        task = {"id": "t1", "objective": "Test"}
-        plan_list = [{"step": 1, "action": "execute", "task": task}]
-        result = await Planner(agent).execute_plan(task, plan_list)
-        assert result is not None
-
-
-# --------------------------------------------------------------------------- #
-# Planning Coverage                                                           #
+# Planning Coverage (uses Agent.plan() — the built-in default planner)        #
 # --------------------------------------------------------------------------- #
 
 
@@ -485,38 +316,6 @@ class TestPlanningCoverage:
         plan = await agent.plan(task)
         assert len(plan) == 1
         assert plan.steps[0].action == "execute"
-
-    @pytest.mark.asyncio
-    async def test_get_context_with_task_dict(self):
-        agent = Agent(
-            name="Test",
-            role="Calculator",
-            objective="Math",
-            llm=None,
-            config=AgentConfig(verbose=False),
-        )
-        await agent.initialize()
-        task = {"id": "t1", "objective": "5+3"}
-        context = await Planner(agent).get_context(task)
-        assert "task" in context
-        assert context["agent_role"] == "Calculator"
-        assert context["agent_objective"] == "Math"
-        assert "timestamp" in context
-
-    @pytest.mark.asyncio
-    async def test_get_context_with_task_object(self):
-        agent = Agent(
-            name="Test",
-            role="A",
-            objective="B",
-            llm=None,
-            config=AgentConfig(verbose=False),
-        )
-        await agent.initialize()
-        task = Task(id="t1", objective="Test")
-        context = await Planner(agent).get_context(task)
-        assert context["task"]["id"] == "t1"
-        assert context["task"]["objective"] == "Test"
 
 
 # --------------------------------------------------------------------------- #
@@ -598,33 +397,6 @@ class TestMessageBuildingCoverage:
         assert "verify" in formatted
 
 
-# --------------------------------------------------------------------------- #
-# Plan Parsing Coverage                                                        #
-# --------------------------------------------------------------------------- #
-
-
-class TestPlanParsingCoverage:
-    def test_parse_plan_response_json(self):
-        parser = PlanParser()
-        response = '{"steps": [{"step": 1, "action": "add", "args": {"a": 1, "b": 2}, "details": "Add"}]}'
-        plan_resp = parser.parse(response)
-        assert len(plan_resp.steps) == 1
-        assert plan_resp.steps[0].action == "add"
-        assert plan_resp.steps[0].args == {"a": 1, "b": 2}
-
-    def test_parse_plan_response_markdown_json(self):
-        parser = PlanParser()
-        response = '```json\n{"steps": [{"step": 1, "action": "execute", "args": {}, "details": ""}]}\n```'
-        plan_resp = parser.parse(response)
-        assert len(plan_resp.steps) == 1
-        assert plan_resp.steps[0].action == "execute"
-
-    def test_parse_plan_response_fallback_text(self):
-        parser = PlanParser()
-        response = "Step 1: add numbers\n  Use calculator\nStep 2: verify"
-        plan_resp = parser.parse(response)
-        assert len(plan_resp.steps) >= 1
-        assert plan_resp.steps[0].step == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -779,16 +551,6 @@ class TestHelperMethodsCoverage:
         with pytest.raises(ValueError, match="Tool not found"):
             await agent._execute_tool("nonexistent", {})
 
-    def test_get_plan_schema(self):
-        schema = Planner.get_plan_schema()
-        assert "steps" in schema.get("properties", {})
-        assert "required" in schema
-
-    def test_get_plan_function_spec(self):
-        spec = Planner.get_plan_function_spec()
-        assert "function" in spec
-        assert spec["function"]["name"] == "create_plan"
-
 
 # --------------------------------------------------------------------------- #
 # Error Handling & Process Result                                             #
@@ -856,37 +618,6 @@ class TestErrorHandlingCoverage:
         result = await agent._process_result("raw")
         assert result == "Processed: raw"
 
-
-# --------------------------------------------------------------------------- #
-# Step Failure & Missing Args                                                 #
-# --------------------------------------------------------------------------- #
-
-
-class TestStepFailureCoverage:
-    @pytest.mark.asyncio
-    async def test_execute_plan_step_failure_sets_error(self):
-        llm = MockLLM()
-        add_tool = MockAddTool()
-        agent = Agent(
-            name="Test",
-            role="Calc",
-            objective="Math",
-            llm=llm,
-            tools=[add_tool],
-            config=AgentConfig(verbose=False),
-        )
-        await agent.initialize()
-        task = Task(id="t1", objective="Add")
-        # Step with missing required args - will fail
-        plan = Plan(
-            task=task,
-            steps=[
-                PlanStep(step=1, action="add", args={}),  # Missing a, b
-            ],
-        )
-        result = await Planner(agent).execute_plan(task, plan)
-        assert "Error:" in str(result)
-        assert agent.state == AgentState.ERROR
 
 
 # --------------------------------------------------------------------------- #

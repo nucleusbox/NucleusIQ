@@ -1,11 +1,11 @@
 # src/examples/agents/task_prompt_plan_example.py
 """
-Example: Task, Prompt, and Plan Relationship
+Example: Task, Prompt, and Execution Modes
 
-This example demonstrates how Task, Prompt, and Plan work together:
+This example demonstrates how Task and Prompt work together across modes:
 - Task: User's request (what to do)
 - Prompt: Agent's instructions (how to behave)
-- Plan: Task decomposition (how to break down) - Optional
+- Execution Mode: How to execute (Direct, Standard, Autonomous)
 """
 
 import asyncio
@@ -20,7 +20,7 @@ sys.path.insert(0, _src_dir)
 from typing import Any, Dict
 
 from nucleusiq.agents import Agent
-from nucleusiq.agents.config import AgentConfig
+from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.tools import BaseTool
@@ -60,83 +60,74 @@ class CalculatorTool(BaseTool):
         }
 
 
-async def example_1_simple_execution():
-    """Example 1: Simple execution without planning."""
+async def example_1_direct_mode():
+    """Example 1: Direct mode — fast, simple."""
     logger.info("=" * 60)
-    logger.info("Example 1: Simple Execution (No Plan)")
+    logger.info("Example 1: Direct Mode (Fast, Simple)")
     logger.info("=" * 60)
 
-    # Create prompt
     prompt = PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)
     prompt.configure(
         system="You are a helpful assistant that performs calculations.",
         user="Answer questions accurately.",
     )
 
-    # Create agent WITHOUT planning
     agent = Agent(
-        name="SimpleAgent",
+        name="DirectAgent",
         role="Calculator",
         objective="Perform calculations",
         narrative="A calculator agent",
         llm=MockLLM(),
         prompt=prompt,
         tools=[CalculatorTool()],
-        config=AgentConfig(use_planning=False, verbose=True),
+        config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=True),
     )
 
     await agent.initialize()
 
-    # Create task
     task = {"id": "task1", "objective": "What is 5 + 3?"}
 
     logger.info(f"\nTask: {task['objective']}")
-    logger.info("Prompt: System + User template")
-    logger.info("Plan: None (use_planning=False)")
+    logger.info("Mode: DIRECT (max 5 tool calls)")
     logger.info("\nExecuting...")
 
     result = await agent.execute(task)
-    logger.info(f"\n✅ Result: {result}")
+    logger.info(f"\nResult: {result}")
 
 
-async def example_2_with_planning():
-    """Example 2: Execution with planning enabled."""
+async def example_2_standard_mode():
+    """Example 2: Standard mode — tool-driven workflows."""
     logger.info("\n" + "=" * 60)
-    logger.info("Example 2: Execution with Planning")
+    logger.info("Example 2: Standard Mode (Tool-Driven)")
     logger.info("=" * 60)
 
-    # Create prompt
     prompt = PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)
     prompt.configure(
         system="You are a helpful assistant that performs calculations.",
         user="Answer questions accurately and show your work.",
     )
 
-    # Create agent WITH planning enabled
     agent = Agent(
-        name="PlanningAgent",
+        name="StandardAgent",
         role="Calculator",
         objective="Perform calculations",
-        narrative="A calculator agent with planning",
+        narrative="A calculator agent with tool support",
         llm=MockLLM(),
         prompt=prompt,
         tools=[CalculatorTool()],
-        config=AgentConfig(use_planning=True, verbose=True),
+        config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=True),
     )
 
     await agent.initialize()
 
-    # Create task
     task = {"id": "task2", "objective": "What is 15 + 27?"}
 
     logger.info(f"\nTask: {task['objective']}")
-    logger.info("Prompt: System + User template")
-    logger.info("Plan: Enabled (use_planning=True)")
+    logger.info("Mode: STANDARD (max 30 tool calls)")
     logger.info("\nExecuting...")
 
-    # Plan will be created automatically
     result = await agent.execute(task)
-    logger.info(f"\n✅ Result: {result}")
+    logger.info(f"\nResult: {result}")
 
 
 async def example_3_manual_plan():
@@ -145,7 +136,6 @@ async def example_3_manual_plan():
     logger.info("Example 3: Manual Plan Creation")
     logger.info("=" * 60)
 
-    # Create agent
     agent = Agent(
         name="ManualPlanAgent",
         role="Calculator",
@@ -158,10 +148,8 @@ async def example_3_manual_plan():
 
     await agent.initialize()
 
-    # Create task
     task = {"id": "task3", "objective": "Calculate 10 + 20"}
 
-    # Create plan manually
     logger.info(f"\nTask: {task['objective']}")
     logger.info("Creating plan manually...")
 
@@ -170,83 +158,71 @@ async def example_3_manual_plan():
     for step in plan.steps:
         logger.info(f"  Step {step.step}: {step.action}")
 
-    # Execute with plan (use public API - execute() handles planning internally)
-    logger.info("\nExecuting with plan...")
-    # Note: execute() will use the plan if use_planning=True
-    # For manual plan execution, we can still use execute() which will create its own plan
-    # or we can enable planning and let execute() handle it
-    agent.config.use_planning = True
+    logger.info("\nExecuting task...")
     result = await agent.execute(task)
-    logger.info(f"\n✅ Result: {result}")
+    logger.info(f"\nResult: {result}")
 
 
-async def example_4_all_three_together():
-    """Example 4: Task, Prompt, and Plan all working together."""
+async def example_4_autonomous_mode():
+    """Example 4: Autonomous mode — orchestration + verification."""
     logger.info("\n" + "=" * 60)
-    logger.info("Example 4: Task + Prompt + Plan Together")
+    logger.info("Example 4: Autonomous Mode (Orchestration + Verification)")
     logger.info("=" * 60)
 
-    # Create prompt
     prompt = PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)
     prompt.configure(
         system="You are a helpful assistant that performs calculations.",
         user="Answer questions accurately and show your work step by step.",
     )
 
-    # Create agent with planning
     agent = Agent(
-        name="FullAgent",
+        name="AutonomousAgent",
         role="Calculator",
         objective="Perform calculations",
         narrative="A calculator agent with full features",
         llm=MockLLM(),
         prompt=prompt,
         tools=[CalculatorTool()],
-        config=AgentConfig(use_planning=True, verbose=True),
+        config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=True),
     )
 
     await agent.initialize()
 
-    # Create task
     task = {"id": "task4", "objective": "What is 25 + 35?"}
 
     logger.info(f"\nTask: {task['objective']}")
-    logger.info("Prompt: System='You are a helpful assistant...'")
-    logger.info("Prompt: User='Answer questions accurately...'")
-    logger.info("Plan: Enabled (will be created automatically)")
+    logger.info("Mode: AUTONOMOUS (max 100 tool calls, Critic + Refiner)")
     logger.info("\nExecuting...")
 
     result = await agent.execute(task)
-    logger.info(f"\n✅ Result: {result}")
+    logger.info(f"\nResult: {result}")
 
     logger.info("\n" + "=" * 60)
     logger.info("Summary:")
     logger.info("=" * 60)
-    logger.info("✅ Task: User's request (what to do)")
-    logger.info("✅ Prompt: Agent's instructions (how to behave)")
-    logger.info("✅ Plan: Task decomposition (how to break down)")
-    logger.info("✅ All three work together in execute()!")
+    logger.info("Task: User's request (what to do)")
+    logger.info("Prompt: Agent's instructions (how to behave)")
+    logger.info("Mode: Execution strategy (Direct, Standard, Autonomous)")
 
 
 async def main():
     """Run all examples."""
     logger.info("\n" + "=" * 60)
-    logger.info("Task, Prompt, and Plan Relationship Examples")
+    logger.info("Task, Prompt, and Execution Mode Examples")
     logger.info("=" * 60)
 
-    await example_1_simple_execution()
-    await example_2_with_planning()
+    await example_1_direct_mode()
+    await example_2_standard_mode()
     await example_3_manual_plan()
-    await example_4_all_three_together()
+    await example_4_autonomous_mode()
 
     logger.info("\n" + "=" * 60)
     logger.info("All examples completed!")
     logger.info("=" * 60)
-    logger.info("\n💡 Key Takeaways:")
+    logger.info("\nKey Takeaways:")
     logger.info("   - Task = What the user wants (required)")
     logger.info("   - Prompt = How the agent behaves (optional but recommended)")
-    logger.info("   - Plan = How to break down the task (optional, via config)")
-    logger.info("   - All three work together in agent.execute()!")
+    logger.info("   - Mode = DIRECT (fast), STANDARD (tools), AUTONOMOUS (verify)")
 
 
 if __name__ == "__main__":

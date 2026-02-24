@@ -108,7 +108,7 @@ class TestToolCallProcessing:
 
     @pytest.mark.asyncio
     async def test_max_tool_calls_reached(self):
-        """Hit the MAX_TOOL_CALLS limit."""
+        """Hit the max_tool_calls limit via AgentConfig."""
         tool = _make_inc_tool()
 
         tc = {"id": "call_1", "function": {"name": "inc", "arguments": "{}"}}
@@ -117,10 +117,10 @@ class TestToolCallProcessing:
         llm.call = AsyncMock(return_value=_build_tool_resp([tc]))
 
         agent = _make_agent(llm=llm, tools=[tool])
+        agent.config.max_tool_calls = 2
         await agent.initialize()
 
         mode = StandardMode()
-        mode._DEFAULT_MAX_TOOL_CALLS = 2
         result = await mode.run(agent, {"id": "1", "objective": "x"})
         assert "Maximum tool calls" in result
 

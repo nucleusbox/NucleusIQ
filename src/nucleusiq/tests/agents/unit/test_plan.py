@@ -440,7 +440,7 @@ class TestPlanIntegration:
             role="Assistant",
             objective="Help users",
             llm=llm,
-            config=AgentConfig(use_planning=True),
+            config=AgentConfig(),
         )
 
         task = Task(id="task1", objective="Main task")

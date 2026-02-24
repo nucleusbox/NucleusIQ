@@ -4,7 +4,6 @@ Comprehensive tests for the Agent class.
 Tests cover:
 - Agent initialization
 - Agent execution
-- Agent planning
 - State transitions
 - Error handling
 - Integration workflows
@@ -25,7 +24,6 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentMetrics, AgentState
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.plan import Plan
-from nucleusiq.agents.planning.planner import Planner
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
@@ -281,32 +279,6 @@ class TestAgentPlan:
         assert isinstance(plan.task, Task)
         assert plan.task.id == task["id"]
         assert plan.task.objective == task["objective"]
-
-    @pytest.mark.asyncio
-    async def test_agent_get_context(self):
-        """Test _get_context() method."""
-        llm = MockLLM()
-        agent = Agent(
-            name="TestAgent",
-            role="Calculator",
-            objective="Perform calculations",
-            narrative="A calculator agent",
-            llm=llm,
-            config=AgentConfig(verbose=False),
-        )
-
-        await agent.initialize()
-
-        task = {"id": "task1", "objective": "Calculate 5 + 3"}
-        context = await Planner(agent).get_context(task)
-
-        assert "task" in context
-        assert "agent_role" in context
-        assert "agent_objective" in context
-        assert "timestamp" in context
-        assert context["task"] == task
-        assert context["agent_role"] == "Calculator"
-        assert context["agent_objective"] == "Perform calculations"
 
 
 class TestAgentExecute:
@@ -606,84 +578,6 @@ class TestAgentErrorHandling:
 
 class TestAgentPlanIntegration:
     """Test Agent plan integration."""
-
-    @pytest.mark.asyncio
-    async def test_agent_execute_with_planning_enabled(self):
-        """Test execute() with use_planning=True."""
-        llm = MockLLM()
-        calculator = MockCalculatorTool()
-
-        agent = Agent(
-            name="TestAgent",
-            role="Calculator",
-            objective="Perform calculations",
-            narrative="A calculator agent",
-            llm=llm,
-            tools=[calculator],
-            config=AgentConfig(use_planning=True, verbose=False),
-        )
-
-        await agent.initialize()
-
-        task = {"id": "task1", "objective": "What is 5 + 3?"}
-        result = await agent.execute(task)
-
-        # Should execute successfully (plan will be created)
-        assert result is not None
-        assert agent.state == AgentState.COMPLETED
-
-    @pytest.mark.asyncio
-    async def test_agent_execute_with_planning_disabled(self):
-        """Test execute() with use_planning=False (default)."""
-        llm = MockLLM()
-        calculator = MockCalculatorTool()
-
-        agent = Agent(
-            name="TestAgent",
-            role="Calculator",
-            objective="Perform calculations",
-            narrative="A calculator agent",
-            llm=llm,
-            tools=[calculator],
-            config=AgentConfig(use_planning=False, verbose=False),
-        )
-
-        await agent.initialize()
-
-        task = {"id": "task1", "objective": "What is 5 + 3?"}
-        result = await agent.execute(task)
-
-        # Should execute directly without planning
-        assert result is not None
-        assert agent.state == AgentState.COMPLETED
-
-    @pytest.mark.asyncio
-    async def test_agent_execute_plan_method(self):
-        """Test _execute_plan() method."""
-        llm = MockLLM()
-        calculator = MockCalculatorTool()
-
-        agent = Agent(
-            name="TestAgent",
-            role="Calculator",
-            objective="Perform calculations",
-            narrative="A calculator agent",
-            llm=llm,
-            tools=[calculator],
-            config=AgentConfig(verbose=False),
-        )
-
-        await agent.initialize()
-
-        task = {"id": "task1", "objective": "What is 5 + 3?"}
-        plan = [
-            {"step": 1, "action": "execute", "task": task},
-        ]
-
-        result = await Planner(agent).execute_plan(task, plan)
-
-        assert result is not None
-        assert agent.state == AgentState.COMPLETED
 
     @pytest.mark.asyncio
     async def test_agent_build_messages_with_plan(self):

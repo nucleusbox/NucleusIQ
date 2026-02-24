@@ -34,7 +34,6 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode
 from nucleusiq.agents.plan import Plan, PlanStep
-from nucleusiq.agents.planning.planner import Planner
 from nucleusiq.agents.task import Task
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
@@ -251,10 +250,10 @@ async def test_manual_multi_step_plan():
         if step.args:
             logger.info(f"      Args: {step.args}")
 
-    # Execute the plan
-    logger.info("\n🚀 Executing Manual Plan...")
+    # Execute the task — AUTONOMOUS mode handles multi-step execution
+    logger.info("\n🚀 Executing Task...")
     try:
-        result = await Planner(agent).execute_plan(task, plan)
+        result = await agent.execute(task)
         logger.info(f"\nFinal Result: {result}")
         logger.info(f"   Agent State: {agent.state}")
         return True

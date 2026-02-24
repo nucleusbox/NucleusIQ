@@ -35,9 +35,9 @@ class BaseAgent(ABC, BaseModel):
     - If `prompt` is None, `role` and `objective` are used to construct
       the system message: "You are a {role}. Your objective is to {objective}."
     - `role` and `objective` are always used for:
-      - Planning context (even when prompt exists)
+      - Execution context (even when prompt exists)
       - Logging and identification
-      - Fallback planning prompts
+      - Fallback system message construction
 
     Task (WHAT the user wants - passed to execute()):
     - task.objective: Specific user request (e.g., "What is 5 + 3?")
