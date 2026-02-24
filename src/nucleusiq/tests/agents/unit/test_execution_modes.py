@@ -639,15 +639,24 @@ class TestToolLimitValidation:
 
     def test_get_effective_max_tool_calls_defaults(self):
         """Test mode defaults for tool limits."""
-        assert AgentConfig(
-            execution_mode=ExecutionMode.DIRECT
-        ).get_effective_max_tool_calls() == 5
-        assert AgentConfig(
-            execution_mode=ExecutionMode.STANDARD
-        ).get_effective_max_tool_calls() == 30
-        assert AgentConfig(
-            execution_mode=ExecutionMode.AUTONOMOUS
-        ).get_effective_max_tool_calls() == 100
+        assert (
+            AgentConfig(
+                execution_mode=ExecutionMode.DIRECT
+            ).get_effective_max_tool_calls()
+            == 5
+        )
+        assert (
+            AgentConfig(
+                execution_mode=ExecutionMode.STANDARD
+            ).get_effective_max_tool_calls()
+            == 30
+        )
+        assert (
+            AgentConfig(
+                execution_mode=ExecutionMode.AUTONOMOUS
+            ).get_effective_max_tool_calls()
+            == 100
+        )
 
     def test_get_effective_max_tool_calls_custom(self):
         """Test custom override for tool limits."""

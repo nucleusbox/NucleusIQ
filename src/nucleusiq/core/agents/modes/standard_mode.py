@@ -149,9 +149,7 @@ class StandardMode(BaseExecutionMode):
                 "for multi-step execution."
             )
 
-        agent._logger.warning(
-            "Maximum tool calls (%d) reached", max_tool_calls
-        )
+        agent._logger.warning("Maximum tool calls (%d) reached", max_tool_calls)
         agent.state = AgentState.ERROR
         return f"Error: Maximum tool calls ({max_tool_calls}) reached"
 

@@ -139,7 +139,9 @@ class DirectMode(BaseExecutionMode):
                 agent.state = AgentState.ERROR
                 return f"Error: Tool '{tc.name}' execution failed: {str(e)}"
 
-        call_kwargs = self.build_call_kwargs(agent, messages, tool_specs, max_tokens=1024)
+        call_kwargs = self.build_call_kwargs(
+            agent, messages, tool_specs, max_tokens=1024
+        )
         response = await self.call_llm(agent, call_kwargs, messages, tool_specs)
 
         structured = self.handle_structured_output(agent, response)

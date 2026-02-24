@@ -397,8 +397,6 @@ class TestMessageBuildingCoverage:
         assert "verify" in formatted
 
 
-
-
 # --------------------------------------------------------------------------- #
 # Execute & Validation                                                        #
 # --------------------------------------------------------------------------- #
@@ -617,7 +615,6 @@ class TestErrorHandlingCoverage:
         await agent.initialize()
         result = await agent._process_result("raw")
         assert result == "Processed: raw"
-
 
 
 # --------------------------------------------------------------------------- #

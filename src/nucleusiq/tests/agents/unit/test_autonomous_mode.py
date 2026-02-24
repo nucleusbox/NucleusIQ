@@ -206,9 +206,7 @@ class TestSimplePath:
     @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
-    async def test_returns_on_valid_result(
-        self, MockStd, MockValidation, mock_critic
-    ):
+    async def test_returns_on_valid_result(self, MockStd, MockValidation, mock_critic):
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
         std._get_tool_specs = MagicMock(return_value=[])
@@ -254,9 +252,7 @@ class TestSimplePath:
     @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
-    async def test_retries_on_critic_fail(
-        self, MockStd, MockValidation, mock_critic
-    ):
+    async def test_retries_on_critic_fail(self, MockStd, MockValidation, mock_critic):
         """Critic FAIL triggers Refiner-based retry instead of generic retry."""
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
@@ -323,9 +319,7 @@ class TestSimplePath:
             return_value=_valid_result(),
         )
         mock_critic.side_effect = [
-            CritiqueResult(
-                verdict=Verdict.UNCERTAIN, score=0.4, feedback="Not sure"
-            ),
+            CritiqueResult(verdict=Verdict.UNCERTAIN, score=0.4, feedback="Not sure"),
             _critic_pass(),
         ]
 
@@ -634,9 +628,7 @@ class TestCriticIntegration:
 
         critic = Critic()
         mode = AutonomousMode()
-        result = await mode._run_critic(
-            agent, critic, "test task", "result 42", []
-        )
+        result = await mode._run_critic(agent, critic, "test task", "result 42", [])
         assert result.verdict == Verdict.PASS
         assert result.score == 0.9
 
@@ -649,7 +641,5 @@ class TestCriticIntegration:
 
         critic = Critic()
         mode = AutonomousMode()
-        result = await mode._run_critic(
-            agent, critic, "test task", "result 42", []
-        )
+        result = await mode._run_critic(agent, critic, "test task", "result 42", [])
         assert result.verdict == Verdict.PASS

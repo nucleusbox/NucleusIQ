@@ -11,9 +11,7 @@ class ExecutionMode(str, Enum):
 
     DIRECT = "direct"  # Gear 1: Fast, optional tools (max 5)
     STANDARD = "standard"  # Gear 2: Tool-enabled loop (max 30) — default
-    AUTONOMOUS = (
-        "autonomous"  # Gear 3: Orchestration + Critic/Refiner (max 100)
-    )
+    AUTONOMOUS = "autonomous"  # Gear 3: Orchestration + Critic/Refiner (max 100)
 
 
 class AgentConfig(BaseModel):
