@@ -1,0 +1,268 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# ─────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── Core package tests ──────────────────────────────────────────────
+  test-core:
+    name: "Core (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: src/nucleusiq
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-core-${{ matrix.python-version }}-${{ hashFiles('src/nucleusiq/pyproject.toml') }}
+          restore-keys: pip-core-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[clustering]"
+          pip install pytest pytest-asyncio pytest-cov pytest-mock scikit-learn
+
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ -q --tb=short \
+            --cov=nucleusiq --cov-report=xml:../../coverage-core.xml \
+            --junitxml=../../test-results/core.xml
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-core
+          path: coverage-core.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-core-py${{ matrix.python-version }}
+          path: test-results/
+
+  # ── OpenAI provider tests ───────────────────────────────────────────
+  test-openai:
+    name: "OpenAI (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    defaults:
+      run:
+        working-directory: src/providers/llms/openai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-openai-${{ matrix.python-version }}-${{ hashFiles('src/providers/llms/openai/pyproject.toml') }}
+          restore-keys: pip-openai-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ../../../nucleusiq
+          pip install -e "."
+          pip install pytest pytest-asyncio pytest-cov pytest-mock
+
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ -q --tb=short \
+            --cov=nucleusiq_openai --cov-report=xml:../../../../coverage-openai.xml \
+            --junitxml=../../../../test-results/openai.xml
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-openai
+          path: coverage-openai.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-openai-py${{ matrix.python-version }}
+          path: test-results/
+
+  # ── uv install verification ────────────────────────────────────────
+  test-uv:
+    name: "uv install check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Core — uv sync + test
+        working-directory: src/nucleusiq
+        run: |
+          uv venv
+          uv sync --all-groups
+          uv run pytest tests/ -q --tb=short -x
+
+      - name: OpenAI — uv sync + test
+        working-directory: src/providers/llms/openai
+        run: |
+          uv venv
+          uv sync --all-groups
+          uv run pytest tests/ -q --tb=short -x
+
+  # ── Lint ────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff check (linting)
+        run: ruff check src/ --output-format=github
+
+      - name: Ruff format check
+        run: ruff format --check src/
+
+  # ── Import check — verify all public exports work ──────────────────
+  import-check:
+    name: Import check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: |
+          pip install -e src/nucleusiq
+          pip install -e src/providers/llms/openai
+
+      - name: Verify core imports
+        run: |
+          python -c "
+          from nucleusiq.agents import Agent, BaseAgent, ReActAgent, Task, Plan
+          from nucleusiq.agents.config import AgentConfig, ExecutionMode, AgentState
+          from nucleusiq.agents.modes import DirectMode, StandardMode, AutonomousMode
+          from nucleusiq.agents.components import Executor
+          from nucleusiq.agents.components.validation import ValidationPipeline
+          from nucleusiq.agents.components.progress import ProgressTracker
+          from nucleusiq.llms import BaseLLM, MockLLM, LLMParams
+          from nucleusiq.tools import BaseTool
+          from nucleusiq.memory import BaseMemory, MemoryFactory, MemoryStrategy
+          from nucleusiq.plugins import BasePlugin, PluginManager, PluginHalt
+          from nucleusiq.plugins.builtin import (
+              ModelCallLimitPlugin, ToolCallLimitPlugin, ToolRetryPlugin,
+              ModelFallbackPlugin, PIIGuardPlugin, HumanApprovalPlugin,
+              ContextWindowPlugin, ToolGuardPlugin, ResultValidatorPlugin,
+          )
+          from nucleusiq.prompts import PromptFactory, PromptTechnique
+          print('All core imports OK')
+          "
+
+      - name: Verify OpenAI imports
+        run: |
+          python -c "
+          from nucleusiq_openai import BaseOpenAI, OpenAITool, OpenAILLMParams
+          print('All OpenAI imports OK')
+          "
+
+  # ── Security — check for secrets and vulnerabilities ────────────────
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for hardcoded secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+      - name: Check dependencies for vulnerabilities
+        run: |
+          pip install pip-audit
+          pip install -e src/nucleusiq -e src/providers/llms/openai
+          pip-audit --desc
+
+  # ── Build verification ──────────────────────────────────────────────
+  build:
+    name: "Build ${{ matrix.package }}"
+    runs-on: ubuntu-latest
+    needs: [test-core, test-openai, lint, import-check]
+    strategy:
+      matrix:
+        include:
+          - package: nucleusiq
+            path: src/nucleusiq
+          - package: nucleusiq-openai
+            path: src/providers/llms/openai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Build sdist + wheel
+        working-directory: ${{ matrix.path }}
+        run: python -m build
+
+      - name: Verify with twine
+        working-directory: ${{ matrix.path }}
+        run: twine check dist/*
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.package }}
+          path: ${{ matrix.path }}/dist/
