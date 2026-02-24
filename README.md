@@ -95,11 +95,11 @@ cd src/providers/llms/openai && python -m pytest tests/ -q
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch from `develop`: `git checkout -b feature/my-feature develop`
+2. Create a feature branch: `git checkout -b feature/my-feature main`
 3. Make your changes and add tests
-4. Submit a pull request to `develop`
+4. Submit a pull request to `main`
 
-See [RELEASE.md](RELEASE.md) for branching strategy details.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full details.
 
 ## License
 

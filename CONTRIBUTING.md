@@ -41,28 +41,25 @@ uv sync          # or: pip install -e ".[dev]"
 
 ## Branching Strategy
 
-We follow a structured branching model. **Never push directly to `main` or `develop`.**
+We use **GitHub Flow** -- simple and trunk-based.
 
 ```
-main        ── stable releases only (protected)
-develop     ── integration branch (protected)
-feature/*   ── new features (branch from develop)
-fix/*       ── bug fixes (branch from develop)
-release/*   ── release prep (branch from develop, PR into main)
-hotfix/*    ── critical fixes (branch from main, PR into main)
+main        ── single source of truth, always releasable
+feature/*   ── new features (branch from main, PR into main)
+fix/*       ── bug fixes (branch from main, PR into main)
 ```
 
 ### Workflow
 
 1. **Fork** the repository (external contributors) or create a branch (maintainers)
-2. **Branch from `develop`**:
+2. **Branch from `main`**:
    ```bash
-   git checkout develop
-   git pull origin develop
+   git checkout main
+   git pull origin main
    git checkout -b feature/my-feature
    ```
 3. Make your changes
-4. Push and **open a PR into `develop`**
+4. Push and **open a PR into `main`**
 
 ## Code Style
 
