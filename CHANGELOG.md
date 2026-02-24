@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0] — 2026-02-24
+
+### Changed
+
+- Migrated repository to `nucleusbox-dev` GitHub organization
+- Simplified branching strategy to GitHub Flow (single `main` branch)
+- Upgraded issue templates to YAML forms (bug report, feature request, question)
+- Added CONTRIBUTING.md with full development guide
+- Streamlined RELEASE.md and removed obsolete FIRST_RELEASE_TODO.md
+
+---
+
 ## [0.1.0] — 2026-02-24
 
 **Initial public release** of the NucleusIQ framework and OpenAI provider.
@@ -104,5 +116,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gemini provider (`nucleusiq-gemini`)
 - Ollama provider (`nucleusiq-ollama`)
 
+[0.2.0]: https://github.com/nucleusbox-dev/NucleusIQ/releases/tag/v0.2.0
 [0.1.0]: https://github.com/nucleusbox-dev/NucleusIQ/releases/tag/v0.1.0
-[Unreleased]: https://github.com/nucleusbox-dev/NucleusIQ/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/nucleusbox-dev/NucleusIQ/compare/v0.2.0...HEAD
