@@ -1,0 +1,36 @@
+name: Question
+description: Ask a question about using NucleusIQ
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before asking, please check:
+        - [README](https://github.com/nucleusbox/NucleusIQ/blob/main/README.md)
+        - [Installation guide](https://github.com/nucleusbox/NucleusIQ/blob/main/INSTALLATION.md)
+        - [Existing issues](https://github.com/nucleusbox/NucleusIQ/issues?q=is%3Aissue)
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What would you like to know?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to build? Include code snippets if relevant.
+      render: python
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: NucleusIQ version
+      placeholder: "0.1.0 (or N/A)"
+    validations:
+      required: false
