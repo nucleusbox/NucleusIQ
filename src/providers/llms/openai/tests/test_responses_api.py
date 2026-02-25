@@ -174,8 +174,7 @@ class TestPerToolRouting:
         msg = result.choices[0].message
         assert msg.content == "The result is 42."
         assert any(
-            n["type"] == "code_interpreter_call"
-            for n in (msg.native_outputs or [])
+            n["type"] == "code_interpreter_call" for n in (msg.native_outputs or [])
         )
 
     @pytest.mark.asyncio

@@ -100,6 +100,7 @@ async def test_retry_async_and_sync_paths(monkeypatch):
         == "ok-sync"
     )
 
+
 @pytest.mark.asyncio
 async def test_retry_error_branches(monkeypatch):
     logger = logging.getLogger("test-retry-errors")
@@ -107,9 +108,13 @@ async def test_retry_error_branches(monkeypatch):
     monkeypatch.setattr(g["openai"], "RateLimitError", _DummyRateLimitError)
     monkeypatch.setattr(g["openai"], "APIConnectionError", _DummyAPIConnectionError)
     monkeypatch.setattr(g["openai"], "AuthenticationError", _DummyAuthenticationError)
-    monkeypatch.setattr(g["openai"], "PermissionDeniedError", _DummyPermissionDeniedError)
+    monkeypatch.setattr(
+        g["openai"], "PermissionDeniedError", _DummyPermissionDeniedError
+    )
     monkeypatch.setattr(g["openai"], "BadRequestError", _DummyBadRequestError)
-    monkeypatch.setattr(g["openai"], "UnprocessableEntityError", _DummyUnprocessableEntityError)
+    monkeypatch.setattr(
+        g["openai"], "UnprocessableEntityError", _DummyUnprocessableEntityError
+    )
     monkeypatch.setattr(g["openai"], "APIError", _DummyAPIError)
 
     sleep_calls: list[int] = []
@@ -154,12 +159,14 @@ async def test_retry_error_branches(monkeypatch):
         )
 
     with pytest.raises(ValueError, match="Invalid API key"):
+
         async def auth_err():
             raise _DummyAuthenticationError("bad key")
 
         await call_with_retry(auth_err, max_retries=0, async_mode=True, logger=logger)
 
     with pytest.raises(ValueError, match="Permission denied"):
+
         async def perm_err():
             raise _DummyPermissionDeniedError("forbidden")
 
@@ -188,6 +195,7 @@ async def test_retry_error_branches(monkeypatch):
     )
 
     with pytest.raises(ValueError, match="Invalid request parameters"):
+
         async def unprocessable():
             raise _DummyUnprocessableEntityError("nope")
 
@@ -199,18 +207,21 @@ async def test_retry_error_branches(monkeypatch):
         )
 
     with pytest.raises(_DummyAPIError):
+
         async def api_error():
             raise _DummyAPIError("api down")
 
         await call_with_retry(api_error, max_retries=0, async_mode=True, logger=logger)
 
     with pytest.raises(httpx.HTTPError):
+
         async def http_error():
             raise httpx.HTTPError("transport")
 
         await call_with_retry(http_error, max_retries=0, async_mode=True, logger=logger)
 
     with pytest.raises(RuntimeError):
+
         async def unknown_error():
             raise RuntimeError("boom")
 
@@ -241,6 +252,7 @@ async def test_retry_error_branches(monkeypatch):
     )
 
     with pytest.raises(_DummyAPIError):
+
         def api_err_sync():
             raise _DummyAPIError("api-sync")
 
@@ -252,6 +264,7 @@ async def test_retry_error_branches(monkeypatch):
         )
 
     with pytest.raises(httpx.HTTPError):
+
         def http_err_sync():
             raise httpx.HTTPError("http-sync")
 
@@ -356,7 +369,11 @@ def _mk_chunk_message(content: str = "hi", with_tool: bool = False):
     msg = {"role": "assistant", "content": content}
     if with_tool:
         msg["tool_calls"] = [
-            {"id": "call1", "type": "function", "function": {"name": "add", "arguments": "{}"}}
+            {
+                "id": "call1",
+                "type": "function",
+                "function": {"name": "add", "arguments": "{}"},
+            }
         ]
     return SimpleNamespace(model_dump=lambda: msg)
 
@@ -365,7 +382,9 @@ def _mk_chunk_message(content: str = "hi", with_tool: bool = False):
 async def test_chat_completions_stream_and_sync_paths(monkeypatch):
     # Async stream branch
     async def _async_stream_create(**kwargs):
-        chunk = SimpleNamespace(choices=[SimpleNamespace(delta=_mk_chunk_message("streamed"))])
+        chunk = SimpleNamespace(
+            choices=[SimpleNamespace(delta=_mk_chunk_message("streamed"))]
+        )
         yield chunk
 
     client = SimpleNamespace(
@@ -382,9 +401,13 @@ async def test_chat_completions_stream_and_sync_paths(monkeypatch):
 
     # Sync stream branch with chunks
     sync_resp = SimpleNamespace(
-        choices=[SimpleNamespace(message=_mk_chunk_message("sync-final", with_tool=True))]
+        choices=[
+            SimpleNamespace(message=_mk_chunk_message("sync-final", with_tool=True))
+        ]
     )
-    stream_chunk = SimpleNamespace(choices=[SimpleNamespace(delta=_mk_chunk_message("sync-stream"))])
+    stream_chunk = SimpleNamespace(
+        choices=[SimpleNamespace(delta=_mk_chunk_message("sync-stream"))]
+    )
     create_mock = MagicMock(side_effect=[iter([stream_chunk]), sync_resp])
     sync_client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock))
@@ -578,10 +601,16 @@ async def test_base_branches_and_helpers(monkeypatch):
     # structured-output dict-message branch in call()
     async def fake_chat(*args, **kwargs):
         return SimpleNamespace(
-            choices=[SimpleNamespace(message={"role": "assistant", "content": '{"name":"Bob","age":22}'})]
+            choices=[
+                SimpleNamespace(
+                    message={"role": "assistant", "content": '{"name":"Bob","age":22}'}
+                )
+            ]
         )
 
-    monkeypatch.setattr("nucleusiq_openai.nb_openai.base.call_chat_completions", fake_chat)
+    monkeypatch.setattr(
+        "nucleusiq_openai.nb_openai.base.call_chat_completions", fake_chat
+    )
     parsed = await llm_sync.call(
         model="gpt-4o",
         messages=[{"role": "user", "content": "extract"}],

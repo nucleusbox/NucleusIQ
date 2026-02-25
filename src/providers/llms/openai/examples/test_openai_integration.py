@@ -89,7 +89,9 @@ async def test_function_calling():
         message = response.choices[0].message
 
         if message.tool_calls:
-            logger.info(f"✅ Tool call requested: {message.tool_calls[0].function.name}")
+            logger.info(
+                f"✅ Tool call requested: {message.tool_calls[0].function.name}"
+            )
             return True
         elif message.content:
             logger.info(f"✅ Direct response: {message.content}")

@@ -29,11 +29,20 @@ def _adapt_tools_for_responses(
 
     Chat Completions nests function details::
 
-        {"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}
+        {
+            "type": "function",
+            "function": {"name": ..., "description": ..., "parameters": ...},
+        }
 
     Responses API flattens them::
 
-        {"type": "function", "name": ..., "description": ..., "parameters": ..., "strict": True}
+        {
+            "type": "function",
+            "name": ...,
+            "description": ...,
+            "parameters": ...,
+            "strict": True,
+        }
 
     Native tools (web_search_preview, code_interpreter, etc.) pass through unchanged.
     """
