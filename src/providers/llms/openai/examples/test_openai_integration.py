@@ -40,7 +40,7 @@ async def test_basic_completion():
         )
 
         message = response.choices[0].message
-        content = message.get("content", "")
+        content = message.content or ""
 
         logger.info(f"✅ Success! Response: {content}")
         assert "NucleusIQ" in content or "nucleusiq" in content.lower()
@@ -88,16 +88,14 @@ async def test_function_calling():
 
         message = response.choices[0].message
 
-        if "function_call" in message:
-            fn_call = message["function_call"]
-            logger.info(f"✅ Function call requested: {fn_call}")
+        if message.tool_calls:
+            logger.info(f"✅ Tool call requested: {message.tool_calls[0].function.name}")
             return True
-        elif "content" in message:
-            content = message["content"]
-            logger.info(f"✅ Direct response: {content}")
+        elif message.content:
+            logger.info(f"✅ Direct response: {message.content}")
             return True
         else:
-            logger.error("❌ No function_call or content in response")
+            logger.error("❌ No tool_calls or content in response")
             return False
     except Exception as e:
         logger.error(f"❌ Failed: {e}")
@@ -124,7 +122,7 @@ async def test_conversation():
             max_tokens=50,
         )
 
-        answer1 = response1.choices[0].message.get("content", "")
+        answer1 = response1.choices[0].message.content or ""
         logger.info(f"First response: {answer1}")
 
         # Add assistant response and continue conversation
@@ -137,7 +135,7 @@ async def test_conversation():
             max_tokens=50,
         )
 
-        answer2 = response2.choices[0].message.get("content", "")
+        answer2 = response2.choices[0].message.content or ""
         logger.info(f"Second response: {answer2}")
 
         logger.info("✅ Multi-turn conversation successful!")

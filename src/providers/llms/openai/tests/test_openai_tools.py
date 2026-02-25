@@ -20,6 +20,7 @@ if str(src_dir) not in sys.path:
 
 import pytest
 from nucleusiq.tools import BaseTool
+
 from nucleusiq_openai import OpenAITool
 from nucleusiq_openai.tools.openai_tool import NATIVE_TOOL_TYPES
 
@@ -96,7 +97,8 @@ class TestOpenAIToolFactory:
         assert tool.is_native is True
 
         spec = tool.get_spec()
-        assert spec == {"type": "code_interpreter"}
+        assert spec["type"] == "code_interpreter"
+        assert spec["container"] == {"type": "auto"}
 
     def test_file_search_tool_no_vector_stores(self):
         """Test creating file search tool without vector stores."""

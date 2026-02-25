@@ -23,7 +23,12 @@ if str(src_dir) not in sys.path:
 
 import pytest
 from nucleusiq.tools import BaseTool
+
 from nucleusiq_openai import BaseOpenAI, OpenAITool
+from nucleusiq_openai.nb_openai.response_normalizer import (
+    messages_to_responses_input,
+    normalize_responses_output,
+)
 
 # ======================================================================== #
 # Helpers — mock OpenAI Responses API objects                              #
@@ -137,9 +142,9 @@ class TestPerToolRouting:
         )
 
         msg = result.choices[0].message
-        assert msg["content"] == "Search result here."
-        assert "_native_outputs" in msg
-        assert msg["_native_outputs"][0]["type"] == "web_search_call"
+        assert msg.content == "Search result here."
+        assert msg.native_outputs is not None
+        assert msg.native_outputs[0]["type"] == "web_search_call"
 
     @pytest.mark.asyncio
     async def test_code_interpreter_routes_to_responses_api(self):
@@ -167,9 +172,10 @@ class TestPerToolRouting:
         )
 
         msg = result.choices[0].message
-        assert msg["content"] == "The result is 42."
+        assert msg.content == "The result is 42."
         assert any(
-            n["type"] == "code_interpreter_call" for n in msg.get("_native_outputs", [])
+            n["type"] == "code_interpreter_call"
+            for n in (msg.native_outputs or [])
         )
 
     @pytest.mark.asyncio
@@ -202,7 +208,7 @@ class TestPerToolRouting:
         )
 
         msg = result.choices[0].message
-        assert "Found in document" in msg["content"]
+        assert "Found in document" in msg.content
 
     @pytest.mark.asyncio
     async def test_image_generation_routes_to_responses_api(self):
@@ -232,7 +238,7 @@ class TestPerToolRouting:
         )
 
         msg = result.choices[0].message
-        assert "generated image" in msg["content"]
+        assert "generated image" in msg.content
 
     @pytest.mark.asyncio
     async def test_mcp_routes_to_responses_api(self):
@@ -263,7 +269,7 @@ class TestPerToolRouting:
             tools=tool_specs,
         )
 
-        assert "Rolled a 17" in result.choices[0].message["content"]
+        assert "Rolled a 17" in result.choices[0].message.content
 
     @pytest.mark.asyncio
     async def test_computer_use_routes_to_responses_api(self):
@@ -290,7 +296,7 @@ class TestPerToolRouting:
             tools=tool_specs,
         )
 
-        assert "Screenshot captured" in result.choices[0].message["content"]
+        assert "Screenshot captured" in result.choices[0].message.content
 
     @pytest.mark.asyncio
     async def test_function_only_routes_to_chat_completions(self):
@@ -323,7 +329,7 @@ class TestPerToolRouting:
 
         # Verify Chat Completions was called (not Responses)
         self.llm._client.chat.completions.create.assert_called_once()
-        assert result.choices[0].message["content"] == "15 + 27 = 42"
+        assert result.choices[0].message.content == "15 + 27 = 42"
 
 
 # ======================================================================== #
@@ -365,7 +371,7 @@ class TestMixedToolRouting:
             tools=tool_specs,
         )
 
-        assert result.choices[0].message["content"] == "Answer with search and calc."
+        assert result.choices[0].message.content == "Answer with search and calc."
 
     @pytest.mark.asyncio
     async def test_mixed_tools_with_function_call_response(self):
@@ -396,14 +402,60 @@ class TestMixedToolRouting:
 
         msg = result.choices[0].message
         # Function call should be normalized to tool_calls format
-        assert msg["tool_calls"] is not None
-        assert len(msg["tool_calls"]) == 1
-        tc = msg["tool_calls"][0]
-        assert tc["id"] == "call_add_1"
-        assert tc["function"]["name"] == "add"
-        assert tc["function"]["arguments"] == '{"a": 10, "b": 20}'
+        assert msg.tool_calls is not None
+        assert len(msg.tool_calls) == 1
+        tc = msg.tool_calls[0]
+        assert tc.id == "call_add_1"
+        assert tc.function.name == "add"
+        assert tc.function.arguments == '{"a": 10, "b": 20}'
         # Native output is also captured
-        assert len(msg["_native_outputs"]) == 1
+        assert len(msg.native_outputs) == 1
+
+    @pytest.mark.asyncio
+    async def test_function_tools_adapted_for_responses_api(self):
+        """Function tools are converted from nested to flat format for Responses API."""
+        captured_payload = {}
+
+        class _CapturingResponses:
+            async def create(self, **kwargs):
+                captured_payload.update(kwargs)
+                return _FakeResponse(
+                    "resp_adapted",
+                    [
+                        _FakeOutputItem(
+                            "message",
+                            role="assistant",
+                            content=[_FakeContentBlock("output_text", "Done.")],
+                        ),
+                    ],
+                )
+
+        self.llm._client.responses = _CapturingResponses()
+
+        calc = _make_calculator_tool()
+        web = OpenAITool.web_search()
+        tool_specs = self.llm.convert_tool_specs([calc, web])
+
+        await self.llm.call(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "test"}],
+            tools=tool_specs,
+        )
+
+        sent_tools = captured_payload["tools"]
+        assert len(sent_tools) == 2
+
+        # Function tool should be in flat Responses API format
+        fn_tool = sent_tools[0]
+        assert fn_tool["type"] == "function"
+        assert fn_tool["name"] == "add"
+        assert "description" in fn_tool
+        assert "parameters" in fn_tool
+        assert fn_tool["strict"] is True
+        assert "function" not in fn_tool  # NOT nested
+
+        # Native tool passes through unchanged
+        assert sent_tools[1] == {"type": "web_search_preview"}
 
 
 # ======================================================================== #
@@ -570,7 +622,7 @@ class TestSDKFallback:
 
         # Should have fallen back to Chat Completions
         mock_client.chat.completions.create.assert_called_once()
-        assert result.choices[0].message["content"] == "Fallback answer"
+        assert result.choices[0].message.content == "Fallback answer"
 
 
 # ======================================================================== #
@@ -641,9 +693,6 @@ class TestStructuredOutputViaResponsesAPI:
 class TestNormalizationEdgeCases:
     """Test normalization for various response shapes."""
 
-    def setup_method(self):
-        self.llm = _make_llm()
-
     def test_multiple_text_blocks_joined(self):
         """Multiple output_text blocks are joined with double newline."""
         resp = _FakeResponse(
@@ -660,8 +709,8 @@ class TestNormalizationEdgeCases:
             ],
         )
 
-        result = self.llm._normalize_responses_output(resp)
-        assert result.choices[0].message["content"] == "Paragraph 1.\n\nParagraph 2."
+        result = normalize_responses_output(resp)
+        assert result.choices[0].message.content == "Paragraph 1.\n\nParagraph 2."
 
     def test_multiple_function_calls(self):
         """Multiple function_call items all get normalized."""
@@ -680,14 +729,14 @@ class TestNormalizationEdgeCases:
             ],
         )
 
-        result = self.llm._normalize_responses_output(resp)
+        result = normalize_responses_output(resp)
         msg = result.choices[0].message
-        assert len(msg["tool_calls"]) == 2
-        assert msg["tool_calls"][0]["function"]["name"] == "add"
-        assert msg["tool_calls"][1]["function"]["name"] == "multiply"
+        assert len(msg.tool_calls) == 2
+        assert msg.tool_calls[0].function.name == "add"
+        assert msg.tool_calls[1].function.name == "multiply"
 
     def test_only_native_outputs_no_text(self):
-        """Response with only native outputs (no message) → content is None."""
+        """Response with only native outputs (no message) -> content is None."""
         resp = _FakeResponse(
             "resp_native_only",
             [
@@ -695,19 +744,19 @@ class TestNormalizationEdgeCases:
             ],
         )
 
-        result = self.llm._normalize_responses_output(resp)
+        result = normalize_responses_output(resp)
         msg = result.choices[0].message
-        assert msg["content"] is None
-        assert "tool_calls" not in msg
-        assert len(msg["_native_outputs"]) == 1
+        assert msg.content is None
+        assert msg.tool_calls is None
+        assert len(msg.native_outputs) == 1
 
     def test_none_output_list(self):
-        """Response with None output → empty choices message."""
+        """Response with None output -> empty choices message."""
         resp = _FakeResponse("resp_none", [])
-        resp.output = None  # Simulate None
+        resp.output = None
 
-        result = self.llm._normalize_responses_output(resp)
-        assert result.choices[0].message["content"] is None
+        result = normalize_responses_output(resp)
+        assert result.choices[0].message.content is None
 
     def test_content_block_without_text(self):
         """Content block with non-text type is ignored."""
@@ -718,15 +767,15 @@ class TestNormalizationEdgeCases:
                     "message",
                     role="assistant",
                     content=[
-                        _FakeContentBlock("output_image", ""),  # Not text
+                        _FakeContentBlock("output_image", ""),
                         _FakeContentBlock("output_text", "Caption here."),
                     ],
                 ),
             ],
         )
 
-        result = self.llm._normalize_responses_output(resp)
-        assert result.choices[0].message["content"] == "Caption here."
+        result = normalize_responses_output(resp)
+        assert result.choices[0].message.content == "Caption here."
 
 
 # ======================================================================== #
@@ -841,15 +890,11 @@ class TestResponsesCallDirect:
 
 
 class TestMessageConversionEdgeCases:
-    """Test _messages_to_responses_input with edge cases."""
-
-    def setup_method(self):
-        self.llm = _make_llm()
-        self.llm._last_response_id = None
+    """Test messages_to_responses_input with edge cases."""
 
     def test_empty_messages(self):
-        """Empty messages → empty input."""
-        instructions, items = self.llm._messages_to_responses_input([])
+        """Empty messages -> empty input."""
+        instructions, items = messages_to_responses_input([], None)
         assert instructions is None
         assert items == []
 
@@ -859,9 +904,10 @@ class TestMessageConversionEdgeCases:
             {"role": "system", "content": None},
             {"role": "user", "content": None},
         ]
-        instructions, items = self.llm._messages_to_responses_input(messages)
+        instructions, items = messages_to_responses_input(messages, None)
         assert instructions == ""
-        assert items[0] == {"role": "user", "content": ""}
+        assert items[0].role == "user"
+        assert items[0].content == ""
 
     def test_mixed_messages_and_tool_results(self):
         """Full conversation history with system + user + tool results."""
@@ -872,14 +918,14 @@ class TestMessageConversionEdgeCases:
             {"role": "tool", "tool_call_id": "tc_1", "content": "done"},
             {"role": "user", "content": "Thanks!"},
         ]
-        instructions, items = self.llm._messages_to_responses_input(messages)
+        instructions, items = messages_to_responses_input(messages, None)
 
         assert instructions == "Be helpful."
-        assert len(items) == 4  # user + assistant + tool_result + user
-        assert items[0]["role"] == "user"
-        assert items[1]["role"] == "assistant"
-        assert items[2]["type"] == "function_call_output"
-        assert items[3]["role"] == "user"
+        assert len(items) == 4
+        assert items[0].role == "user"
+        assert items[1].role == "assistant"
+        assert items[2].type == "function_call_output"
+        assert items[3].role == "user"
 
 
 if __name__ == "__main__":

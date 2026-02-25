@@ -21,7 +21,7 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Dict, List, Literal
+from typing import Literal
 
 from nucleusiq.llms.llm_params import LLMParams
 from pydantic import BaseModel, ConfigDict, Field
@@ -98,7 +98,7 @@ class OpenAILLMParams(LLMParams):
     )
 
     # --- Multimodal Output ---
-    modalities: List[Literal["text", "audio"]] | None = Field(
+    modalities: list[Literal["text", "audio"]] | None = Field(
         None,
         description='Output modalities. ["text"] or ["text", "audio"].',
     )
@@ -126,7 +126,7 @@ class OpenAILLMParams(LLMParams):
     )
 
     # --- Storage & Tracking ---
-    metadata: Dict[str, str] | None = Field(
+    metadata: dict[str, str] | None = Field(
         None,
         description="Up to 16 key-value pairs for tracking/querying.",
     )

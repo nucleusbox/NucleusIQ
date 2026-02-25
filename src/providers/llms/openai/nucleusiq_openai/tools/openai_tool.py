@@ -22,7 +22,7 @@ so they can be overridden in one place when OpenAI ships new type strings:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.tools.base_tool import BaseTool
 
@@ -65,7 +65,7 @@ class _OpenAINativeTool(BaseTool):
         name: str,
         description: str,
         tool_type: str,
-        tool_spec: Dict[str, Any],
+        tool_spec: dict[str, Any],
     ):
         super().__init__(name=name, description=description, version=None)
         self.tool_type = tool_type
@@ -88,7 +88,7 @@ class _OpenAINativeTool(BaseTool):
             f"It must not be called via Executor.execute()."
         )
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         """
         Return the native tool spec — already in OpenAI Responses API format.
 
@@ -150,22 +150,36 @@ class OpenAITool:
         )
 
     @staticmethod
-    def code_interpreter() -> BaseTool:
+    def code_interpreter(
+        *,
+        container: dict[str, Any] | None = None,
+    ) -> BaseTool:
         """
         Create OpenAI's code interpreter tool.
+
+        Args:
+            container: Container configuration for the sandbox.
+                Defaults to ``{"type": "auto"}`` which lets OpenAI
+                manage container lifecycle automatically.
+                Pass ``{"type": "auto", "memory_limit": "4g"}`` for
+                a higher memory limit, or a pre-created container ID.
 
         Returns:
             BaseTool instance for code interpreter.
         """
+        spec: dict[str, Any] = {
+            "type": OpenAITool.CODE_INTERPRETER_TYPE,
+            "container": container or {"type": "auto"},
+        }
         return _OpenAINativeTool(
             name="code_interpreter",
             description="Execute Python code in a secure container using OpenAI's built-in code interpreter",
             tool_type=OpenAITool.CODE_INTERPRETER_TYPE,
-            tool_spec={"type": OpenAITool.CODE_INTERPRETER_TYPE},
+            tool_spec=spec,
         )
 
     @staticmethod
-    def file_search(vector_store_ids: List[str] | None = None) -> BaseTool:
+    def file_search(vector_store_ids: list[str] | None = None) -> BaseTool:
         """
         Create OpenAI's file search tool.
 
@@ -175,7 +189,7 @@ class OpenAITool:
         Returns:
             BaseTool instance for file search.
         """
-        tool_spec: Dict[str, Any] = {"type": OpenAITool.FILE_SEARCH_TYPE}
+        tool_spec: dict[str, Any] = {"type": OpenAITool.FILE_SEARCH_TYPE}
         if vector_store_ids:
             tool_spec["vector_store_ids"] = vector_store_ids
 
@@ -208,8 +222,8 @@ class OpenAITool:
         *,
         server_url: str | None = None,
         connector_id: str | None = None,
-        require_approval: str | Dict[str, Any] | None = None,
-        allowed_tools: List[str] | None = None,
+        require_approval: str | dict[str, Any] | None = None,
+        allowed_tools: list[str] | None = None,
         authorization: str | None = None,
     ) -> BaseTool:
         """
@@ -258,7 +272,7 @@ class OpenAITool:
                 "Cannot specify both server_url and connector_id. Use one or the other."
             )
 
-        tool_spec: Dict[str, Any] = {
+        tool_spec: dict[str, Any] = {
             "type": OpenAITool.MCP_TYPE,
             "server_label": server_label,
             "server_description": server_description,
@@ -289,8 +303,8 @@ class OpenAITool:
         server_description: str,
         *,
         authorization: str,
-        require_approval: str | Dict[str, Any] | None = None,
-        allowed_tools: List[str] | None = None,
+        require_approval: str | dict[str, Any] | None = None,
+        allowed_tools: list[str] | None = None,
     ) -> BaseTool:
         """
         Convenience method for creating OpenAI connector tools.

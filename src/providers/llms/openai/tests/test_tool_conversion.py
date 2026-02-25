@@ -6,9 +6,9 @@ Tests cover:
 - Native OpenAI tools (pass-through)
 - Mixed tool lists
 - _has_native_tools() routing detection
-- _messages_to_responses_input() format conversion
-- _normalize_responses_output() response normalization
-- _build_responses_text_config() structured output conversion
+- messages_to_responses_input() format conversion
+- normalize_responses_output() response normalization
+- build_responses_text_config() structured output conversion
 """
 
 import sys
@@ -23,7 +23,14 @@ from typing import Any, Dict
 
 import pytest
 from nucleusiq.tools import BaseTool
+
 from nucleusiq_openai import BaseOpenAI, OpenAITool
+from nucleusiq_openai.nb_openai.response_normalizer import (
+    build_responses_text_config,
+    messages_to_responses_input,
+    normalize_responses_output,
+)
+from nucleusiq_openai.nb_openai.responses_api import _adapt_tools_for_responses
 
 
 class MockBaseTool(BaseTool):
@@ -103,7 +110,8 @@ class TestToolConversion:
 
         assert len(converted) == 2
         assert converted[0] == {"type": "web_search_preview"}
-        assert converted[1] == {"type": "code_interpreter"}
+        assert converted[1]["type"] == "code_interpreter"
+        assert converted[1]["container"] == {"type": "auto"}
 
     def test_convert_mcp_tool_passthrough(self):
         """Test that MCP tools pass through unchanged."""
@@ -261,19 +269,17 @@ class TestHasNativeTools:
 
 
 class TestMessagesToResponsesInput:
-    """Test _messages_to_responses_input() conversion."""
-
-    def setup_method(self):
-        self.llm = BaseOpenAI(model_name="gpt-4o", api_key="test-key")
-        self.llm._last_response_id = None  # Ensure clean state
+    """Test messages_to_responses_input() conversion."""
 
     def test_simple_user_message(self):
         """User message converts to input item."""
         messages = [{"role": "user", "content": "Hello"}]
-        instructions, items = self.llm._messages_to_responses_input(messages)
+        instructions, items = messages_to_responses_input(messages, None)
 
         assert instructions is None
-        assert items == [{"role": "user", "content": "Hello"}]
+        assert len(items) == 1
+        assert items[0].role == "user"
+        assert items[0].content == "Hello"
 
     def test_system_message_becomes_instructions(self):
         """System message is extracted as instructions."""
@@ -281,11 +287,12 @@ class TestMessagesToResponsesInput:
             {"role": "system", "content": "You are a helper."},
             {"role": "user", "content": "Hi"},
         ]
-        instructions, items = self.llm._messages_to_responses_input(messages)
+        instructions, items = messages_to_responses_input(messages, None)
 
         assert instructions == "You are a helper."
         assert len(items) == 1
-        assert items[0] == {"role": "user", "content": "Hi"}
+        assert items[0].role == "user"
+        assert items[0].content == "Hi"
 
     def test_assistant_message_preserved(self):
         """Assistant messages pass through."""
@@ -294,11 +301,12 @@ class TestMessagesToResponsesInput:
             {"role": "assistant", "content": "Hello!"},
             {"role": "user", "content": "How are you?"},
         ]
-        instructions, items = self.llm._messages_to_responses_input(messages)
+        instructions, items = messages_to_responses_input(messages, None)
 
         assert instructions is None
         assert len(items) == 3
-        assert items[1] == {"role": "assistant", "content": "Hello!"}
+        assert items[1].role == "assistant"
+        assert items[1].content == "Hello!"
 
     def test_tool_results_on_first_call(self):
         """Tool results on first call convert to function_call_output."""
@@ -306,20 +314,17 @@ class TestMessagesToResponsesInput:
             {"role": "user", "content": "Add 2+3"},
             {"role": "tool", "tool_call_id": "call_abc", "content": "5"},
         ]
-        instructions, items = self.llm._messages_to_responses_input(messages)
+        instructions, items = messages_to_responses_input(messages, None)
 
         assert len(items) == 2
-        assert items[0] == {"role": "user", "content": "Add 2+3"}
-        assert items[1] == {
-            "type": "function_call_output",
-            "call_id": "call_abc",
-            "output": "5",
-        }
+        assert items[0].role == "user"
+        assert items[0].content == "Add 2+3"
+        assert items[1].type == "function_call_output"
+        assert items[1].call_id == "call_abc"
+        assert items[1].output == "5"
 
     def test_continuation_only_sends_tool_results(self):
-        """When _last_response_id is set, only tool results are sent."""
-        self.llm._last_response_id = "resp_previous_123"
-
+        """When last_response_id is set, only tool results are sent."""
         messages = [
             {"role": "system", "content": "You are a helper."},
             {"role": "user", "content": "Search for X"},
@@ -327,14 +332,13 @@ class TestMessagesToResponsesInput:
             {"role": "tool", "tool_call_id": "call_1", "content": "result_1"},
             {"role": "tool", "tool_call_id": "call_2", "content": "result_2"},
         ]
-        instructions, items = self.llm._messages_to_responses_input(messages)
+        instructions, items = messages_to_responses_input(messages, "resp_previous_123")
 
-        # Instructions and user/assistant messages are NOT sent (server-side state)
         assert instructions is None
         assert len(items) == 2
-        assert items[0]["type"] == "function_call_output"
-        assert items[0]["call_id"] == "call_1"
-        assert items[1]["call_id"] == "call_2"
+        assert items[0].type == "function_call_output"
+        assert items[0].call_id == "call_1"
+        assert items[1].call_id == "call_2"
 
     def test_multiple_system_messages_joined(self):
         """Multiple system messages are joined with newline."""
@@ -343,7 +347,7 @@ class TestMessagesToResponsesInput:
             {"role": "system", "content": "Line 2"},
             {"role": "user", "content": "Go"},
         ]
-        instructions, items = self.llm._messages_to_responses_input(messages)
+        instructions, items = messages_to_responses_input(messages, None)
 
         assert instructions == "Line 1\nLine 2"
         assert len(items) == 1
@@ -383,10 +387,7 @@ class _MockResponse:
 
 
 class TestNormalizeResponsesOutput:
-    """Test _normalize_responses_output() normalization."""
-
-    def setup_method(self):
-        self.llm = BaseOpenAI(model_name="gpt-4o", api_key="test-key")
+    """Test normalize_responses_output() normalization."""
 
     def test_simple_text_response(self):
         """Message with text content normalizes correctly."""
@@ -401,13 +402,13 @@ class TestNormalizeResponsesOutput:
             ],
         )
 
-        result = self.llm._normalize_responses_output(resp)
+        result = normalize_responses_output(resp)
 
         assert len(result.choices) == 1
         msg = result.choices[0].message
-        assert msg["role"] == "assistant"
-        assert msg["content"] == "Hello world"
-        assert "tool_calls" not in msg
+        assert msg.role == "assistant"
+        assert msg.content == "Hello world"
+        assert msg.tool_calls is None
 
     def test_function_call_in_response(self):
         """Function call items normalize to tool_calls format."""
@@ -423,16 +424,16 @@ class TestNormalizeResponsesOutput:
             ],
         )
 
-        result = self.llm._normalize_responses_output(resp)
+        result = normalize_responses_output(resp)
 
         msg = result.choices[0].message
-        assert msg["content"] is None
-        assert len(msg["tool_calls"]) == 1
-        tc = msg["tool_calls"][0]
-        assert tc["id"] == "call_abc"
-        assert tc["type"] == "function"
-        assert tc["function"]["name"] == "add"
-        assert tc["function"]["arguments"] == '{"a": 2, "b": 3}'
+        assert msg.content is None
+        assert len(msg.tool_calls) == 1
+        tc = msg.tool_calls[0]
+        assert tc.id == "call_abc"
+        assert tc.type == "function"
+        assert tc.function.name == "add"
+        assert tc.function.arguments == '{"a": 2, "b": 3}'
 
     def test_mixed_native_and_function_calls(self):
         """Native tool outputs + function calls + text all normalize."""
@@ -457,26 +458,25 @@ class TestNormalizeResponsesOutput:
             ],
         )
 
-        result = self.llm._normalize_responses_output(resp)
+        result = normalize_responses_output(resp)
 
         msg = result.choices[0].message
-        assert msg["role"] == "assistant"
-        assert "Based on the search," in msg["content"]
-        assert "the answer is 5." in msg["content"]
-        assert len(msg["tool_calls"]) == 1
-        assert msg["tool_calls"][0]["function"]["name"] == "calculate"
-        # Native outputs stored as metadata
-        assert "_native_outputs" in msg
-        assert len(msg["_native_outputs"]) == 1
+        assert msg.role == "assistant"
+        assert "Based on the search," in msg.content
+        assert "the answer is 5." in msg.content
+        assert len(msg.tool_calls) == 1
+        assert msg.tool_calls[0].function.name == "calculate"
+        assert msg.native_outputs is not None
+        assert len(msg.native_outputs) == 1
 
     def test_empty_response(self):
         """Empty output list produces None content."""
         resp = _MockResponse(id="resp_4", output=[])
-        result = self.llm._normalize_responses_output(resp)
+        result = normalize_responses_output(resp)
 
         msg = result.choices[0].message
-        assert msg["content"] is None
-        assert "tool_calls" not in msg
+        assert msg.content is None
+        assert msg.tool_calls is None
 
 
 # ======================================================================== #
@@ -485,10 +485,7 @@ class TestNormalizeResponsesOutput:
 
 
 class TestBuildResponsesTextConfig:
-    """Test _build_responses_text_config() conversion."""
-
-    def setup_method(self):
-        self.llm = BaseOpenAI(model_name="gpt-4o", api_key="test-key")
+    """Test build_responses_text_config() conversion."""
 
     def test_json_schema_format(self):
         """json_schema response_format converts to text.format."""
@@ -504,7 +501,7 @@ class TestBuildResponsesTextConfig:
             },
         }
 
-        result = self.llm._build_responses_text_config(response_format)
+        result = build_responses_text_config(response_format)
 
         assert result == {
             "format": {
@@ -521,18 +518,102 @@ class TestBuildResponsesTextConfig:
     def test_json_object_format(self):
         """json_object mode converts to text.format."""
         response_format = {"type": "json_object"}
-        result = self.llm._build_responses_text_config(response_format)
+        result = build_responses_text_config(response_format)
         assert result == {"format": {"type": "json_object"}}
 
     def test_unknown_format_returns_none(self):
         """Unknown format type returns None."""
-        result = self.llm._build_responses_text_config({"type": "text"})
+        result = build_responses_text_config({"type": "text"})
         assert result is None
 
     def test_non_dict_returns_none(self):
         """Non-dict input returns None."""
-        result = self.llm._build_responses_text_config("not a dict")
+        result = build_responses_text_config("not a dict")
         assert result is None
+
+
+# ======================================================================== #
+# Tool format adaptation (Chat Completions → Responses API)                #
+# ======================================================================== #
+
+
+class TestAdaptToolsForResponses:
+    """Test _adapt_tools_for_responses() format conversion."""
+
+    def test_function_tool_flattened(self):
+        """Nested function tool is flattened to Responses API format."""
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "add",
+                    "description": "Add two numbers",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "a": {"type": "integer"},
+                            "b": {"type": "integer"},
+                        },
+                        "required": ["a", "b"],
+                        "additionalProperties": False,
+                    },
+                },
+            }
+        ]
+
+        result = _adapt_tools_for_responses(tools)
+
+        assert len(result) == 1
+        assert result[0]["type"] == "function"
+        assert result[0]["name"] == "add"
+        assert result[0]["description"] == "Add two numbers"
+        assert result[0]["parameters"]["type"] == "object"
+        assert result[0]["strict"] is True
+        assert "function" not in result[0]
+
+    def test_native_tool_passthrough(self):
+        """Native tools are not modified."""
+        tools = [
+            {"type": "web_search_preview"},
+            {"type": "code_interpreter"},
+            {
+                "type": "mcp",
+                "server_label": "test",
+                "server_url": "https://example.com",
+            },
+        ]
+
+        result = _adapt_tools_for_responses(tools)
+
+        assert result == tools
+
+    def test_mixed_tools(self):
+        """Mix of function + native tools are all handled correctly."""
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "calc",
+                    "description": "Calculate",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {"type": "web_search_preview"},
+            {"type": "code_interpreter"},
+        ]
+
+        result = _adapt_tools_for_responses(tools)
+
+        assert len(result) == 3
+        assert result[0]["type"] == "function"
+        assert result[0]["name"] == "calc"
+        assert "function" not in result[0]
+        assert result[1] == {"type": "web_search_preview"}
+        assert result[2] == {"type": "code_interpreter"}
+
+    def test_empty_list(self):
+        """Empty tool list returns empty list."""
+        assert _adapt_tools_for_responses([]) == []
 
 
 if __name__ == "__main__":

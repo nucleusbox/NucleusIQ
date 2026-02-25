@@ -20,6 +20,7 @@ from typing import Any, Dict, List
 
 import pytest
 from nucleusiq.tools import BaseTool
+
 from nucleusiq_openai import BaseOpenAI
 
 
