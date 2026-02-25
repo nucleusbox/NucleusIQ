@@ -118,7 +118,7 @@ ruff format src/ --config ruff.toml
 ```
 
 Key rules:
-- Line length: 120 characters
+- Line length: 88 characters
 - Target: Python 3.10+
 - Import sorting is enforced (isort-compatible)
 
