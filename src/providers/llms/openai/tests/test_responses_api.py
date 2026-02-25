@@ -24,7 +24,6 @@ if str(src_dir) not in sys.path:
 
 import pytest
 from nucleusiq.tools import BaseTool
-
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 from nucleusiq_openai.nb_openai.response_normalizer import (
     messages_to_responses_input,

@@ -24,7 +24,6 @@ from typing import Any
 
 import pytest
 from nucleusiq.tools import BaseTool
-
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 from nucleusiq_openai.nb_openai.response_normalizer import (
     build_responses_text_config,

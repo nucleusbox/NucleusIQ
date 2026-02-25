@@ -13,9 +13,8 @@ Covers:
 
 import pytest
 from nucleusiq.llms.llm_params import LLMParams
-from pydantic import ValidationError
-
 from nucleusiq_openai.llm_params import AudioOutputConfig, OpenAILLMParams
+from pydantic import ValidationError
 
 # ===================================================================== #
 # Construction & Validation                                              #

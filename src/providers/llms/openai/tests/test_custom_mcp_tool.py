@@ -21,7 +21,6 @@ from typing import Any
 
 import pytest
 from nucleusiq.tools import BaseTool
-
 from nucleusiq_openai import BaseOpenAI
 
 

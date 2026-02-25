@@ -21,7 +21,6 @@ if str(src_dir) not in sys.path:
 
 import pytest
 from nucleusiq.tools import BaseTool
-
 from nucleusiq_openai import OpenAITool
 from nucleusiq_openai.tools.openai_tool import NATIVE_TOOL_TYPES
 
