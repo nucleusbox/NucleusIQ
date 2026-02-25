@@ -11,6 +11,7 @@ Covers the full pipeline for each native tool:
 
 All API calls are mocked — no real OpenAI key is required.
 """
+# ruff: noqa: E402
 
 import sys
 from pathlib import Path

@@ -7,6 +7,7 @@ Tests cover:
 - Tool execution
 - Integration with OpenAI LLM
 """
+# ruff: noqa: E402
 
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ src_dir = Path(__file__).parent.parent.parent / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 from nucleusiq.tools import BaseTool
@@ -40,7 +41,7 @@ class CustomMCPTool(BaseTool):
         self.server_url = server_url
         self.server_label = server_label
         self.authorization = authorization
-        self._available_tools: List[Dict[str, Any]] | None = None
+        self._available_tools: list[dict[str, Any]] | None = None
 
     async def initialize(self) -> None:
         """Initialize by fetching available tools."""
@@ -63,7 +64,7 @@ class CustomMCPTool(BaseTool):
             return f"Dice roll result for '{dice_expr}': 7"
         raise ValueError(f"Unknown tool: {tool_name}")
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         """Return tool spec for function calling."""
         if not self._available_tools:
             return {

@@ -10,6 +10,7 @@ Tests cover:
 - normalize_responses_output() response normalization
 - build_responses_text_config() structured output conversion
 """
+# ruff: noqa: E402
 
 import sys
 from pathlib import Path
@@ -19,7 +20,7 @@ src_dir = Path(__file__).parent.parent.parent / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 from nucleusiq.tools import BaseTool
@@ -36,7 +37,7 @@ from nucleusiq_openai.nb_openai.responses_api import _adapt_tools_for_responses
 class MockBaseTool(BaseTool):
     """Mock BaseTool for testing."""
 
-    def __init__(self, name: str, description: str, parameters: Dict[str, Any]):
+    def __init__(self, name: str, description: str, parameters: dict[str, Any]):
         super().__init__(name=name, description=description)
         self._parameters = parameters
 
@@ -46,7 +47,7 @@ class MockBaseTool(BaseTool):
     async def execute(self, **kwargs: Any) -> Any:
         return "result"
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,

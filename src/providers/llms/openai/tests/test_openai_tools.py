@@ -8,6 +8,7 @@ Tests cover:
 - Connector creation
 - Tool spec generation
 """
+# ruff: noqa: E402
 
 import sys
 from pathlib import Path

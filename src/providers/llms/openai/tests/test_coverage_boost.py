@@ -1,10 +1,12 @@
-import asyncio
+# ruff: noqa: E402
+
 import dataclasses
 import logging
 import sys
+import typing
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock
 
 import httpx
@@ -277,7 +279,7 @@ class _Typed:
     value: int
     tags: list[str]
     meta: dict[str, Any]
-    maybe: Optional[int]
+    maybe: int | None
 
 
 def test_structured_output_build_clean_parse():
@@ -298,7 +300,7 @@ def test_structured_output_build_clean_parse():
     assert dc_schema["required"] == ["x", "y"]
     ann_schema = _annotations_to_schema(_Typed)
     assert "value" in ann_schema["properties"]
-    assert _type_to_schema(Optional[int]) == {
+    assert _type_to_schema(typing.Union[int, None]) == {  # noqa: UP007
         "anyOf": [{"type": "integer"}, {"type": "null"}]
     }
     assert _type_to_schema(list[int]) == {"type": "array", "items": {"type": "integer"}}
