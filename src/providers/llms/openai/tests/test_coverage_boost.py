@@ -429,9 +429,7 @@ async def test_chat_completions_stream_and_sync_paths(monkeypatch):
                     choices=[
                         SimpleNamespace(
                             delta=_mk_chunk_delta(
-                                tool_calls=[
-                                    _mk_tool_call_delta(0, None, None, ": 1}")
-                                ]
+                                tool_calls=[_mk_tool_call_delta(0, None, None, ": 1}")]
                             )
                         )
                     ]
@@ -455,9 +453,7 @@ async def test_chat_completions_stream_and_sync_paths(monkeypatch):
 
     # Sync stream with empty chunks -> returns response with no content
     sync_client2 = SimpleNamespace(
-        chat=SimpleNamespace(
-            completions=SimpleNamespace(create=lambda **kw: iter([]))
-        )
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: iter([])))
     )
     out2 = await chat_mod.call_chat_completions(
         sync_client2,

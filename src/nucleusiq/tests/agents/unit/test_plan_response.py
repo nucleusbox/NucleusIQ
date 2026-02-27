@@ -52,4 +52,3 @@ def test_plan_response_from_dict_supports_mixed_step_types():
     assert len(pr.steps) == 2
     assert pr.steps[0].action == "execute"
     assert pr.steps[1].action == "verify"
-

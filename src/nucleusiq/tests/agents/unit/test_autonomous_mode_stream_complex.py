@@ -121,7 +121,10 @@ async def test_stream_complex_validation_retry_then_pass(monkeypatch):
     async for e in mode._stream_complex(agent, task, decomposer, _analysis()):
         events.append(e)
 
-    assert any(e.type == "thinking" and "Validation failed" in (e.message or "") for e in events)
+    assert any(
+        e.type == "thinking" and "Validation failed" in (e.message or "")
+        for e in events
+    )
     assert agent.state == AgentState.COMPLETED
 
 
@@ -147,4 +150,3 @@ async def test_stream_complex_handles_loop_exception(monkeypatch):
     assert events[-1].type == "error"
     assert "synthesis failed" in (events[-1].message or "")
     assert agent.state == AgentState.ERROR
-

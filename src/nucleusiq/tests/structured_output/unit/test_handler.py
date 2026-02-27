@@ -79,4 +79,3 @@ def test_wrap_result_extracts_content_from_object_message():
         choices=[SimpleNamespace(message=SimpleNamespace(content="object-content"))]
     )
     assert h.wrap_result(response, cfg) == "object-content"
-

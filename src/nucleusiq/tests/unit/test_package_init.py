@@ -43,4 +43,3 @@ def test_init_never_raises_when_dotenv_loading_fails(monkeypatch):
 
     # Should not raise because module guards dotenv loading.
     importlib.reload(nucleusiq)
-

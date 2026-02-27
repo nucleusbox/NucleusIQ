@@ -16,4 +16,3 @@ def test_init_handles_path_resolve_failure(monkeypatch):
     monkeypatch.setattr(pathlib.Path, "resolve", _boom)
     importlib.reload(nucleusiq)
     assert hasattr(nucleusiq, "__version__")
-

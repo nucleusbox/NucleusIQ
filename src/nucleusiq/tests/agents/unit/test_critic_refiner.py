@@ -794,7 +794,9 @@ class TestRefinerExtractHelpers:
         refiner = Refiner()
         critique = CritiqueResult(verdict=Verdict.FAIL, feedback="fix")
 
-        with patch.object(refiner, "_refine_llm_step", new_callable=AsyncMock) as llm_ref:
+        with patch.object(
+            refiner, "_refine_llm_step", new_callable=AsyncMock
+        ) as llm_ref:
             llm_ref.return_value = "fallback-llm-result"
             out = await refiner._refine_tool_step(
                 agent,

@@ -48,4 +48,3 @@ def test_cluster_questions_labels_none_raises_runtime(monkeypatch):
 
     with pytest.raises(RuntimeError, match="labels not available"):
         cluster_questions(["q1", "q2"], num_clusters=2)
-

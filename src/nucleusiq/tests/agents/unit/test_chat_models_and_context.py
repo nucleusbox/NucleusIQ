@@ -124,4 +124,3 @@ def test_chat_message_to_dict_includes_tool_call_id_and_name():
     d = msg.to_dict()
     assert d["tool_call_id"] == "call_1"
     assert d["name"] == "tool-name"
-

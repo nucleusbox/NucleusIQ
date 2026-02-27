@@ -50,4 +50,3 @@ async def test_abstract_super_pass_lines_are_executable():
     out = await t.execute(a=1)
     assert out["a"] == 1
     assert t.get_spec()["name"] == "x"
-

@@ -90,7 +90,9 @@ def _mk_responses_event(event_type: str, **kwargs: Any) -> SimpleNamespace:
 class TestMergeToolCallDelta:
     def test_single_tool_call(self):
         acc: dict[int, dict[str, Any]] = {}
-        _merge_tool_call_delta(acc, [_mk_tool_call_delta(0, "call_1", "search", '{"q":')])
+        _merge_tool_call_delta(
+            acc, [_mk_tool_call_delta(0, "call_1", "search", '{"q":')]
+        )
         _merge_tool_call_delta(acc, [_mk_tool_call_delta(0, None, None, '"cats"}')])
 
         assert len(acc) == 1
@@ -303,9 +305,7 @@ class TestProcessResponsesEvents:
 
     @pytest.mark.asyncio
     async def test_usage_and_response_id(self):
-        usage_obj = SimpleNamespace(
-            input_tokens=10, output_tokens=20, total_tokens=30
-        )
+        usage_obj = SimpleNamespace(input_tokens=10, output_tokens=20, total_tokens=30)
         resp_obj = SimpleNamespace(id="resp_abc", usage=usage_obj)
 
         async def events():
@@ -462,9 +462,7 @@ class TestStreamResponsesApiIntegration:
             assert kwargs["stream"] is True
 
             async def _gen():
-                yield _mk_responses_event(
-                    "response.output_text.delta", delta="Hello"
-                )
+                yield _mk_responses_event("response.output_text.delta", delta="Hello")
                 yield _mk_responses_event(
                     "response.completed",
                     response=SimpleNamespace(id="r1", usage=None),
@@ -488,24 +486,16 @@ class TestStreamResponsesApiIntegration:
 
     @pytest.mark.asyncio
     async def test_async_mode_with_tool_calls(self):
-        fn_item = SimpleNamespace(
-            type="function_call", call_id="fc_1", name="calc"
-        )
+        fn_item = SimpleNamespace(type="function_call", call_id="fc_1", name="calc")
 
         async def _mock_create(**kwargs):
             async def _gen():
-                yield _mk_responses_event(
-                    "response.output_item.added", item=fn_item
-                )
+                yield _mk_responses_event("response.output_item.added", item=fn_item)
                 yield _mk_responses_event(
                     "response.function_call_arguments.delta", delta='{"x":1}'
                 )
-                yield _mk_responses_event(
-                    "response.function_call_arguments.done"
-                )
-                yield _mk_responses_event(
-                    "response.completed", response=None
-                )
+                yield _mk_responses_event("response.function_call_arguments.done")
+                yield _mk_responses_event("response.completed", response=None)
 
             return _gen()
 
@@ -553,6 +543,7 @@ class TestBaseOpenAICallStreamRouting:
     @pytest.mark.asyncio
     async def test_routes_to_chat_completions_when_no_native_tools(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+
             async def _mock_create(**kwargs):
                 async def _gen():
                     yield _mk_chat_chunk(content="routed")
@@ -577,9 +568,7 @@ class TestBaseOpenAICallStreamRouting:
 
                 from nucleusiq_openai.nb_openai.base import BaseOpenAI
 
-                openai_llm = BaseOpenAI(
-                    model_name="gpt-4o", api_key="test-key"
-                )
+                openai_llm = BaseOpenAI(model_name="gpt-4o", api_key="test-key")
                 openai_llm._client = mock_client
 
                 events: list[StreamEvent] = []
@@ -595,14 +584,13 @@ class TestBaseOpenAICallStreamRouting:
     @pytest.mark.asyncio
     async def test_routes_to_responses_api_when_native_tools(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+
             async def _mock_create(**kwargs):
                 async def _gen():
                     yield _mk_responses_event(
                         "response.output_text.delta", delta="searched"
                     )
-                    yield _mk_responses_event(
-                        "response.completed", response=None
-                    )
+                    yield _mk_responses_event("response.completed", response=None)
 
                 return _gen()
 
@@ -615,9 +603,7 @@ class TestBaseOpenAICallStreamRouting:
             ):
                 from nucleusiq_openai.nb_openai.base import BaseOpenAI
 
-                openai_llm = BaseOpenAI(
-                    model_name="gpt-4o", api_key="test-key"
-                )
+                openai_llm = BaseOpenAI(model_name="gpt-4o", api_key="test-key")
                 openai_llm._client = mock_client
 
                 native_tools = [{"type": "web_search_preview"}]

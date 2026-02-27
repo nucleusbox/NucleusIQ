@@ -591,10 +591,14 @@ class TestAutonomousAdditionalBranches:
             yield StreamEvent.complete_event("complex-stream")
 
         with (
-            patch("nucleusiq.agents.modes.autonomous_mode.Decomposer") as MockDecomposer,
+            patch(
+                "nucleusiq.agents.modes.autonomous_mode.Decomposer"
+            ) as MockDecomposer,
             patch.object(mode, "_stream_complex", side_effect=fake_stream_complex),
         ):
-            MockDecomposer.return_value.analyze = AsyncMock(return_value=_complex_analysis())
+            MockDecomposer.return_value.analyze = AsyncMock(
+                return_value=_complex_analysis()
+            )
             events = []
             async for event in mode.run_stream(agent, Task(id="t1", objective="X")):
                 events.append(event)
@@ -611,7 +615,9 @@ class TestAutonomousAdditionalBranches:
         async def loop_with_error(*_args, **_kwargs):
             yield StreamEvent.error_event("llm failed")
 
-        with patch.object(mode, "_streaming_tool_call_loop", side_effect=loop_with_error):
+        with patch.object(
+            mode, "_streaming_tool_call_loop", side_effect=loop_with_error
+        ):
             events = []
             async for event in mode._stream_simple(agent, Task(id="t1", objective="X")):
                 events.append(event)
@@ -766,9 +772,7 @@ class TestAutonomousAdditionalBranches:
             return_value='{"verdict":"pass","score":0.8,"feedback":"ok"}'
         )
         mode = AutonomousMode()
-        result = await mode._run_critic(
-            agent, Critic(), "task", "result", []
-        )
+        result = await mode._run_critic(agent, Critic(), "task", "result", [])
         assert result.verdict == Verdict.PASS
 
     @pytest.mark.asyncio

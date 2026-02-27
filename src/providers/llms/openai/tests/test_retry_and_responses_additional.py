@@ -169,7 +169,7 @@ async def test_accumulate_responses_stream_async_function_calls():
             item=SimpleNamespace(type="function_call", call_id="c1", name="add"),
         ),
         SimpleNamespace(type="response.function_call_arguments.delta", delta='{"a":'),
-        SimpleNamespace(type="response.function_call_arguments.delta", delta=' 1}'),
+        SimpleNamespace(type="response.function_call_arguments.delta", delta=" 1}"),
         SimpleNamespace(type="response.function_call_arguments.done"),
         SimpleNamespace(type="response.output_text.delta", delta="done"),
         SimpleNamespace(
@@ -190,7 +190,9 @@ async def test_accumulate_responses_stream_async_function_calls():
 
 
 @pytest.mark.asyncio
-async def test_call_responses_api_stream_async_returns_response_id_with_tool_calls(monkeypatch):
+async def test_call_responses_api_stream_async_returns_response_id_with_tool_calls(
+    monkeypatch,
+):
     class _Responses:
         async def create(self, **kwargs):
             async def _stream():
@@ -318,4 +320,3 @@ async def test_call_responses_api_non_stream_sync_with_tool_calls(monkeypatch):
     )
     assert out.choices[0].message.tool_calls is not None
     assert rid == "resp_tool"
-
