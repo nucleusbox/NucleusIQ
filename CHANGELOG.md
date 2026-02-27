@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] — 2026-02-27
+
+### Added
+
+- **End-to-end streaming** via `Agent.execute_stream()` — async generator yielding `StreamEvent` objects with real-time token-by-token output across all 3 execution modes
+- **`StreamEvent` + `StreamEventType`** data model (`core/streaming/events.py`) — 8 event types: `TOKEN`, `TOOL_CALL_START`, `TOOL_CALL_END`, `LLM_CALL_START`, `LLM_CALL_END`, `THINKING`, `COMPLETE`, `ERROR`
+- **`BaseLLM.call_stream()`** — abstract streaming contract with non-streaming fallback; `MockLLM.call_stream()` for testing
+- **`BaseOpenAI.call_stream()`** — OpenAI provider streaming for both Chat Completions and Responses API backends
+- **`stream_adapters.py`** — adapter layer converting raw OpenAI SDK chunks/SSE events into framework `StreamEvent` objects
+- **Streaming in all execution modes** — `DirectMode.run_stream()`, `StandardMode.run_stream()`, `AutonomousMode.run_stream()` with reusable `_streaming_tool_call_loop()` in base mode
+- **Usage telemetry** in `_LLMResponse` — `usage` (prompt/completion/reasoning tokens), `id`, `model`, `created`, `service_tier`, `system_fingerprint`
+- **Streaming example** — `examples/agents/streaming_example.py` demonstrating all 3 modes
+- **21 cross-milestone integration tests** — full-stack streaming from Agent to MockLLM
+- 221 new tests across streaming, coverage boost, and edge cases
+
+### Fixed
+
+- **Chat Completions streaming** — accumulate all chunks instead of returning only first delta
+- **Responses API streaming** — handle SSE event iterator instead of awaiting single response
+- **Multimodal content normalization** — `_messages_to_responses_input()` now preserves content arrays for vision/audio/file inputs (previously stringified them)
+- **Metadata extraction** — filter non-primitive types from `_extract_response_metadata` to prevent test mock leakage
+
+### Changed
+
+- Bumped `nucleusiq` to 0.3.0, `nucleusiq-openai` to 0.3.0
+- `nucleusiq-openai` now requires `nucleusiq>=0.3.0`
+- `Agent.execute()` internals refactored — extracted `_resolve_mode()` and `_setup_execution()` (shared with `execute_stream()`)
+- `ChatCompletionsPayload.build()` uses `model_fields` set lookup instead of brittle `hasattr(cls, k)`
+
+### Testing
+
+- **1,544 tests passing** (1,382 core + 162 OpenAI provider, 2 skipped)
+- **97% coverage** on both packages
+- All files above 90% coverage; previously sub-90% files boosted to 95%+
+
+---
+
 ## [0.2.0] — 2026-02-25
 
 ### Added
@@ -125,20 +162,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.2.x
+### Planned for v0.4.0
 
-- Streaming support (`execute_stream()`)
-- Usage / token tracking
-- Agent-level streaming with tool calls
+- Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
+- Framework-level multimodal inputs (Task.attachments for images, files)
 
-### Planned for v0.3.0
+### Planned for v0.5.0
 
-- ReAct agent integration into mode system
-- Chain-of-Thought as agent type
-- Multimodal inputs (vision, audio)
 - Gemini provider (`nucleusiq-gemini`)
 - Ollama provider (`nucleusiq-ollama`)
+- Embeddings API
+- UsageTracker (token + cost estimation)
 
+[0.3.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.3.0
 [0.2.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.2.0
 [0.1.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.1.0
-[Unreleased]: https://github.com/nucleusbox/NucleusIQ/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/nucleusbox/NucleusIQ/compare/v0.3.0...HEAD
