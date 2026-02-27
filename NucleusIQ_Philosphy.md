@@ -1,9 +1,12 @@
 # NucleusIQ — Philosophy & Core Values
 
-**Author:** Brijesh Kumar Singh
-**Organization:** Nucleusbox
-**Last Updated:** February 2026
-**Purpose:** A shared doctrine for what NucleusIQ stands for, why it exists, and how it should evolve over time.
+- **Author:** Brijesh Kumar Singh
+
+- **Organization:** Nucleusbox
+
+- **Last Updated:** February 2026
+
+- **Purpose:** A shared doctrine for what NucleusIQ stands for, why it exists, and how it should evolve over time.
 
 ---
 
