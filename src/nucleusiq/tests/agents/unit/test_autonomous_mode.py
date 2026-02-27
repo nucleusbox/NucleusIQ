@@ -24,6 +24,7 @@ from nucleusiq.agents.config.agent_config import (
 )
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 from nucleusiq.agents.task import Task
+from nucleusiq.streaming.events import StreamEvent
 
 # ================================================================== #
 # Helpers                                                              #
@@ -171,7 +172,7 @@ class TestRouting:
 
         agent = _make_agent()
         mode = AutonomousMode()
-        result = await mode.run(agent, Task(id="t1", objective="Any task"))
+        await mode.run(agent, Task(id="t1", objective="Any task"))
         mock_simple.assert_awaited_once()
 
     async def test_no_llm_falls_back_to_standard(self):
@@ -193,7 +194,7 @@ class TestRouting:
 
         agent = _make_agent()
         mode = AutonomousMode()
-        result = await mode.run(agent, {"objective": "Test", "id": "t1"})
+        await mode.run(agent, {"objective": "Test", "id": "t1"})
         mock_simple.assert_awaited_once()
 
 
@@ -573,6 +574,256 @@ class TestErrorHandling:
         mode = AutonomousMode()
         with pytest.raises(PluginHalt):
             await mode._run_simple(agent, Task(id="t1", objective="X"))
+
+
+# ================================================================== #
+# Additional branch coverage                                           #
+# ================================================================== #
+
+
+class TestAutonomousAdditionalBranches:
+    @pytest.mark.asyncio
+    async def test_run_stream_routes_to_complex_path(self):
+        agent = _make_agent()
+        mode = AutonomousMode()
+
+        async def fake_stream_complex(*_args, **_kwargs):
+            yield StreamEvent.complete_event("complex-stream")
+
+        with (
+            patch("nucleusiq.agents.modes.autonomous_mode.Decomposer") as MockDecomposer,
+            patch.object(mode, "_stream_complex", side_effect=fake_stream_complex),
+        ):
+            MockDecomposer.return_value.analyze = AsyncMock(return_value=_complex_analysis())
+            events = []
+            async for event in mode.run_stream(agent, Task(id="t1", objective="X")):
+                events.append(event)
+
+        assert any(e.type == "complete" for e in events)
+        assert any(e.type == "thinking" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_stream_simple_stops_on_error_event(self):
+        agent = _make_agent(config=AgentConfig(max_retries=2))
+        agent.prompt = None
+        mode = AutonomousMode()
+
+        async def loop_with_error(*_args, **_kwargs):
+            yield StreamEvent.error_event("llm failed")
+
+        with patch.object(mode, "_streaming_tool_call_loop", side_effect=loop_with_error):
+            events = []
+            async for event in mode._stream_simple(agent, Task(id="t1", objective="X")):
+                events.append(event)
+
+        assert events[-1].type == "error"
+
+    @pytest.mark.asyncio
+    async def test_stream_simple_plugin_halt_propagates(self):
+        from nucleusiq.plugins.errors import PluginHalt
+
+        agent = _make_agent(config=AgentConfig(max_retries=1))
+        agent.prompt = None
+        mode = AutonomousMode()
+
+        async def loop_halt(*_args, **_kwargs):
+            raise PluginHalt(result="halted")
+            yield  # pragma: no cover
+
+        with (
+            patch.object(mode, "_streaming_tool_call_loop", side_effect=loop_halt),
+            pytest.raises(PluginHalt),
+        ):
+            async for _ in mode._stream_simple(agent, Task(id="t1", objective="X")):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_stream_simple_error_string_short_circuit(self):
+        agent = _make_agent(config=AgentConfig(max_retries=2))
+        agent.prompt = None
+        mode = AutonomousMode()
+
+        async def loop_error_string(*_args, **_kwargs):
+            yield StreamEvent.complete_event("Error: bad tool output")
+
+        with patch.object(
+            mode, "_streaming_tool_call_loop", side_effect=loop_error_string
+        ):
+            events = []
+            async for event in mode._stream_simple(agent, Task(id="t1", objective="X")):
+                events.append(event)
+
+        assert any(e.type == "complete" for e in events)
+        assert agent.state == AgentState.COMPLETED
+
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
+    @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
+    @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
+    async def test_run_complex_uncertain_accepts(
+        self,
+        MockStd,
+        MockValidation,
+        mock_critic,
+    ):
+        std = MockStd.return_value
+        std._ensure_executor = MagicMock()
+        std._get_tool_specs = MagicMock(return_value=[])
+        std.build_messages = MagicMock(return_value=[])
+        std._tool_call_loop = AsyncMock(return_value="synth answer")
+
+        MockValidation.return_value.validate = AsyncMock(return_value=_valid_result())
+        mock_critic.return_value = CritiqueResult(
+            verdict=Verdict.UNCERTAIN,
+            score=0.9,
+            feedback="Looks good enough",
+        )
+
+        decomposer = MagicMock()
+        decomposer.run_sub_tasks = AsyncMock(return_value=[{"id": "s1", "result": "r"}])
+        decomposer.build_synthesis_prompt = MagicMock(return_value="Synth")
+
+        agent = _make_agent(config=AgentConfig(max_retries=2))
+        mode = AutonomousMode()
+        result = await mode._run_complex(
+            agent,
+            Task(id="t1", objective="X"),
+            decomposer,
+            _complex_analysis(),
+        )
+
+        assert result == "synth answer"
+        assert agent.state == AgentState.COMPLETED
+
+    @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
+    @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
+    @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
+    async def test_run_complex_returns_last_result_after_retries(
+        self,
+        MockStd,
+        MockValidation,
+        mock_critic,
+    ):
+        std = MockStd.return_value
+        std._ensure_executor = MagicMock()
+        std._get_tool_specs = MagicMock(return_value=[])
+        std.build_messages = MagicMock(return_value=[])
+        std._tool_call_loop = AsyncMock(return_value="best-effort")
+
+        MockValidation.return_value.validate = AsyncMock(return_value=_valid_result())
+        mock_critic.return_value = _critic_fail(score=0.2)
+
+        decomposer = MagicMock()
+        decomposer.run_sub_tasks = AsyncMock(return_value=[{"id": "s1", "result": "r"}])
+        decomposer.build_synthesis_prompt = MagicMock(return_value="Synth")
+
+        agent = _make_agent(config=AgentConfig(max_retries=2))
+        mode = AutonomousMode()
+        result = await mode._run_complex(
+            agent,
+            Task(id="t1", objective="X"),
+            decomposer,
+            _complex_analysis(),
+        )
+
+        assert result == "best-effort"
+        assert agent.state == AgentState.COMPLETED
+
+    @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
+    @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
+    async def test_run_complex_handles_synthesis_exception(
+        self,
+        MockStd,
+        MockValidation,
+    ):
+        std = MockStd.return_value
+        std._ensure_executor = MagicMock()
+        std._get_tool_specs = MagicMock(return_value=[])
+        std.build_messages = MagicMock(return_value=[])
+        std._tool_call_loop = AsyncMock(side_effect=RuntimeError("synth crash"))
+
+        decomposer = MagicMock()
+        decomposer.run_sub_tasks = AsyncMock(return_value=[{"id": "s1", "result": "r"}])
+        decomposer.build_synthesis_prompt = MagicMock(return_value="Synth")
+
+        agent = _make_agent(config=AgentConfig(max_retries=2))
+        mode = AutonomousMode()
+        result = await mode._run_complex(
+            agent,
+            Task(id="t1", objective="X"),
+            decomposer,
+            _complex_analysis(),
+        )
+
+        assert "Error: synth crash" in result
+        assert agent.state == AgentState.ERROR
+
+    @pytest.mark.asyncio
+    async def test_run_critic_handles_string_response(self):
+        from nucleusiq.agents.components.critic import Critic
+
+        agent = _make_agent()
+        agent.llm.call = AsyncMock(
+            return_value='{"verdict":"pass","score":0.8,"feedback":"ok"}'
+        )
+        mode = AutonomousMode()
+        result = await mode._run_critic(
+            agent, Critic(), "task", "result", []
+        )
+        assert result.verdict == Verdict.PASS
+
+    @pytest.mark.asyncio
+    async def test_stream_simple_validation_retry_then_critic_pass(self):
+        agent = _make_agent(config=AgentConfig(max_retries=2))
+        agent.prompt = None
+        mode = AutonomousMode()
+
+        call_count = {"n": 0}
+
+        async def loop_once_then_twice(*_args, **_kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                yield StreamEvent.complete_event("first answer")
+            else:
+                yield StreamEvent.complete_event("second answer")
+
+        class _VP:
+            def __init__(self):
+                self.n = 0
+
+            async def validate(self, *_a, **_k):
+                self.n += 1
+                if self.n == 1:
+                    return ValidationResult(
+                        valid=False,
+                        layer="tool_output",
+                        reason="needs retry",
+                        details=["bad math"],
+                    )
+                return ValidationResult(valid=True, layer="all", reason="ok")
+
+        with (
+            patch.object(
+                mode, "_streaming_tool_call_loop", side_effect=loop_once_then_twice
+            ),
+            patch(
+                "nucleusiq.agents.modes.autonomous_mode.ValidationPipeline",
+                return_value=_VP(),
+            ),
+            patch.object(
+                mode,
+                "_run_critic",
+                AsyncMock(return_value=CritiqueResult(verdict=Verdict.PASS, score=0.9)),
+            ),
+        ):
+            events = []
+            async for event in mode._stream_simple(agent, Task(id="t1", objective="X")):
+                events.append(event)
+
+        assert any(
+            e.type == "thinking" and "Validation failed" in (e.message or "")
+            for e in events
+        )
+        assert agent.state == AgentState.COMPLETED
 
 
 # ================================================================== #

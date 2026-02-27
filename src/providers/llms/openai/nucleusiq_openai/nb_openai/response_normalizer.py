@@ -63,20 +63,12 @@ def messages_to_responses_input(
 
         if role == "system":
             system_parts.append(str(content) if content else "")
-        elif role == "user":
-            input_items.append(
-                MessageInputItem(
-                    role="user",
-                    content=str(content) if content else "",
-                )
-            )
-        elif role == "assistant":
-            input_items.append(
-                MessageInputItem(
-                    role="assistant",
-                    content=str(content) if content else "",
-                )
-            )
+        elif role in ("user", "assistant"):
+            if isinstance(content, list):
+                resolved_content = content
+            else:
+                resolved_content = str(content) if content else ""
+            input_items.append(MessageInputItem(role=role, content=resolved_content))
         elif role == "tool":
             input_items.append(
                 FunctionCallOutput(

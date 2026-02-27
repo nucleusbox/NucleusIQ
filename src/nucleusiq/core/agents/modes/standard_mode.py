@@ -14,6 +14,7 @@ Characteristics:
 """
 
 import json
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
@@ -25,6 +26,7 @@ from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
 
 class StandardMode(BaseExecutionMode):
@@ -59,6 +61,58 @@ class StandardMode(BaseExecutionMode):
             agent._logger.error("Error during standard execution: %s", str(e))
             agent.state = AgentState.ERROR
             return f"Error: Standard execution failed: {str(e)}"
+
+    # ------------------------------------------------------------------ #
+    # Streaming                                                           #
+    # ------------------------------------------------------------------ #
+
+    async def run_stream(
+        self, agent: "Agent", task: Task
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream a Standard mode execution.
+
+        Delegates to the shared ``_streaming_tool_call_loop`` and
+        persists the final result in agent memory.
+        """
+        agent._logger.debug("Streaming in STANDARD mode (tool-enabled, linear)")
+        agent.state = AgentState.EXECUTING
+
+        echo = self.echo_fallback(agent, task)
+        if echo is not None:
+            yield StreamEvent.complete_event(echo)
+            return
+
+        self._ensure_executor(agent)
+        tool_specs = self._get_tool_specs(agent)
+        messages = self.build_messages(agent, task)
+        max_tool_calls = agent.config.get_effective_max_tool_calls()
+
+        final_content: str | None = None
+
+        try:
+            async for event in self._streaming_tool_call_loop(
+                agent,
+                messages,
+                tool_specs,
+                max_tool_calls=max_tool_calls,
+                max_tokens=2048,
+            ):
+                if event.type == StreamEventType.COMPLETE:
+                    final_content = event.content
+                yield event
+
+            agent._last_messages = messages
+            agent.state = AgentState.COMPLETED
+
+            if final_content:
+                await self._store_in_memory(agent, task, final_content)
+
+        except PluginHalt:
+            raise
+        except Exception as e:
+            agent._logger.error("Streaming error in standard mode: %s", e)
+            agent.state = AgentState.ERROR
+            yield StreamEvent.error_event(str(e))
 
     # ------------------------------------------------------------------ #
     # Private helpers                                                     #

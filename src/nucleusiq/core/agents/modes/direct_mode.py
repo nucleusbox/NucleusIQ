@@ -12,6 +12,7 @@ Characteristics:
 """
 
 import json
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
@@ -23,6 +24,7 @@ from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.streaming.events import StreamEvent
 
 
 class DirectMode(BaseExecutionMode):
@@ -84,6 +86,51 @@ class DirectMode(BaseExecutionMode):
             agent._logger.error("Error during direct execution: %s", str(e))
             agent.state = AgentState.ERROR
             return f"Echo: {self.get_objective(task)}"
+
+    # ------------------------------------------------------------------ #
+    # Streaming                                                           #
+    # ------------------------------------------------------------------ #
+
+    async def run_stream(
+        self, agent: "Agent", task: Task
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream a Direct mode execution.
+
+        Delegates to the shared ``_streaming_tool_call_loop`` with
+        the mode's own ``max_tool_calls`` limit (default 5).
+        """
+        agent._logger.debug("Streaming in DIRECT mode (fast, optional tools)")
+        agent.state = AgentState.EXECUTING
+
+        echo = self.echo_fallback(agent, task)
+        if echo is not None:
+            yield StreamEvent.complete_event(echo)
+            return
+
+        has_tools = bool(agent.tools and agent.llm)
+        if has_tools:
+            self._ensure_executor(agent)
+        tool_specs = self._get_tool_specs(agent) if has_tools else None
+        messages = self.build_messages(agent, task)
+        max_tool_calls = agent.config.get_effective_max_tool_calls()
+
+        try:
+            async for event in self._streaming_tool_call_loop(
+                agent,
+                messages,
+                tool_specs,
+                max_tool_calls=max_tool_calls,
+                max_tokens=1024,
+            ):
+                yield event
+
+            agent.state = AgentState.COMPLETED
+        except PluginHalt:
+            raise
+        except Exception as e:
+            agent._logger.error("Streaming error in direct mode: %s", e)
+            agent.state = AgentState.ERROR
+            yield StreamEvent.error_event(str(e))
 
     # ------------------------------------------------------------------ #
     # Tool helpers                                                        #

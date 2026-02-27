@@ -13,13 +13,149 @@ from typing import Any
 
 from nucleusiq_openai._shared.model_config import is_strict_defaults_model
 from nucleusiq_openai._shared.models import ResponsesFunctionTool
-from nucleusiq_openai._shared.response_models import _LLMResponse
+from nucleusiq_openai._shared.response_models import (
+    AssistantMessage,
+    ToolCall,
+    ToolCallFunction,
+    _Choice,
+    _LLMResponse,
+)
 from nucleusiq_openai._shared.retry import call_with_retry
 from nucleusiq_openai.nb_openai.response_normalizer import (
     build_responses_text_config,
     messages_to_responses_input,
     normalize_responses_output,
 )
+
+
+def _accumulate_responses_stream(events: Any) -> tuple[Any, _LLMResponse]:
+    """Accumulate Responses API streaming events into a normalised result.
+
+    The Responses API streams events such as ``response.output_text.delta``,
+    ``response.function_call_arguments.delta``, and ``response.completed``.
+    We accumulate text and tool-call data, then build an ``_LLMResponse``.
+
+    Returns:
+        ``(final_event_or_None, accumulated_response)``
+    """
+    content_parts: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    current_fn: dict[str, Any] | None = None
+    resp_id: str | None = None
+    final_event: Any = None
+
+    for event in events:
+        event_type = getattr(event, "type", "")
+
+        if event_type == "response.output_text.delta":
+            delta = getattr(event, "delta", "")
+            if delta:
+                content_parts.append(delta)
+
+        elif event_type == "response.function_call_arguments.delta":
+            delta = getattr(event, "delta", "")
+            if current_fn and delta:
+                current_fn["arguments"] += delta
+
+        elif event_type == "response.output_item.added":
+            item = getattr(event, "item", None)
+            if item and getattr(item, "type", None) == "function_call":
+                current_fn = {
+                    "call_id": getattr(item, "call_id", ""),
+                    "name": getattr(item, "name", ""),
+                    "arguments": "",
+                }
+
+        elif event_type == "response.function_call_arguments.done":
+            if current_fn:
+                tool_calls.append(current_fn)
+                current_fn = None
+
+        elif event_type == "response.completed":
+            resp = getattr(event, "response", None)
+            if resp:
+                resp_id = getattr(resp, "id", None)
+            final_event = event
+
+    typed_tcs = [
+        ToolCall(
+            id=tc["call_id"],
+            function=ToolCallFunction(
+                name=tc["name"],
+                arguments=tc["arguments"] or "{}",
+            ),
+        )
+        for tc in tool_calls
+    ] or None
+
+    message = AssistantMessage(
+        content="".join(content_parts) or None,
+        tool_calls=typed_tcs,
+    )
+    result = _LLMResponse(choices=[_Choice(message=message)])
+    return final_event, result, resp_id
+
+
+async def _accumulate_responses_stream_async(
+    stream_iter: Any,
+) -> tuple[Any, _LLMResponse, str | None]:
+    """Async version of Responses API stream accumulation."""
+    content_parts: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    current_fn: dict[str, Any] | None = None
+    resp_id: str | None = None
+    final_event: Any = None
+
+    async for event in stream_iter:
+        event_type = getattr(event, "type", "")
+
+        if event_type == "response.output_text.delta":
+            delta = getattr(event, "delta", "")
+            if delta:
+                content_parts.append(delta)
+
+        elif event_type == "response.function_call_arguments.delta":
+            delta = getattr(event, "delta", "")
+            if current_fn and delta:
+                current_fn["arguments"] += delta
+
+        elif event_type == "response.output_item.added":
+            item = getattr(event, "item", None)
+            if item and getattr(item, "type", None) == "function_call":
+                current_fn = {
+                    "call_id": getattr(item, "call_id", ""),
+                    "name": getattr(item, "name", ""),
+                    "arguments": "",
+                }
+
+        elif event_type == "response.function_call_arguments.done":
+            if current_fn:
+                tool_calls.append(current_fn)
+                current_fn = None
+
+        elif event_type == "response.completed":
+            resp = getattr(event, "response", None)
+            if resp:
+                resp_id = getattr(resp, "id", None)
+            final_event = event
+
+    typed_tcs = [
+        ToolCall(
+            id=tc["call_id"],
+            function=ToolCallFunction(
+                name=tc["name"],
+                arguments=tc["arguments"] or "{}",
+            ),
+        )
+        for tc in tool_calls
+    ] or None
+
+    message = AssistantMessage(
+        content="".join(content_parts) or None,
+        tool_calls=typed_tcs,
+    )
+    result = _LLMResponse(choices=[_Choice(message=message)])
+    return final_event, result, resp_id
 
 
 def _adapt_tools_for_responses(
@@ -158,12 +294,50 @@ async def call_responses_api(
             return True
         return False
 
+    if stream:
+        if async_mode:
+
+            async def _call_stream_async() -> tuple[_LLMResponse, str | None]:
+                stream_iter = await client.responses.create(**payload)
+                _final, result, rid = await _accumulate_responses_stream_async(
+                    stream_iter
+                )
+                has_tc = bool(result.choices and result.choices[0].message.tool_calls)
+                return result, rid if has_tc else None
+
+            return await call_with_retry(
+                _call_stream_async,
+                max_retries=max_retries,
+                async_mode=True,
+                logger=_log,
+                on_bad_request=_on_bad_request,
+            )
+        else:
+
+            def _call_stream_sync() -> tuple[_LLMResponse, str | None]:
+                stream_iter = client.responses.create(**payload)
+                _final, result, rid = _accumulate_responses_stream(stream_iter)
+                has_tc = bool(result.choices and result.choices[0].message.tool_calls)
+                return result, rid if has_tc else None
+
+            return await call_with_retry(
+                _call_stream_sync,
+                max_retries=max_retries,
+                async_mode=False,
+                logger=_log,
+                on_bad_request=_on_bad_request,
+            )
+
     if async_mode:
 
-        async def _call() -> Any:
-            return await client.responses.create(**payload)
+        async def _call() -> tuple[_LLMResponse, str | None]:
+            raw = await client.responses.create(**payload)
+            resp_id = getattr(raw, "id", None)
+            result = normalize_responses_output(raw)
+            has_tc = bool(result.choices and result.choices[0].message.tool_calls)
+            return result, resp_id if has_tc else None
 
-        raw = await call_with_retry(
+        return await call_with_retry(
             _call,
             max_retries=max_retries,
             async_mode=True,
@@ -172,26 +346,20 @@ async def call_responses_api(
         )
     else:
 
-        def _call_sync() -> Any:
-            return client.responses.create(**payload)
+        def _call_sync() -> tuple[_LLMResponse, str | None]:
+            raw = client.responses.create(**payload)
+            resp_id = getattr(raw, "id", None)
+            result = normalize_responses_output(raw)
+            has_tc = bool(result.choices and result.choices[0].message.tool_calls)
+            return result, resp_id if has_tc else None
 
-        raw = await call_with_retry(
+        return await call_with_retry(
             _call_sync,
             max_retries=max_retries,
             async_mode=False,
             logger=_log,
             on_bad_request=_on_bad_request,
         )
-
-    resp_id = getattr(raw, "id", None)
-    result = normalize_responses_output(raw)
-
-    has_pending_tool_calls = bool(
-        result.choices and result.choices[0].message.tool_calls
-    )
-    new_response_id = resp_id if has_pending_tool_calls else None
-
-    return result, new_response_id
 
 
 async def responses_call_direct(

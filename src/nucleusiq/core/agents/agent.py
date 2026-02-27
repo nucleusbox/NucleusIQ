@@ -11,6 +11,7 @@ via a pluggable registry.  All heavy logic lives in:
 """
 
 import inspect
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Type
 
@@ -30,6 +31,7 @@ from nucleusiq.llms.llm_params import LLMParams
 from nucleusiq.plugins.base import AgentContext, BasePlugin
 from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.plugins.manager import PluginManager
+from nucleusiq.streaming.events import StreamEvent, StreamEventType
 from pydantic import Field, PrivateAttr
 
 
@@ -222,50 +224,63 @@ class Agent(BaseAgent):
             return config_params.to_call_kwargs()
         return per_execute.to_call_kwargs()
 
-    async def execute(
+    # ------------------------------------------------------------------ #
+    # EXECUTION LIFECYCLE — shared setup (DRY)                             #
+    # ------------------------------------------------------------------ #
+
+    def _resolve_mode(self) -> BaseExecutionMode:
+        """Look up and instantiate the configured execution mode."""
+        execution_mode = self.config.execution_mode
+        mode_value = (
+            execution_mode.value
+            if hasattr(execution_mode, "value")
+            else str(execution_mode)
+        )
+        self._logger.info(
+            "Agent '%s' executing in %s mode",
+            self.name,
+            mode_value.upper(),
+        )
+        mode_class = self._mode_registry.get(mode_value)
+        if not mode_class:
+            raise ValueError(f"Unknown execution mode: {execution_mode}")
+        return mode_class()
+
+    async def _setup_execution(
         self,
         task: Task | Dict[str, Any],
         llm_params: LLMParams | None = None,
-    ) -> Any:
-        """
-        Execute a task using the agent's capabilities.
+    ) -> tuple:
+        """Shared lifecycle setup for ``execute()`` and ``execute_stream()``.
 
-        Execution Flow (Gearbox Strategy):
-        - Direct mode: Fast, optional tools (max 5 tool calls)
-        - Standard mode: Tool-enabled loop (max 30 tool calls) — default
-        - Autonomous mode: Orchestration + Critic/Refiner (max 100 tool calls)
-
-        The execution uses:
-        - Task: User's request (what to do) - from task.objective
-        - Prompt: Agent's instructions (how to behave) - from self.prompt
-
-        Args:
-            task: Task instance or dictionary with 'id' and 'objective' keys
-            llm_params: Optional type-safe per-task LLM parameter overrides.
-                Accepts :class:`LLMParams` or any provider subclass
-                (e.g. ``OpenAILLMParams``).  These override both the LLM-level
-                defaults and the ``AgentConfig.llm_params`` for this single
-                execution only.
+        Steps:
+            1. Convert dict → Task
+            2. Resolve merged LLM params
+            3. Set current task
+            4. Ensure plugin manager + reset counters
+            5. Run BEFORE_AGENT hook (may raise ``PluginHalt``)
+            6. Store user input in memory
+            7. Validate tool count against mode limit
+            8. Resolve execution mode
 
         Returns:
-            Execution result (final answer or tool result)
+            ``(task, mode, agent_ctx)``
+
+        Raises:
+            PluginHalt: If a plugin aborts execution early.
+            ValueError: If tool count exceeds mode limit or mode is unknown.
         """
-        # Convert dict to Task if needed (backward compatibility)
         if isinstance(task, dict):
             task = Task.from_dict(task)
 
-        # Resolve merged LLM params for this execution
         self._current_llm_overrides = self._resolve_llm_params(per_execute=llm_params)
-
         self._logger.debug("Starting execution for task %s", task.id)
-        self._current_task = task.to_dict()  # Store as dict for compat
+        self._current_task = task.to_dict()
 
-        # Ensure plugin manager exists (even if initialize() was not called)
         if self._plugin_manager is None:
             self._plugin_manager = PluginManager(self.plugins)
         self._plugin_manager.reset_counters()
 
-        # --- BEFORE_AGENT hook ---
         agent_ctx = AgentContext(
             agent_name=self.name,
             task=task,
@@ -273,12 +288,8 @@ class Agent(BaseAgent):
             config=self.config,
             memory=self.memory,
         )
-        try:
-            agent_ctx = await self._plugin_manager.run_before_agent(agent_ctx)
-        except PluginHalt as halt:
-            return halt.result
+        agent_ctx = await self._plugin_manager.run_before_agent(agent_ctx)
 
-        # Store user input in memory before execution
         if self.memory:
             user_input = (
                 task.objective
@@ -288,7 +299,6 @@ class Agent(BaseAgent):
             if user_input:
                 await self.memory.aadd_message("user", user_input)
 
-        # Validate tool count against mode limit
         max_tools = self.config.get_effective_max_tool_calls()
         if len(self.tools) > max_tools:
             mode_value = (
@@ -302,38 +312,114 @@ class Agent(BaseAgent):
                 f"Reduce tools or switch to a higher execution mode."
             )
 
-        # Route to appropriate execution mode (Gearbox Strategy)
+        mode = self._resolve_mode()
+        return task, mode, agent_ctx
 
-        execution_mode = self.config.execution_mode
+    # ------------------------------------------------------------------ #
+    # EXECUTION — non-streaming                                            #
+    # ------------------------------------------------------------------ #
 
-        # Get mode value (handle both enum and string for backward compat)
-        mode_value = (
-            execution_mode.value
-            if hasattr(execution_mode, "value")
-            else str(execution_mode)
-        )
-        self._logger.info(
-            "Agent '%s' executing in %s mode",
-            self.name,
-            mode_value.upper(),
-        )
+    async def execute(
+        self,
+        task: Task | Dict[str, Any],
+        llm_params: LLMParams | None = None,
+    ) -> Any:
+        """Execute a task using the agent's capabilities.
 
-        # Look up mode from registry
-        mode_class = self._mode_registry.get(mode_value)
-        if not mode_class:
-            raise ValueError(f"Unknown execution mode: {execution_mode}")
+        Execution Flow (Gearbox Strategy):
+        - Direct mode: Fast, optional tools (max 5 tool calls)
+        - Standard mode: Tool-enabled loop (max 30 tool calls) — default
+        - Autonomous mode: Orchestration + Critic/Refiner (max 100 tool calls)
+
+        Args:
+            task: Task instance or dictionary with 'id' and 'objective' keys
+            llm_params: Optional type-safe per-task LLM parameter overrides.
+                Accepts :class:`LLMParams` or any provider subclass
+                (e.g. ``OpenAILLMParams``).  These override both the LLM-level
+                defaults and the ``AgentConfig.llm_params`` for this single
+                execution only.
+
+        Returns:
+            Execution result (final answer or tool result)
+        """
+        try:
+            task, mode, agent_ctx = await self._setup_execution(task, llm_params)
+        except PluginHalt as halt:
+            return halt.result
 
         try:
             try:
-                result = await mode_class().run(self, task)
+                result = await mode.run(self, task)
             except PluginHalt as halt:
                 result = halt.result
 
-            # --- AFTER_AGENT hook ---
             result = await self._plugin_manager.run_after_agent(agent_ctx, result)
             return result
         finally:
-            # Clean up per-execute overrides
+            self._current_llm_overrides = {}
+
+    # ------------------------------------------------------------------ #
+    # EXECUTION — streaming                                                #
+    # ------------------------------------------------------------------ #
+
+    async def execute_stream(
+        self,
+        task: Task | Dict[str, Any],
+        llm_params: LLMParams | None = None,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream task execution as ``StreamEvent`` objects.
+
+        Mirrors ``execute()`` lifecycle exactly (LLM params, plugins,
+        memory, mode routing) but yields events instead of returning
+        a single result.
+
+        Event protocol::
+
+            LLM_CALL_START → TOKEN... → LLM_CALL_END
+              → TOOL_CALL_START → TOOL_CALL_END → (loop)
+            → COMPLETE (final text)
+
+        Autonomous mode additionally emits ``THINKING`` events for
+        internal verification steps (Critic, Refiner).
+
+        Args:
+            task: Task instance or dictionary with 'id' and 'objective' keys
+            llm_params: Optional type-safe per-task LLM parameter overrides.
+
+        Yields:
+            StreamEvent objects representing the execution progress.
+
+        Example::
+
+            async for event in agent.execute_stream(task):
+                if event.type == "token":
+                    print(event.token, end="", flush=True)
+                elif event.type == "complete":
+                    print()  # newline after stream
+                elif event.type == "error":
+                    print(f"Error: {event.message}")
+        """
+        try:
+            task, mode, agent_ctx = await self._setup_execution(task, llm_params)
+        except PluginHalt as halt:
+            yield StreamEvent.complete_event(str(halt.result) if halt.result else "")
+            return
+
+        final_result: str | None = None
+
+        try:
+            try:
+                async for event in mode.run_stream(self, task):
+                    if event.type == StreamEventType.COMPLETE:
+                        final_result = event.content
+                    yield event
+            except PluginHalt as halt:
+                final_result = str(halt.result) if halt.result else ""
+                yield StreamEvent.complete_event(final_result)
+
+            if self._plugin_manager and final_result is not None:
+                await self._plugin_manager.run_after_agent(agent_ctx, final_result)
+        finally:
             self._current_llm_overrides = {}
 
     # ------------------------------------------------------------------ #

@@ -30,16 +30,19 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import openai
 from nucleusiq.llms.base_llm import BaseLLM
+from nucleusiq.streaming.events import StreamEvent
 from pydantic import BaseModel
 
 from nucleusiq_openai._shared.model_config import (
     is_strict_defaults_model,
     uses_max_completion_tokens,
 )
+from nucleusiq_openai._shared.models import ChatCompletionsPayload
 from nucleusiq_openai._shared.response_models import (
     AssistantMessage,
     _LLMResponse,
@@ -48,6 +51,10 @@ from nucleusiq_openai.nb_openai.chat_completions import call_chat_completions
 from nucleusiq_openai.nb_openai.responses_api import (
     call_responses_api,
     responses_call_direct,
+)
+from nucleusiq_openai.nb_openai.stream_adapters import (
+    stream_chat_completions,
+    stream_responses_api,
 )
 from nucleusiq_openai.structured_output import build_response_format, parse_response
 from nucleusiq_openai.tools.openai_tool import NATIVE_TOOL_TYPES
@@ -320,6 +327,211 @@ class BaseOpenAI(BaseLLM):
                 return parse_response(msg, output_schema_type)
 
         return result
+
+    # ================================================================== #
+    # call_stream() — streaming entry point (smart routing)               #
+    # ================================================================== #
+
+    async def call_stream(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+        top_p: float = 1.0,
+        frequency_penalty: float = 0.0,
+        presence_penalty: float = 0.0,
+        stop: list[str] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream LLM output as ``StreamEvent`` objects.
+
+        Uses the same automatic API routing as ``call()`` — if *tools*
+        contains native OpenAI tools the Responses API is used;
+        otherwise Chat Completions.
+
+        Yields:
+            ``StreamEvent`` — ``TOKEN`` events for each text delta,
+            then one ``COMPLETE`` event with accumulated content and
+            metadata (tool calls, usage, etc.).
+        """
+        if tools and self._has_native_tools(tools):
+            async for event in self._stream_responses_api(
+                model=model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                **kwargs,
+            ):
+                yield event
+        else:
+            async for event in self._stream_chat_completions(
+                model=model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                stop=stop,
+                **kwargs,
+            ):
+                yield event
+
+    # ================================================================== #
+    # Chat Completions streaming (private)                                #
+    # ================================================================== #
+
+    async def _stream_chat_completions(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+        top_p: float = 1.0,
+        frequency_penalty: float = 0.0,
+        presence_penalty: float = 0.0,
+        stop: list[str] | None = None,
+        **extra: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Build payload and delegate to the Chat Completions streaming adapter."""
+        payload_model = ChatCompletionsPayload.build(
+            model=model,
+            messages=messages,
+            stream=True,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            default_temperature=self.temperature,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            stop=stop,
+            logit_bias=self.logit_bias,
+            tools=tools,
+            tool_choice=tool_choice,
+            **{k: v for k, v in extra.items() if v is not None},
+        )
+        payload = payload_model.to_api_kwargs()
+
+        async for event in stream_chat_completions(
+            self._client, payload, async_mode=self.async_mode
+        ):
+            yield event
+
+    # ================================================================== #
+    # Responses API streaming (private)                                   #
+    # ================================================================== #
+
+    async def _stream_responses_api(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+        top_p: float = 1.0,
+        **extra: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Build payload and delegate to the Responses API streaming adapter."""
+        from nucleusiq_openai._shared.model_config import is_strict_defaults_model
+        from nucleusiq_openai.nb_openai.response_normalizer import (
+            build_responses_text_config,
+            messages_to_responses_input,
+        )
+        from nucleusiq_openai.nb_openai.responses_api import (
+            _adapt_tools_for_responses,
+        )
+
+        if not hasattr(self._client, "responses"):
+            self._logger.warning(
+                "Responses API not available — falling back to Chat Completions stream"
+            )
+            async for event in self._stream_chat_completions(
+                model=model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                **extra,
+            ):
+                yield event
+            return
+
+        instructions, input_items = messages_to_responses_input(
+            messages, self._last_response_id
+        )
+        serialized_input = [
+            item.model_dump() if hasattr(item, "model_dump") else item
+            for item in input_items
+        ]
+
+        payload: dict[str, Any] = {"model": model, "input": serialized_input}
+
+        if tools:
+            payload["tools"] = _adapt_tools_for_responses(tools)
+        if instructions:
+            payload["instructions"] = instructions
+        if self._last_response_id:
+            payload["previous_response_id"] = self._last_response_id
+
+        if not is_strict_defaults_model(model):
+            effective_temp = (
+                temperature if temperature is not None else self.temperature
+            )
+            payload["temperature"] = effective_temp
+            payload["top_p"] = top_p
+
+        payload["max_output_tokens"] = max_tokens
+
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+
+        response_format = extra.pop("response_format", None)
+        if response_format is not None:
+            text_config = build_responses_text_config(response_format)
+            if text_config:
+                payload["text"] = text_config
+
+        if "reasoning_effort" in extra and extra["reasoning_effort"] is not None:
+            payload["reasoning"] = {"effort": extra.pop("reasoning_effort")}
+
+        _responses_extra_keys = {
+            "service_tier",
+            "metadata",
+            "store",
+            "truncation",
+            "max_tool_calls",
+            "parallel_tool_calls",
+            "safety_identifier",
+            "seed",
+        }
+        for k, v in extra.items():
+            if k in _responses_extra_keys and v is not None:
+                payload[k] = v
+
+        async for event in stream_responses_api(
+            self._client, payload, async_mode=self.async_mode
+        ):
+            if event.type == "complete" and event.metadata:
+                resp_id = event.metadata.get("response_id")
+                if resp_id and event.metadata.get("tool_calls"):
+                    self._last_response_id = resp_id
+            yield event
 
     # ================================================================== #
     # Responses API wrapper (manages conversation state)                  #

@@ -49,10 +49,14 @@ class ResponsesFunctionTool(BaseModel):
 
 
 class MessageInputItem(BaseModel):
-    """User or assistant message sent to the Responses API."""
+    """User or assistant message sent to the Responses API.
+
+    ``content`` may be a plain string **or** a list of content parts
+    (e.g. text + image_url + file) for multimodal inputs.
+    """
 
     role: str
-    content: str
+    content: str | list[dict[str, Any]]
 
 
 class FunctionCallOutput(BaseModel):
@@ -96,6 +100,7 @@ class ChatCompletionsPayload(BaseModel):
     model: str
     messages: list[dict[str, Any]]
     stream: bool = False
+    stream_options: dict[str, Any] | None = None
 
     temperature: float | None = None
     top_p: float | None = None
@@ -180,7 +185,7 @@ class ChatCompletionsPayload(BaseModel):
             **{
                 k: v
                 for k, v in extra.items()
-                if v is not None and hasattr(cls, k)  # type: ignore[arg-type]
+                if v is not None and k in cls.model_fields
             },
         )
 

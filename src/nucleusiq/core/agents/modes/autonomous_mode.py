@@ -22,6 +22,7 @@ Validation + Verification pipeline:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, List
 
 if TYPE_CHECKING:
@@ -38,6 +39,7 @@ from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.agents.task import Task
 from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
 _UNCERTAIN_ACCEPT_THRESHOLD = 0.7
 
@@ -73,6 +75,266 @@ class AutonomousMode(BaseExecutionMode):
 
         agent._logger.info("Task classified as SIMPLE — standard + validate + Critic")
         return await self._run_simple(agent, task)
+
+    # ------------------------------------------------------------------ #
+    # Streaming                                                            #
+    # ------------------------------------------------------------------ #
+
+    async def run_stream(
+        self, agent: Agent, task: Any
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream an Autonomous mode execution.
+
+        * LLM text generation is streamed token-by-token.
+        * Tool calls emit ``TOOL_CALL_START`` / ``TOOL_CALL_END`` events.
+        * Critic and Refiner steps emit ``THINKING`` events (their output
+          is internal verification, not user-facing content).
+        * Complex (decomposed) sub-tasks are executed non-streamed;
+          only the synthesis LLM call is streamed.
+        """
+        if isinstance(task, dict):
+            task = Task.from_dict(task)
+
+        agent._logger.debug("Streaming in AUTONOMOUS mode")
+
+        if not agent.llm:
+            agent._logger.warning("No LLM — falling back to standard streaming")
+            async for event in StandardMode().run_stream(agent, task):
+                yield event
+            return
+
+        yield StreamEvent.thinking_event("Analyzing task complexity…")
+
+        decomposer = Decomposer(logger=agent._logger)
+        analysis = await decomposer.analyze(agent, task)
+
+        if analysis.is_complex and len(analysis.sub_tasks) >= 2:
+            agent._logger.info(
+                "Task classified as COMPLEX (%d sub-tasks) — decomposing",
+                len(analysis.sub_tasks),
+            )
+            async for event in self._stream_complex(agent, task, decomposer, analysis):
+                yield event
+        else:
+            agent._logger.info(
+                "Task classified as SIMPLE — streaming standard + Critic"
+            )
+            async for event in self._stream_simple(agent, task):
+                yield event
+
+    # ------------------------------------------------------------------ #
+    # Streaming: simple path                                               #
+    # ------------------------------------------------------------------ #
+
+    async def _stream_simple(
+        self, agent: Agent, task: Task
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream the simple path: tool loop → validate → critic → refine."""
+        max_retries = getattr(agent.config, "max_retries", 3)
+        validation = ValidationPipeline(logger=agent._logger)
+        critic = Critic(logger=agent._logger)
+        refiner = Refiner(logger=agent._logger)
+        progress = ExecutionProgress(task_id=task.id)
+        std_mode = StandardMode()
+
+        std_mode._ensure_executor(agent)
+        tool_specs = std_mode._get_tool_specs(agent)
+        messages = std_mode.build_messages(agent, task)
+        max_tool_calls = agent.config.get_effective_max_tool_calls()
+
+        step = progress.add_step("execute", task.objective)
+
+        final_content: str | None = None
+
+        for attempt in range(max_retries):
+            label = "EXECUTE" if attempt == 0 else "RETRY"
+            agent._logger.info("Attempt %d/%d [%s]", attempt + 1, max_retries, label)
+
+            step.mark_executing()
+            agent.state = AgentState.EXECUTING
+            final_content = None
+
+            try:
+                async for event in self._streaming_tool_call_loop(
+                    agent,
+                    messages,
+                    tool_specs,
+                    max_tool_calls=max_tool_calls,
+                    max_tokens=2048,
+                ):
+                    if event.type == StreamEventType.COMPLETE:
+                        final_content = event.content
+                    elif event.type == StreamEventType.ERROR:
+                        yield event
+                        return
+                    yield event
+            except PluginHalt:
+                raise
+            except Exception as e:
+                step.mark_failed(str(e))
+                agent._logger.error("Execution error: %s", e)
+                agent.state = AgentState.ERROR
+                yield StreamEvent.error_event(str(e))
+                return
+
+            agent._last_messages = messages
+
+            if self._is_error(final_content):
+                step.mark_failed(str(final_content))
+                agent.state = AgentState.COMPLETED
+                return
+
+            # Layer 1+2: deterministic + plugin validation
+            vr = await validation.validate(agent, final_content, messages)
+            if not vr.valid:
+                if attempt < max_retries - 1:
+                    yield StreamEvent.thinking_event(
+                        f"Validation failed ({vr.reason}), retrying…"
+                    )
+                    retry_msg = self._build_validation_retry(vr)
+                    messages.append(ChatMessage(role="user", content=retry_msg))
+                continue
+
+            # Critic: independent verification
+            yield StreamEvent.thinking_event("Verifying result with Critic…")
+            critique = await self._run_critic(
+                agent, critic, task.objective, final_content, messages
+            )
+
+            if critique.verdict == Verdict.PASS or (
+                critique.verdict == Verdict.UNCERTAIN
+                and critique.score >= _UNCERTAIN_ACCEPT_THRESHOLD
+            ):
+                step.mark_completed(str(final_content))
+                agent.state = AgentState.COMPLETED
+                agent._execution_progress = progress
+                return
+
+            # Refiner: build targeted correction
+            if attempt < max_retries - 1:
+                yield StreamEvent.thinking_event(
+                    f"Critic: {critique.verdict.value} (score={critique.score:.2f}), refining…"
+                )
+                revision_msg = refiner.build_revision_message(critique)
+                messages.append(ChatMessage(role="user", content=revision_msg))
+
+        step.mark_completed(str(final_content))
+        agent.state = AgentState.COMPLETED
+        agent._execution_progress = progress
+
+    # ------------------------------------------------------------------ #
+    # Streaming: complex path                                              #
+    # ------------------------------------------------------------------ #
+
+    async def _stream_complex(
+        self,
+        agent: Agent,
+        task: Task,
+        decomposer: Decomposer,
+        analysis: TaskAnalysis,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream the complex path: decompose → parallel execute → stream synthesis."""
+        max_sub = getattr(agent.config, "max_sub_agents", 5)
+        max_retries = getattr(agent.config, "max_retries", 3)
+        validation = ValidationPipeline(logger=agent._logger)
+        critic = Critic(logger=agent._logger)
+        refiner = Refiner(logger=agent._logger)
+        progress = ExecutionProgress(task_id=task.id)
+        std_mode = StandardMode()
+        std_mode._ensure_executor(agent)
+
+        yield StreamEvent.thinking_event(
+            f"Decomposing into {len(analysis.sub_tasks)} sub-tasks…"
+        )
+
+        sub_step = progress.add_step("decompose", "Run parallel sub-tasks")
+        sub_step.mark_executing()
+
+        findings = await decomposer.run_sub_tasks(
+            parent=agent,
+            sub_tasks=analysis.sub_tasks,
+            max_sub_agents=max_sub,
+        )
+
+        sub_step.mark_completed(f"{len(findings)} findings collected")
+        yield StreamEvent.thinking_event(
+            f"Sub-tasks complete — synthesizing {len(findings)} findings…"
+        )
+
+        # Build synthesis prompt and stream the synthesis LLM call
+        synth_prompt = decomposer.build_synthesis_prompt(task.objective, findings)
+        tool_specs = std_mode._get_tool_specs(agent)
+        messages = std_mode.build_messages(
+            agent, Task(id=f"{task.id}-synth", objective=synth_prompt)
+        )
+        max_tool_calls = agent.config.get_effective_max_tool_calls()
+
+        final_content: str | None = None
+
+        for attempt in range(max_retries):
+            label = "SYNTHESIZE" if attempt == 0 else "RETRY"
+            agent._logger.info(
+                "Synthesis attempt %d/%d [%s]", attempt + 1, max_retries, label
+            )
+            agent.state = AgentState.EXECUTING
+            final_content = None
+
+            try:
+                async for event in self._streaming_tool_call_loop(
+                    agent,
+                    messages,
+                    tool_specs,
+                    max_tool_calls=max_tool_calls,
+                    max_tokens=2048,
+                ):
+                    if event.type == StreamEventType.COMPLETE:
+                        final_content = event.content
+                    elif event.type == StreamEventType.ERROR:
+                        yield event
+                        return
+                    yield event
+            except PluginHalt:
+                raise
+            except Exception as e:
+                agent._logger.error("Synthesis error: %s", e)
+                agent.state = AgentState.ERROR
+                yield StreamEvent.error_event(str(e))
+                return
+
+            agent._last_messages = messages
+
+            vr = await validation.validate(agent, final_content, messages)
+            if not vr.valid:
+                if attempt < max_retries - 1:
+                    yield StreamEvent.thinking_event(
+                        f"Validation failed ({vr.reason}), retrying…"
+                    )
+                    retry_msg = self._build_validation_retry(vr)
+                    messages.append(ChatMessage(role="user", content=retry_msg))
+                continue
+
+            yield StreamEvent.thinking_event("Verifying synthesis with Critic…")
+            critique = await self._run_critic(
+                agent, critic, task.objective, final_content, messages
+            )
+
+            if critique.verdict == Verdict.PASS or (
+                critique.verdict == Verdict.UNCERTAIN
+                and critique.score >= _UNCERTAIN_ACCEPT_THRESHOLD
+            ):
+                agent.state = AgentState.COMPLETED
+                agent._execution_progress = progress
+                return
+
+            if attempt < max_retries - 1:
+                yield StreamEvent.thinking_event(
+                    f"Critic: {critique.verdict.value} (score={critique.score:.2f}), refining…"
+                )
+                revision_msg = refiner.build_revision_message(critique)
+                messages.append(ChatMessage(role="user", content=revision_msg))
+
+        agent.state = AgentState.COMPLETED
+        agent._execution_progress = progress
 
     # ------------------------------------------------------------------ #
     # Simple path: Standard mode + validate + Critic/Refiner               #

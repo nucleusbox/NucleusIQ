@@ -40,6 +40,7 @@ See [INSTALLATION.md](INSTALLATION.md) for full setup instructions (pip, uv, dev
 | Component | What it does |
 |-----------|-------------|
 | **3 Execution Modes** | `DIRECT` (single call), `STANDARD` (tool loop), `AUTONOMOUS` (orchestration + validation + retry) |
+| **Streaming** | `execute_stream()` — real-time token-by-token output with tool call visibility across all modes |
 | **7 Prompt Techniques** | ZeroShot, FewShot, ChainOfThought, AutoCoT, RAG, PromptComposer, MetaPrompt |
 | **Tool System** | `BaseTool` interface + OpenAI native tools (function, code_interpreter, file_search, web_search, MCP) |
 | **Memory** | 5 strategies: full history, sliding window, summary, summary+window, token budget |
@@ -60,6 +61,7 @@ NucleusIQ agents use the **Gearbox Strategy** — three execution modes that sca
 | Independent verification (Critic) | No | No | Yes |
 | Targeted correction (Refiner) | No | No | Yes |
 | Validation pipeline | No | No | Yes |
+| **Streaming** | **Yes** | **Yes** | **Yes** |
 
 Tool limits are configurable via `AgentConfig(max_tool_calls=N)`. The framework validates tool count at agent creation and raises a clear error if the limit is exceeded.
 
@@ -96,10 +98,10 @@ docs/                      # Documentation
 ## Testing
 
 ```bash
-# Core tests (1207 passing, 2 skipped)
+# Core tests (1382 passing, 2 skipped — 97% coverage)
 cd src/nucleusiq && python -m pytest tests/ -q
 
-# OpenAI provider tests (116 passing)
+# OpenAI provider tests (162 passing — 97% coverage)
 cd src/providers/llms/openai && python -m pytest tests/ -q
 ```
 

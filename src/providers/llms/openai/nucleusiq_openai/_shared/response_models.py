@@ -49,6 +49,15 @@ class AssistantMessage(BaseModel):
         return d
 
 
+class UsageInfo(BaseModel):
+    """Token usage statistics from an API response."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    reasoning_tokens: int = 0
+
+
 class _Choice(BaseModel):
     """Minimal wrapper so we match BaseLLM expectation."""
 
@@ -56,4 +65,12 @@ class _Choice(BaseModel):
 
 
 class _LLMResponse(BaseModel):
+    """Normalised response from either Chat Completions or Responses API."""
+
     choices: list[_Choice]
+    usage: UsageInfo | None = None
+    response_id: str | None = None
+    model: str | None = None
+    created: int | None = None
+    service_tier: str | None = None
+    system_fingerprint: str | None = None

@@ -365,6 +365,11 @@ def test_structured_output_build_clean_parse():
         parse_response({"content": "{bad json"}, _Person)
 
 
+def _mk_chunk_delta(content: str | None = None, tool_calls: list | None = None):
+    """Build a mock delta matching the real OpenAI SDK ChatCompletionDelta."""
+    return SimpleNamespace(content=content, tool_calls=tool_calls)
+
+
 def _mk_chunk_message(content: str = "hi", with_tool: bool = False):
     msg = {"role": "assistant", "content": content}
     if with_tool:
@@ -378,14 +383,21 @@ def _mk_chunk_message(content: str = "hi", with_tool: bool = False):
     return SimpleNamespace(model_dump=lambda: msg)
 
 
+def _mk_tool_call_delta(index=0, call_id=None, name=None, arguments=None):
+    fn = SimpleNamespace(name=name, arguments=arguments)
+    return SimpleNamespace(index=index, id=call_id, type="function", function=fn)
+
+
 @pytest.mark.asyncio
 async def test_chat_completions_stream_and_sync_paths(monkeypatch):
-    # Async stream branch
+    # Async stream: multi-chunk content accumulation
     async def _async_stream_create(**kwargs):
-        chunk = SimpleNamespace(
-            choices=[SimpleNamespace(delta=_mk_chunk_message("streamed"))]
+        yield SimpleNamespace(
+            choices=[SimpleNamespace(delta=_mk_chunk_delta(content="Hello"))]
         )
-        yield chunk
+        yield SimpleNamespace(
+            choices=[SimpleNamespace(delta=_mk_chunk_delta(content=" world"))]
+        )
 
     client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=_async_stream_create))
@@ -397,20 +409,39 @@ async def test_chat_completions_stream_and_sync_paths(monkeypatch):
         stream=True,
         async_mode=True,
     )
-    assert result.choices[0].message.content == "streamed"
+    assert result.choices[0].message.content == "Hello world"
 
-    # Sync stream branch with chunks
-    sync_resp = SimpleNamespace(
-        choices=[
-            SimpleNamespace(message=_mk_chunk_message("sync-final", with_tool=True))
-        ]
-    )
-    stream_chunk = SimpleNamespace(
-        choices=[SimpleNamespace(delta=_mk_chunk_message("sync-stream"))]
-    )
-    create_mock = MagicMock(side_effect=[iter([stream_chunk]), sync_resp])
+    # Sync stream: tool call accumulation across chunks
+    def _sync_stream(**kwargs):
+        return iter(
+            [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=_mk_chunk_delta(
+                                tool_calls=[
+                                    _mk_tool_call_delta(0, "call1", "add", '{"a"')
+                                ]
+                            )
+                        )
+                    ]
+                ),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=_mk_chunk_delta(
+                                tool_calls=[
+                                    _mk_tool_call_delta(0, None, None, ": 1}")
+                                ]
+                            )
+                        )
+                    ]
+                ),
+            ]
+        )
+
     sync_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock))
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_sync_stream))
     )
     out = await chat_mod.call_chat_completions(
         sync_client,
@@ -419,12 +450,15 @@ async def test_chat_completions_stream_and_sync_paths(monkeypatch):
         stream=True,
         async_mode=False,
     )
-    assert out.choices[0].message.content == "sync-stream"
+    assert out.choices[0].message.tool_calls is not None
+    assert out.choices[0].message.tool_calls[0].function.name == "add"
+    assert out.choices[0].message.tool_calls[0].function.arguments == '{"a": 1}'
 
-    # Sync stream branch with empty chunks -> fallback to response path
-    create_mock2 = MagicMock(side_effect=[iter([]), sync_resp])
+    # Sync stream with empty chunks -> returns response with no content
     sync_client2 = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock2))
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **kw: iter([]))
+        )
     )
     out2 = await chat_mod.call_chat_completions(
         sync_client2,
@@ -433,7 +467,8 @@ async def test_chat_completions_stream_and_sync_paths(monkeypatch):
         stream=True,
         async_mode=False,
     )
-    assert out2.choices[0].message.tool_calls[0].function.name == "add"
+    assert out2.choices[0].message.content is None
+    assert out2.choices[0].message.tool_calls is None
 
 
 @pytest.mark.asyncio
@@ -527,15 +562,15 @@ async def test_responses_api_additional_branches(monkeypatch):
     class SyncResponses2:
         def create(self, **kwargs):
             captured2.update(kwargs)
-            out = [
-                SimpleNamespace(
-                    type="message",
-                    role="assistant",
-                    content=[SimpleNamespace(type="output_text", text="ok2")],
-                    model_dump=lambda: {"type": "message"},
-                )
-            ]
-            return SimpleNamespace(id="resp2", output=out)
+            return iter(
+                [
+                    SimpleNamespace(type="response.output_text.delta", delta="ok2"),
+                    SimpleNamespace(
+                        type="response.completed",
+                        response=SimpleNamespace(id="resp2"),
+                    ),
+                ]
+            )
 
     async def fake_retry_no_patch(api_call, **kwargs):
         assert kwargs["on_bad_request"]() is False

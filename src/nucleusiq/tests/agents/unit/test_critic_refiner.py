@@ -658,6 +658,23 @@ class TestRefinerFinal:
         )
         assert result == "original"
 
+    @pytest.mark.asyncio
+    async def test_final_refinement_exception_returns_original(self):
+        agent = _make_agent()
+        agent.llm.call = AsyncMock(side_effect=RuntimeError("boom"))
+        refiner = Refiner()
+        critique = CritiqueResult(verdict=Verdict.FAIL, feedback="bad")
+
+        result = await refiner.refine_final(
+            agent,
+            "task",
+            _make_plan(),
+            ["r1"],
+            "original",
+            critique,
+        )
+        assert result == "original"
+
 
 class TestRefinerPrompts:
     def test_llm_revision_prompt_includes_feedback(self):
@@ -729,6 +746,65 @@ class TestRefinerPrompts:
         assert "Research AI" in prompt
         assert "Incomplete" in prompt
         assert "Missing data" in prompt
+
+    def test_llm_revision_prompt_includes_context_summary(self):
+        critique = CritiqueResult(
+            verdict=Verdict.FAIL,
+            score=0.4,
+            feedback="needs fixes",
+        )
+        prompt = Refiner._build_llm_revision_prompt(
+            "task",
+            _make_step(2, "execute", "Do step"),
+            "old result",
+            critique,
+            {"step_1": "previous output", "step_1_action": "tool_name"},
+        )
+        assert "Previous Steps:" in prompt
+        assert "previous output" in prompt
+        assert "step_1_action" not in prompt
+
+
+class TestRefinerExtractHelpers:
+    def test_extract_content_none_response(self):
+        assert Refiner._extract_content(None) is None
+
+    def test_extract_content_from_dict_message(self):
+        fake = MagicMock()
+        fake.choices = [MagicMock(message={"content": "hello"})]
+        assert Refiner._extract_content(fake) == "hello"
+
+    def test_extract_tool_args_non_list_tool_calls(self):
+        fake = MagicMock()
+        fake.choices = [MagicMock(message=MagicMock(tool_calls="bad-shape"))]
+        assert Refiner._extract_tool_args(fake, "add") is None
+
+    def test_extract_tool_args_invalid_json_returns_none(self):
+        tc = FakeToolCall(function=FakeFunction("add", "{bad"))
+        fake = FakeLLMResponse(content=None, tool_calls=[tc])
+        assert Refiner._extract_tool_args(fake, "add") is None
+
+    @pytest.mark.asyncio
+    async def test_tool_refine_falls_back_to_llm_when_args_missing(self):
+        tool = MagicMock()
+        tool.name = "add"
+
+        no_tool_call_resp = FakeLLMResponse(content=None, tool_calls=[])
+        agent = _make_agent(llm_response=no_tool_call_resp, tools=[tool])
+        refiner = Refiner()
+        critique = CritiqueResult(verdict=Verdict.FAIL, feedback="fix")
+
+        with patch.object(refiner, "_refine_llm_step", new_callable=AsyncMock) as llm_ref:
+            llm_ref.return_value = "fallback-llm-result"
+            out = await refiner._refine_tool_step(
+                agent,
+                "task",
+                _make_step(1, "add"),
+                "old",
+                critique,
+                {},
+            )
+        assert out == "fallback-llm-result"
 
 
 # ================================================================== #

@@ -12,6 +12,7 @@ modifying the Agent class (Open/Closed Principle).
 
 import json
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
@@ -27,11 +28,11 @@ from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.task import Task
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
+from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
 
 class BaseExecutionMode(ABC):
-    """
-    Strategy interface for agent execution modes.
+    """Strategy interface for agent execution modes.
 
     Every mode receives the ``agent`` instance so it can access
     ``agent.llm``, ``agent.tools``, ``agent.config``, ``agent.memory``,
@@ -40,7 +41,15 @@ class BaseExecutionMode(ABC):
 
     The mode does **not** own state — the Agent does.
 
-    Shared helpers live here so that concrete modes stay DRY.
+    **Streaming contract:**
+
+    * ``run()`` — non-streaming (returns result)
+    * ``run_stream()`` — streaming (yields ``StreamEvent``).
+      Default fallback calls ``run()`` and emits a single ``COMPLETE``
+      event, so custom modes work without streaming support.
+
+    Shared helpers (``call_llm_stream``, ``_streaming_tool_call_loop``)
+    live here so that concrete modes stay DRY.
     """
 
     @abstractmethod
@@ -49,17 +58,30 @@ class BaseExecutionMode(ABC):
         agent: "Agent",
         task: Task,
     ) -> Any:
-        """
-        Execute a task using this mode's strategy.
-
-        Args:
-            agent: The Agent instance (provides access to LLM, tools, config, etc.)
-            task: The task to execute
-
-        Returns:
-            Execution result
-        """
+        """Execute a task using this mode's strategy."""
         ...
+
+    # ------------------------------------------------------------------ #
+    # Streaming: public interface                                         #
+    # ------------------------------------------------------------------ #
+
+    async def run_stream(
+        self,
+        agent: "Agent",
+        task: Task,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream execution as ``StreamEvent`` objects.
+
+        **Default implementation** — falls back to ``run()`` and yields
+        a single ``COMPLETE`` event.  Concrete modes override this for
+        real token-by-token streaming.
+
+        Liskov: any mode can be used with ``execute_stream()`` without
+        the caller knowing whether real streaming is supported.
+        """
+        result = await self.run(agent, task)
+        text = str(result) if result is not None else ""
+        yield StreamEvent.complete_event(text)
 
     # ------------------------------------------------------------------ #
     # Shared helpers (used by DirectMode, StandardMode, etc.)            #
@@ -274,3 +296,156 @@ class BaseExecutionMode(ABC):
         request._tool_call_request = tc
 
         return await pm.execute_tool_call(request, agent._executor.execute)
+
+    # ------------------------------------------------------------------ #
+    # Streaming helpers (shared by all modes)                             #
+    # ------------------------------------------------------------------ #
+
+    async def call_llm_stream(
+        self,
+        agent: "Agent",
+        call_kwargs: Dict[str, Any],
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Invoke ``agent.llm.call_stream()`` yielding ``StreamEvent`` objects.
+
+        Analogous to ``call_llm()`` but for the streaming path.
+        Plugin-aware streaming is deferred to a future release.
+        """
+        async for event in agent.llm.call_stream(**call_kwargs):
+            yield event
+
+    async def _streaming_tool_call_loop(
+        self,
+        agent: "Agent",
+        messages: List[ChatMessage],
+        tool_specs: List[Dict[str, Any]] | None,
+        *,
+        max_tool_calls: int = 30,
+        max_tokens: int = 2048,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Reusable streaming LLM ↔ tool loop.
+
+        Used by Direct, Standard, and Autonomous modes.  Yields
+        orchestration events so consumers see a structured stream::
+
+            LLM_CALL_START → TOKEN... → LLM_CALL_END
+              → TOOL_CALL_START → TOOL_CALL_END → (loop)
+            ...
+            → COMPLETE (or ERROR)
+
+        Updates *messages* in-place with assistant and tool messages.
+        """
+        tool_call_count = 0
+        call_round = 0
+        empty_retries = 1
+
+        while tool_call_count < max_tool_calls:
+            call_round += 1
+            yield StreamEvent.llm_start_event(call_round)
+
+            call_kwargs = self.build_call_kwargs(
+                agent, messages, tool_specs, max_tokens=max_tokens
+            )
+
+            complete_event: StreamEvent | None = None
+            errored = False
+
+            async for event in self.call_llm_stream(agent, call_kwargs):
+                if event.type == StreamEventType.TOKEN:
+                    yield event
+                elif event.type == StreamEventType.COMPLETE:
+                    complete_event = event
+                elif event.type == StreamEventType.ERROR:
+                    yield StreamEvent.llm_end_event(call_round)
+                    yield event
+                    errored = True
+                    break
+
+            if errored:
+                return
+
+            yield StreamEvent.llm_end_event(call_round)
+
+            if complete_event is None:
+                yield StreamEvent.error_event("LLM stream produced no COMPLETE event")
+                return
+
+            full_content = complete_event.content or ""
+            raw_tool_calls = (complete_event.metadata or {}).get("tool_calls", [])
+
+            # --- Tool calls detected → execute and loop ---
+            if raw_tool_calls:
+                parsed_calls = [ToolCallRequest.from_raw(tc) for tc in raw_tool_calls]
+                messages.append(
+                    ChatMessage(
+                        role="assistant",
+                        content=full_content or None,
+                        tool_calls=parsed_calls,
+                    )
+                )
+
+                for tc in parsed_calls:
+                    if not tc.name:
+                        continue
+                    if tool_call_count >= max_tool_calls:
+                        agent._logger.warning(
+                            "Tool call limit (%d) reached", max_tool_calls
+                        )
+                        break
+
+                    try:
+                        args = json.loads(tc.arguments) if tc.arguments else {}
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+
+                    yield StreamEvent.tool_start_event(tc.name, args)
+
+                    try:
+                        result = await self.call_tool(agent, tc)
+                        result_str = (
+                            json.dumps(result)
+                            if not isinstance(result, str)
+                            else result
+                        )
+                        messages.append(
+                            ChatMessage(
+                                role="tool",
+                                tool_call_id=tc.id,
+                                content=result_str,
+                            )
+                        )
+                        yield StreamEvent.tool_end_event(tc.name, result_str)
+                        tool_call_count += 1
+                    except Exception as e:
+                        yield StreamEvent.error_event(f"Tool '{tc.name}' failed: {e}")
+                        return
+
+                continue
+
+            # --- Content returned, no tools → done ---
+            if full_content.strip():
+                yield StreamEvent.complete_event(
+                    full_content, metadata=complete_event.metadata
+                )
+                return
+
+            # --- Empty response → retry once ---
+            if empty_retries > 0:
+                empty_retries -= 1
+                messages.append(
+                    ChatMessage(
+                        role="user",
+                        content=(
+                            "Your last message was empty. You MUST "
+                            "either call a tool or provide a final answer."
+                        ),
+                    )
+                )
+                continue
+
+            yield StreamEvent.error_event(
+                "LLM returned no content and no tool calls after retry"
+            )
+            return
+
+        yield StreamEvent.error_event(f"Maximum tool calls ({max_tool_calls}) reached")
