@@ -24,7 +24,7 @@ NucleusIQ is built on a simple belief:
 
 A shared doctrine for what NucleusIQ stands for, why it exists, and how it should evolve over time.
 
-**[NucleisIQ_Philosphy.md](NucleisIQ_Philosphy.md)**.
+See **[NucleusIQ_Philosphy.md](NucleusIQ_Philosphy.md)**.
 
 ## Quick Start
 
