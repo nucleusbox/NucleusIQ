@@ -11,12 +11,11 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -24,7 +23,7 @@ src_dir = Path(__file__).parent.parent.parent / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from nucleusiq.streaming.events import StreamEvent, StreamEventType
+from nucleusiq.streaming.events import StreamEvent
 from nucleusiq_openai.nb_openai.stream_adapters import (
     _extract_usage_dict,
     _merge_tool_call_delta,
@@ -34,7 +33,6 @@ from nucleusiq_openai.nb_openai.stream_adapters import (
     stream_chat_completions,
     stream_responses_api,
 )
-
 
 # ====================================================================== #
 # Mock helpers                                                            #
@@ -206,8 +204,8 @@ class TestProcessChatChunks:
     @pytest.mark.asyncio
     async def test_empty_stream(self):
         async def chunks():
-            return
-            yield  # noqa: unreachable
+            if False:
+                yield None
 
         events: list[StreamEvent] = []
         async for e in _process_chat_chunks(chunks()):
@@ -555,8 +553,6 @@ class TestBaseOpenAICallStreamRouting:
     @pytest.mark.asyncio
     async def test_routes_to_chat_completions_when_no_native_tools(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
-            llm = MagicMock(spec=[])
-
             async def _mock_create(**kwargs):
                 async def _gen():
                     yield _mk_chat_chunk(content="routed")

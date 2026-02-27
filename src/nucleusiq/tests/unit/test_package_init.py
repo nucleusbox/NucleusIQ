@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import importlib
 
-import pytest
-
 
 def test_init_loads_dotenv_when_env_exists(monkeypatch):
     """If .env exists, load_dotenv should be invoked."""
-    import nucleusiq
-    import dotenv
     from pathlib import Path
+
+    import dotenv
+
+    import nucleusiq
 
     loaded = {"called": False}
 
@@ -29,9 +29,11 @@ def test_init_loads_dotenv_when_env_exists(monkeypatch):
 
 def test_init_never_raises_when_dotenv_loading_fails(monkeypatch):
     """Any dotenv-loading exception should be swallowed."""
-    import nucleusiq
-    import dotenv
     from pathlib import Path
+
+    import dotenv
+
+    import nucleusiq
 
     def _boom(*_args, **_kwargs):
         raise RuntimeError("dotenv failure")

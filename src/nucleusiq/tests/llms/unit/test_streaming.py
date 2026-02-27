@@ -11,13 +11,12 @@ Covers:
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 from nucleusiq.llms.base_llm import BaseLLM
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # StreamEventType
@@ -401,11 +400,11 @@ class TestImports:
         assert StreamEvent.token_event("x").token == "x"
 
     def test_import_from_llms_package(self):
-        from nucleusiq.llms import StreamEvent, StreamEventType
+        from nucleusiq.llms import StreamEventType
 
         assert StreamEventType.COMPLETE == "complete"
 
     def test_import_from_agents_package(self):
-        from nucleusiq.agents import StreamEvent, StreamEventType
+        from nucleusiq.agents import StreamEventType
 
         assert StreamEventType.ERROR == "error"

@@ -6,8 +6,9 @@ import importlib
 
 
 def test_init_handles_path_resolve_failure(monkeypatch):
-    import nucleusiq
     import pathlib
+
+    import nucleusiq
 
     def _boom(self):
         raise RuntimeError("resolve failure")
