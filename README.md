@@ -5,7 +5,26 @@
 [![Python](https://img.shields.io/pypi/pyversions/nucleusiq)](https://pypi.org/project/nucleusiq/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Open-source framework for building autonomous AI agents** with advanced prompt engineering, flexible execution modes, and modular architecture.
+---
+
+## What Is NucleusIQ?
+
+NucleusIQ is an **open-source, agent-first Python framework** for building AI agents that work in real environments - beyond demos - without creating a one-off system you will regret maintaining.
+
+**In one line:**
+
+> NucleusIQ helps developers build AI agents like software systems: maintainable, testable, provider-portable, and ready for real-world integration.
+
+NucleusIQ is built on a simple belief:
+
+> An agent is not a single model call. An agent is a managed runtime with memory, tools, policy, streaming, structure, and responsibilities.
+
+---
+## NucleusIQ philosophy:
+
+A shared doctrine for what NucleusIQ stands for, why it exists, and how it should evolve over time.
+
+**[NucleisIQ_Philosphy.md](NucleisIQ_Philosphy.md)**.
 
 ## Quick Start
 
@@ -61,7 +80,6 @@ NucleusIQ agents use the **Gearbox Strategy** — three execution modes that sca
 | Independent verification (Critic) | No | No | Yes |
 | Targeted correction (Refiner) | No | No | Yes |
 | Validation pipeline | No | No | Yes |
-| **Streaming** | **Yes** | **Yes** | **Yes** |
 
 Tool limits are configurable via `AgentConfig(max_tool_calls=N)`. The framework validates tool count at agent creation and raises a clear error if the limit is exceeded.
 
@@ -98,10 +116,10 @@ docs/                      # Documentation
 ## Testing
 
 ```bash
-# Core tests (1382 passing, 2 skipped — 97% coverage)
+# Core tests (1207 passing, 2 skipped)
 cd src/nucleusiq && python -m pytest tests/ -q
 
-# OpenAI provider tests (162 passing — 97% coverage)
+# OpenAI provider tests (116 passing)
 cd src/providers/llms/openai && python -m pytest tests/ -q
 ```
 
