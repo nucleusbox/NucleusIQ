@@ -1,5 +1,6 @@
 """Built-in plugins for NucleusIQ."""
 
+from nucleusiq.plugins.builtin.attachment_guard import AttachmentGuardPlugin
 from nucleusiq.plugins.builtin.context_window import ContextWindowPlugin
 from nucleusiq.plugins.builtin.human_approval import (
     ApprovalHandler,
@@ -16,6 +17,7 @@ from nucleusiq.plugins.builtin.tool_guard import ToolGuardPlugin
 from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
 
 __all__ = [
+    "AttachmentGuardPlugin",
     "ModelCallLimitPlugin",
     "ToolCallLimitPlugin",
     "ToolRetryPlugin",

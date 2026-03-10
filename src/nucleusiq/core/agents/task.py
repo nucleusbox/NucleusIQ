@@ -6,8 +6,11 @@ Task = WHAT the user wants done (specific request)
 This is different from Agent.objective which is the agent's general purpose.
 """
 
-from typing import Any, Dict
+from __future__ import annotations
 
+from typing import Any, Dict, List
+
+from nucleusiq.agents.attachments import Attachment
 from pydantic import BaseModel, Field
 
 
@@ -23,8 +26,14 @@ class Task(BaseModel):
         ```python
         task = Task(id="task1", objective="What is 5 + 3?")
 
-        # Or from dictionary (backward compatible)
-        task = Task.from_dict({"id": "task1", "objective": "What is 5 + 3?"})
+        # With attachments (v0.4.0+)
+        task = Task(
+            id="task2",
+            objective="What is in this image?",
+            attachments=[
+                Attachment(type="image_url", data="https://example.com/img.png"),
+            ],
+        )
         ```
     """
 
@@ -36,9 +45,13 @@ class Task(BaseModel):
         default=None, description="Additional context for the task"
     )
     metadata: Dict[str, Any] | None = Field(default=None, description="Task metadata")
+    attachments: List[Attachment] | None = Field(
+        default=None,
+        description="Files, images, or other media attached to this task",
+    )
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Task":
+    def from_dict(cls, data: Dict[str, Any]) -> Task:
         """
         Create Task from dictionary (backward compatibility).
 

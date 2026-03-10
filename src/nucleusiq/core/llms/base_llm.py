@@ -18,7 +18,63 @@ class BaseLLM(BaseLanguageModel, ABC):
 
     The streaming contract uses ``StreamEvent`` so that every provider
     emits the same event type and consumer code stays provider-agnostic.
+
+    **Attachment capability contract** (mirrors ``NATIVE_TOOL_TYPES``):
+
+    * ``NATIVE_ATTACHMENT_TYPES`` — ``frozenset`` of ``AttachmentType``
+      members that this provider processes **natively** (server-side).
+      Empty by default; providers override to declare capabilities.
+    * ``SUPPORTED_FILE_EXTENSIONS`` — ``frozenset`` of file extensions
+      (e.g. ``".pdf"``, ``".csv"``) that this provider handles natively
+      for ``FILE_BYTES`` / ``TEXT`` routing.  Empty by default.
+    * ``describe_attachment_support()`` — user-facing introspection
+      returning a structured summary of what this provider does with
+      each attachment type.
     """
+
+    NATIVE_ATTACHMENT_TYPES: frozenset = frozenset()
+    """Attachment types this provider handles natively (server-side).
+    Override in provider subclass to declare capabilities."""
+
+    SUPPORTED_FILE_EXTENSIONS: frozenset[str] = frozenset()
+    """File extensions this provider processes natively for
+    ``FILE_BYTES`` and ``TEXT`` attachments.  Override in provider."""
+
+    def describe_attachment_support(self) -> dict[str, Any]:
+        """Return a structured summary of how this provider handles attachments.
+
+        Users can call ``agent.llm.describe_attachment_support()`` to
+        understand what happens with each ``AttachmentType`` for their
+        chosen provider.
+
+        Returns
+        -------
+        dict
+            Keys: ``provider``, ``native_types``, ``supported_extensions``,
+            ``type_details`` (per-type description), ``notes``.
+        """
+        from nucleusiq.agents.attachments import AttachmentType
+
+        all_types = sorted(AttachmentType, key=lambda t: t.value)
+        native_vals = {t.value for t in self.NATIVE_ATTACHMENT_TYPES}
+        type_details: dict[str, str] = {}
+        for t in all_types:
+            if t.value in native_vals:
+                type_details[t.value] = "native (provider processes server-side)"
+            else:
+                type_details[t.value] = "framework (client-side text extraction)"
+
+        return {
+            "provider": type(self).__name__,
+            "native_types": sorted(native_vals),
+            "supported_extensions": sorted(self.SUPPORTED_FILE_EXTENSIONS),
+            "type_details": type_details,
+            "notes": (
+                "All AttachmentType values are supported. "
+                "Types not in native_types use framework-level "
+                "client-side processing (text extraction, base64 encoding)."
+            ),
+        }
 
     def convert_tool_specs(self, tools: list[Any]) -> list[dict[str, Any]]:
         """Convert ``BaseTool`` instances to LLM-specific tool format.
@@ -40,6 +96,48 @@ class BaseLLM(BaseLanguageModel, ABC):
         Default implementation returns *spec* unchanged.
         """
         return spec
+
+    # ------------------------------------------------------------------ #
+    # Attachment processing                                                #
+    # ------------------------------------------------------------------ #
+
+    def process_attachments(
+        self,
+        attachments: list,
+    ) -> list[dict[str, Any]]:
+        """Convert ``Attachment`` objects into provider-ready content-part dicts.
+
+        The default implementation delegates to the framework-level
+        ``AttachmentProcessor`` which extracts text client-side.
+        Providers that support native file input (e.g. OpenAI's
+        ``input_file`` / ``file`` content parts) should override this
+        method to produce their API-native format so the model receives
+        raw files for server-side processing.
+
+        Parameters
+        ----------
+        attachments : list[Attachment]
+            Attachment objects from ``Task.attachments``.
+
+        Returns
+        -------
+        list[dict]
+            Content-part dicts ready for inclusion in a multimodal
+            message (e.g. ``{"type": "text", "text": "..."}``,
+            ``{"type": "image_url", "image_url": {...}}``).
+        """
+        from nucleusiq.agents.attachments import AttachmentProcessor, ContentPart
+
+        parts: list[dict[str, Any]] = []
+        processed: list[ContentPart] = AttachmentProcessor.process(attachments)
+        for cp in processed:
+            if cp.type == "text" and cp.text is not None:
+                parts.append({"type": "text", "text": cp.text})
+            elif cp.type == "image_url" and cp.image_url is not None:
+                parts.append({"type": "image_url", "image_url": cp.image_url})
+            elif cp.metadata is not None:
+                parts.append({"type": cp.type, **cp.metadata})
+        return parts
 
     # ------------------------------------------------------------------ #
     # Non-streaming call                                                  #

@@ -63,6 +63,8 @@ class AutonomousMode(BaseExecutionMode):
             agent._logger.warning("No LLM — falling back to standard mode")
             return await StandardMode().run(agent, task)
 
+        await self.store_task_in_memory(agent, task)
+
         decomposer = Decomposer(logger=agent._logger)
         analysis = await decomposer.analyze(agent, task)
 
@@ -102,6 +104,8 @@ class AutonomousMode(BaseExecutionMode):
             async for event in StandardMode().run_stream(agent, task):
                 yield event
             return
+
+        await self.store_task_in_memory(agent, task)
 
         yield StreamEvent.thinking_event("Analyzing task complexity…")
 
@@ -607,7 +611,12 @@ class AutonomousMode(BaseExecutionMode):
         Builds a verification prompt, calls the LLM, and parses
         the response into a CritiqueResult.  Falls back to PASS
         if the Critic itself errors (non-fatal).
+
+        Routes through ``self.call_llm()`` so the call is recorded
+        in the UsageTracker under ``CallPurpose.CRITIC``.
         """
+        from nucleusiq.agents.components.usage_tracker import CallPurpose
+
         try:
             verification_prompt = critic.build_verification_prompt(
                 task_objective=task_objective,
@@ -615,10 +624,13 @@ class AutonomousMode(BaseExecutionMode):
                 generator_messages=messages,
             )
 
-            response = await agent.llm.call(
-                model=getattr(agent.llm, "model_name", "default"),
-                messages=[{"role": "user", "content": verification_prompt}],
-                max_tokens=1024,
+            call_kwargs = {
+                "model": getattr(agent.llm, "model_name", "default"),
+                "messages": [{"role": "user", "content": verification_prompt}],
+                "max_tokens": 1024,
+            }
+            response = await self.call_llm(
+                agent, call_kwargs, purpose=CallPurpose.CRITIC
             )
 
             text = ""

@@ -66,7 +66,10 @@ class SummaryWindowMemory(BaseMemory):
     # -- Sync core -------------------------------------------------------
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
-        self._messages.append({"role": role, "content": content})
+        entry: Dict[str, Any] = {"role": role, "content": content}
+        if "metadata" in kwargs:
+            entry["metadata"] = kwargs["metadata"]
+        self._messages.append(entry)
         if len(self._messages) > self.window_size:
             self._compact_sync()
 
@@ -97,7 +100,10 @@ class SummaryWindowMemory(BaseMemory):
     # -- Async (preferred path) ------------------------------------------
 
     async def aadd_message(self, role: str, content: str, **kwargs: Any) -> None:
-        self._messages.append({"role": role, "content": content})
+        entry: Dict[str, Any] = {"role": role, "content": content}
+        if "metadata" in kwargs:
+            entry["metadata"] = kwargs["metadata"]
+        self._messages.append(entry)
         if len(self._messages) > self.window_size:
             await self._compact_async()
 

@@ -41,6 +41,8 @@ class DirectMode(BaseExecutionMode):
 
         has_tools = bool(agent.tools and agent.llm)
 
+        await self.store_task_in_memory(agent, task)
+
         try:
             messages = self.build_messages(agent, task)
             tool_specs = self._get_tool_specs(agent) if has_tools else None
@@ -113,6 +115,8 @@ class DirectMode(BaseExecutionMode):
         tool_specs = self._get_tool_specs(agent) if has_tools else None
         messages = self.build_messages(agent, task)
         max_tool_calls = agent.config.get_effective_max_tool_calls()
+
+        await self.store_task_in_memory(agent, task)
 
         try:
             async for event in self._streaming_tool_call_loop(

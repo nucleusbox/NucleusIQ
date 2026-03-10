@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0] — 2026-03-10
+
+### Added
+
+- **Multimodal Attachments** — 7 `AttachmentType`s (`TEXT`, `PDF`, `IMAGE_URL`, `IMAGE_BASE64`, `FILE_BYTES`, `FILE_BASE64`, `FILE_URL`) with `Attachment` model, `AttachmentProcessor`, and `Task.attachments` support
+- **Provider-native file processing** — `BaseLLM.process_attachments()` pluggable contract; OpenAI provider overrides for server-side PDF/XLSX/CSV processing via both Chat Completions and Responses API
+- **Provider capability introspection** — `BaseLLM.NATIVE_ATTACHMENT_TYPES`, `SUPPORTED_FILE_EXTENSIONS`, `describe_attachment_support()` with import-time exhaustiveness guards
+- **4 Built-in File Tools** — sandboxed to a `workspace_root` directory, inheriting `BaseTool`:
+  - `FileReadTool` — read file content with optional `start_line`/`end_line`, large-file truncation, binary detection, and max file size enforcement
+  - `FileSearchTool` — text/regex search across files with `max_results` cap
+  - `DirectoryListTool` — list directory with glob filtering, recursive option, file sizes
+  - `FileExtractTool` — structured extraction for CSV, TSV, JSON, JSONL/NDJSON, YAML, XML, TOML via pluggable `_FORMAT_HANDLERS` registry with `register_extract_format()` for extensibility
+- **Workspace sandbox** (`workspace.py`) — `resolve_safe_path()` blocks `../` traversal, symlink escape, and absolute path injection
+- **`AttachmentGuardPlugin`** — policy-based attachment validation (allowed/blocked types, max file size, max count, extension filter) via `before_agent` hook
+- **File-aware memory** — all 5 memory strategies store attachment metadata alongside messages; user messages get a `[Attached: ...]` summary prefix for context continuity
+- **`UsageTracker`** — `UsageRecord`, `CallPurpose` enum (MAIN, PLANNING, TOOL_LOOP, CRITIC, REFINER), wired into all 3 execution modes with `agent.last_usage` and streaming metadata
+- **OpenAI API auto-routing** — transparent routing between Chat Completions and Responses API based on tool types, with format conversion and streaming adapters for both
+- **Validation hardening** — `AttachmentProcessor.process()` enforces size limits (50 MB), MIME magic-bytes check (warn on mismatch), and large text warning (> 100 KB suggests FileReadTool)
+- **File handling guide** — `docs/guides/file-handling.md` decision flowchart (Attachment vs Tool vs Both)
+- **New examples** — `file_attachment_example.py`, `file_tools_example.py`, `attachment_guard_example.py`, OpenAI-native file input examples
+- **v0.5.0 gap analysis** — `docs/v0.5.0-gaps.md` consolidating 10 prioritized items from the post-release audit
+
+### Fixed (v0.4.0 audit)
+
+- **`AutonomousMode.run_stream()` missing `store_task_in_memory`** — streaming autonomous mode now stores the user's task in memory before decomposition, matching the non-streaming path
+- **Removed dead `_last_metadata` field** from `SummaryMemory` — was stored but never exposed or persisted
+- **Removed duplicate `build_attachment_*` helpers** — consolidated module-level and static method versions in `base_mode.py`
+
+### Changed
+
+- Bumped `nucleusiq` to 0.4.0, `nucleusiq-openai` to 0.4.0
+- `nucleusiq-openai` now requires `nucleusiq>=0.4.0`
+- Memory strategies now accept `metadata` kwarg in `add_message()` for file-aware storage
+- `_setup_execution()` delegates user message storage to mode-level `store_task_in_memory()` (avoids double-store)
+- `FileExtractTool` now supports 7 formats via `_FORMAT_HANDLERS` registry (was 2)
+- `FileReadTool` now detects binary files (null byte check) and enforces configurable max file size (default 10 MB)
+
+### Testing
+
+- **1,649 tests passing** (core + all v0.4.0 additions, 4 skipped)
+- 42 new built-in file tools unit tests
+- 10 new file tools integration tests (agent with tools in Standard mode tool loop)
+- 22 new file-aware memory unit tests
+- 15 new AttachmentGuardPlugin unit tests
+- 80 attachment unit tests (including validation, exhaustiveness, capability metadata)
+- 45 new edge-case tests (symlinks, binary detection, error propagation, all attachment types, multi-turn memory, autonomous streaming memory, format registry)
+
+---
+
 ## [0.3.0] — 2026-02-27
 
 ### Added
@@ -162,19 +211,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.4.0
-
-- Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
-- Framework-level multimodal inputs (Task.attachments for images, files)
-
 ### Planned for v0.5.0
 
+- Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
+- FileWriteTool (with HumanApprovalPlugin integration)
+- ShellTool (sandboxed command execution)
+- RAG-based file search (PDFSearchTool, CSVSearchTool)
+- Audio/Video attachment types
+- PDF chunking / smart splitting
+- Framework vs user token split, cost estimation
 - Gemini provider (`nucleusiq-gemini`)
+- Anthropic provider (`nucleusiq-anthropic`)
 - Ollama provider (`nucleusiq-ollama`)
-- Embeddings API
-- UsageTracker (token + cost estimation)
 
+[0.4.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.4.0
 [0.3.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.3.0
 [0.2.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.2.0
 [0.1.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.1.0
-[Unreleased]: https://github.com/nucleusbox/NucleusIQ/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/nucleusbox/NucleusIQ/compare/v0.4.0...HEAD

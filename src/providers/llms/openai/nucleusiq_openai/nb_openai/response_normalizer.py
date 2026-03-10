@@ -25,6 +25,61 @@ from nucleusiq_openai._shared.response_models import (
 InputItem = MessageInputItem | FunctionCallOutput
 
 
+def _convert_content_part_for_responses(part: dict[str, Any]) -> dict[str, Any]:
+    """Convert a single Chat Completions content part to Responses API format.
+
+    Mapping (per OpenAI API docs):
+        ``text``      → ``input_text``
+        ``file``      → ``input_file``  (flatten nested ``file`` dict)
+        ``input_file`` → pass-through   (already Responses format, e.g. file_url)
+        ``image_url`` → ``input_image`` (flatten nested ``image_url`` dict)
+    """
+    part_type = part.get("type", "")
+
+    if part_type == "text":
+        return {"type": "input_text", "text": part.get("text", "")}
+
+    if part_type == "file":
+        inner = part.get("file", {})
+        result: dict[str, Any] = {"type": "input_file"}
+        if "file_id" in inner:
+            result["file_id"] = inner["file_id"]
+        if "filename" in inner:
+            result["filename"] = inner["filename"]
+        if "file_data" in inner:
+            result["file_data"] = inner["file_data"]
+        return result
+
+    if part_type == "input_file":
+        return part
+
+    if part_type == "image_url":
+        img = part.get("image_url", {})
+        url = img.get("url", "") if isinstance(img, dict) else str(img)
+        result_img: dict[str, Any] = {"type": "input_image", "image_url": url}
+        if isinstance(img, dict) and "detail" in img:
+            result_img["detail"] = img["detail"]
+        return result_img
+
+    if part_type == "input_text":
+        return part
+    if part_type == "input_image":
+        return part
+
+    return part
+
+
+def _convert_content_for_responses(
+    content: str | list[dict[str, Any]],
+) -> str | list[dict[str, Any]]:
+    """Convert multimodal content arrays from Chat Completions to Responses format."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content) if content else ""
+    return [_convert_content_part_for_responses(p) for p in content]
+
+
 def messages_to_responses_input(
     messages: list[dict[str, Any]],
     last_response_id: str | None,
@@ -39,7 +94,9 @@ def messages_to_responses_input(
     Conversion rules:
 
     * ``system`` messages → ``instructions`` string.
-    * ``user`` / ``assistant`` messages → input items.
+    * ``user`` / ``assistant`` messages → input items.  Multimodal
+      content arrays are converted (``text`` → ``input_text``,
+      ``file`` → ``input_file``, ``image_url`` → ``input_image``).
     * ``tool`` messages → ``function_call_output`` items.
     """
     instructions: str | None = None
@@ -64,10 +121,7 @@ def messages_to_responses_input(
         if role == "system":
             system_parts.append(str(content) if content else "")
         elif role in ("user", "assistant"):
-            if isinstance(content, list):
-                resolved_content = content
-            else:
-                resolved_content = str(content) if content else ""
+            resolved_content = _convert_content_for_responses(content)
             input_items.append(MessageInputItem(role=role, content=resolved_content))
         elif role == "tool":
             input_items.append(

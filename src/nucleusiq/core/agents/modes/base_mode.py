@@ -18,17 +18,75 @@ from typing import TYPE_CHECKING, Any, Dict, List
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
+from nucleusiq.agents.attachments import Attachment
 from nucleusiq.agents.chat_models import (
     ChatMessage,
     LLMCallKwargs,
     ToolCallRequest,
     messages_to_dicts,
 )
+from nucleusiq.agents.components.usage_tracker import CallPurpose
 from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.task import Task
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
+
+
+def build_attachment_prefix(attachments: list[Attachment] | None) -> str:
+    """Build a human-readable prefix summarising attached files.
+
+    Used when storing user messages in memory so the LLM sees file
+    context even after the raw attachment data is discarded.
+
+    Returns ``""`` when *attachments* is ``None`` or empty.
+
+    Example output::
+
+        [Attached: report.pdf (text, 31.3 KB), chart.png (image_url)]
+    """
+    if not attachments:
+        return ""
+    parts: list[str] = []
+    for att in attachments:
+        label = att.name or "(unnamed)"
+        kind = att.type.value
+        size = len(att.data) if isinstance(att.data, (bytes, str)) else 0
+        if size > 0:
+            if size < 1024:
+                size_str = f"{size} B"
+            elif size < 1024 * 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            else:
+                size_str = f"{size / (1024 * 1024):.1f} MB"
+            parts.append(f"{label} ({kind}, {size_str})")
+        else:
+            parts.append(f"{label} ({kind})")
+    return f"[Attached: {', '.join(parts)}]"
+
+
+def build_attachment_metadata(
+    attachments: list[Attachment] | None,
+) -> dict[str, Any] | None:
+    """Build lightweight metadata dict for memory storage.
+
+    Returns ``None`` when *attachments* is ``None`` or empty.
+    Only stores name, type, and size — never the raw file data.
+
+    Return format::
+
+        {"attachments": [{"name": "report.pdf", "type": "pdf", "size": 32000}, ...]}
+    """
+    if not attachments:
+        return None
+    entries: list[dict[str, Any]] = []
+    for att in attachments:
+        size = len(att.data) if isinstance(att.data, (bytes, str)) else 0
+        entry: dict[str, Any] = {"type": att.type.value, "size": size}
+        if att.name:
+            entry["name"] = att.name
+        entries.append(entry)
+    return {"attachments": entries}
 
 
 class BaseExecutionMode(ABC):
@@ -118,20 +176,30 @@ class BaseExecutionMode(ABC):
         When agent has memory, prior conversation turns are injected
         between the system message and the current user message so the
         LLM has full conversational context.
+
+        If the agent's LLM provides ``process_attachments()``, it is
+        passed to ``MessageBuilder`` so the provider can produce
+        API-native file content parts instead of framework-level
+        text extraction.
         """
-        task_dict = task.to_dict() if isinstance(task, Task) else task
+        processor = None
+        if agent.llm and hasattr(agent.llm, "process_attachments"):
+            processor = agent.llm.process_attachments
+
         messages = MessageBuilder.build(
-            task_dict,
+            task,
             plan,
             prompt=agent.prompt,
             role=agent.role,
             objective=agent.objective,
             logger=agent._logger,
+            attachment_processor=processor,
         )
 
         if agent.memory:
             memory_ctx = agent.memory.get_context()
             if memory_ctx:
+                task_dict = task.to_dict() if isinstance(task, Task) else task
                 current_objective = task_dict.get("objective", "")
                 filtered = [
                     m
@@ -226,6 +294,38 @@ class BaseExecutionMode(ABC):
         return None
 
     # ------------------------------------------------------------------ #
+    # File-aware memory helpers                                          #
+    # ------------------------------------------------------------------ #
+
+    async def store_task_in_memory(
+        self,
+        agent: "Agent",
+        task: Task,
+    ) -> None:
+        """Persist the user's task objective (with attachment context) in memory."""
+        if not agent.memory:
+            return
+
+        content = task.objective
+        metadata: dict[str, Any] = {}
+
+        if task.attachments:
+            prefix = build_attachment_prefix(task.attachments)
+            if prefix:
+                content = f"{prefix}\n{content}"
+            meta = build_attachment_metadata(task.attachments)
+            if meta:
+                metadata.update(meta)
+
+        try:
+            kwargs: dict[str, Any] = {}
+            if metadata:
+                kwargs["metadata"] = metadata
+            await agent.memory.aadd_message("user", content, **kwargs)
+        except Exception as e:
+            agent._logger.warning("Failed to store task in memory: %s", e)
+
+    # ------------------------------------------------------------------ #
     # Plugin-aware LLM and Tool invocation                               #
     # ------------------------------------------------------------------ #
 
@@ -235,34 +335,43 @@ class BaseExecutionMode(ABC):
         call_kwargs: Dict[str, Any],
         messages: List[ChatMessage] | None = None,
         tool_specs: List[Dict[str, Any]] | None = None,
+        *,
+        purpose: CallPurpose = CallPurpose.MAIN,
     ) -> Any:
         """Invoke ``agent.llm.call()`` with the full plugin pipeline.
 
         Constructs a ``ModelRequest`` and runs:
         before_model -> wrap_model_call chain -> after_model.
         Falls back to a direct call when no plugins are registered.
+
+        After the call, usage is recorded in ``agent._usage_tracker``.
         """
         pm = getattr(agent, "_plugin_manager", None)
 
         if pm is None or not pm.has_plugins():
-            return await agent.llm.call(**call_kwargs)
+            response = await agent.llm.call(**call_kwargs)
+        else:
+            reserved = {"model", "messages", "tools", "max_tokens"}
+            extra = {k: v for k, v in call_kwargs.items() if k not in reserved}
 
-        reserved = {"model", "messages", "tools", "max_tokens"}
-        extra = {k: v for k, v in call_kwargs.items() if k not in reserved}
+            request = ModelRequest(
+                model=call_kwargs.get("model", "default"),
+                messages=messages or [],
+                tools=tool_specs,
+                max_tokens=call_kwargs.get("max_tokens", 1024),
+                call_count=pm.increment_model_calls(),
+                agent_name=agent.name,
+                extra_kwargs=extra,
+            )
 
-        request = ModelRequest(
-            model=call_kwargs.get("model", "default"),
-            messages=messages or [],
-            tools=tool_specs,
-            max_tokens=call_kwargs.get("max_tokens", 1024),
-            call_count=pm.increment_model_calls(),
-            agent_name=agent.name,
-            extra_kwargs=extra,
-        )
+            request = await pm.run_before_model(request)
+            response = await pm.execute_model_call(request, agent.llm.call)
+            response = await pm.run_after_model(request, response)
 
-        request = await pm.run_before_model(request)
-        response = await pm.execute_model_call(request, agent.llm.call)
-        response = await pm.run_after_model(request, response)
+        tracker = getattr(agent, "_usage_tracker", None)
+        if tracker is not None:
+            tracker.record_from_response(purpose, response)
+
         return response
 
     async def call_tool(
@@ -322,6 +431,7 @@ class BaseExecutionMode(ABC):
         *,
         max_tool_calls: int = 30,
         max_tokens: int = 2048,
+        purpose: CallPurpose = CallPurpose.MAIN,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Reusable streaming LLM ↔ tool loop.
 
@@ -334,13 +444,17 @@ class BaseExecutionMode(ABC):
             → COMPLETE (or ERROR)
 
         Updates *messages* in-place with assistant and tool messages.
+        The first call is tagged with *purpose*; subsequent calls after
+        tool results are tagged as ``TOOL_LOOP``.
         """
         tool_call_count = 0
         call_round = 0
         empty_retries = 1
+        tracker = getattr(agent, "_usage_tracker", None)
 
         while tool_call_count < max_tool_calls:
             call_round += 1
+            current_purpose = purpose if call_round == 1 else CallPurpose.TOOL_LOOP
             yield StreamEvent.llm_start_event(call_round)
 
             call_kwargs = self.build_call_kwargs(
@@ -369,6 +483,13 @@ class BaseExecutionMode(ABC):
             if complete_event is None:
                 yield StreamEvent.error_event("LLM stream produced no COMPLETE event")
                 return
+
+            if tracker is not None:
+                tracker.record_from_stream_metadata(
+                    current_purpose,
+                    complete_event.metadata,
+                    call_round=call_round,
+                )
 
             full_content = complete_event.content or ""
             raw_tool_calls = (complete_event.metadata or {}).get("tool_calls", [])

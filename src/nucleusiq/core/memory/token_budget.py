@@ -52,7 +52,10 @@ class TokenBudgetMemory(BaseMemory):
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         tokens = self.token_counter(content)
-        self._messages.append({"role": role, "content": content})
+        entry: Dict[str, Any] = {"role": role, "content": content}
+        if "metadata" in kwargs:
+            entry["metadata"] = kwargs["metadata"]
+        self._messages.append(entry)
         self._token_counts.append(tokens)
         self._total_tokens += tokens
         self._evict()

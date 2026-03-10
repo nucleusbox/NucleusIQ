@@ -51,6 +51,9 @@ class StandardMode(BaseExecutionMode):
         # Build initial messages
         messages = self.build_messages(agent, task)
 
+        # Persist user objective (with attachment context) in memory
+        await self.store_task_in_memory(agent, task)
+
         try:
             result = await self._tool_call_loop(agent, task, messages, tool_specs)
             agent._last_messages = messages
@@ -86,6 +89,8 @@ class StandardMode(BaseExecutionMode):
         tool_specs = self._get_tool_specs(agent)
         messages = self.build_messages(agent, task)
         max_tool_calls = agent.config.get_effective_max_tool_calls()
+
+        await self.store_task_in_memory(agent, task)
 
         final_content: str | None = None
 

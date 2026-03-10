@@ -4,9 +4,13 @@ MessageBuilder — constructs LLM message lists from agent context.
 Extracted from ``Agent._build_messages()`` and ``Agent._format_plan()``.
 """
 
+from __future__ import annotations
+
 import logging
+from collections.abc import Callable
 from typing import Any, Dict, List
 
+from nucleusiq.agents.attachments import AttachmentProcessor, ContentPart
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.plan import Plan
 from nucleusiq.agents.task import Task
@@ -24,6 +28,7 @@ class MessageBuilder:
         role: str | None = None,
         objective: str | None = None,
         logger: logging.Logger | None = None,
+        attachment_processor: Callable[..., list[dict[str, Any]]] | None = None,
     ) -> List[ChatMessage]:
         """
         Build messages for an LLM call.
@@ -39,6 +44,8 @@ class MessageBuilder:
         2. User template: From prompt.user (if prompt exists and has user field)
         3. Plan context: Execution plan if plan exists and has multiple steps
         4. User request: Actual user request (from task["objective"])
+           — when Task has attachments, the user message uses a content
+             array (text + images) instead of a plain string.
 
         Args:
             task: Task instance or dictionary
@@ -47,6 +54,10 @@ class MessageBuilder:
             role: Agent role string
             objective: Agent objective string
             logger: Optional logger instance
+            attachment_processor: Optional callable that converts a list of
+                Attachment objects into content-part dicts.  When provided
+                (typically ``llm.process_attachments``), it replaces the
+                default framework-level ``AttachmentProcessor``.
 
         Returns:
             List of message dictionaries
@@ -98,11 +109,64 @@ class MessageBuilder:
                     )
                 )
 
-        messages.append(
-            ChatMessage(role="user", content=task_dict.get("objective", ""))
+        # Build the final user message — plain string or multimodal array.
+        attachments = (
+            task.attachments if isinstance(task, Task) and task.attachments else None
         )
 
+        if attachments:
+            content_parts = MessageBuilder._build_multimodal_content(
+                task_dict.get("objective", ""),
+                attachments,
+                attachment_processor=attachment_processor,
+            )
+            messages.append(ChatMessage(role="user", content=content_parts))
+        else:
+            messages.append(
+                ChatMessage(role="user", content=task_dict.get("objective", ""))
+            )
+
         return messages
+
+    # ------------------------------------------------------------------ #
+    # Multimodal helpers                                                   #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _build_multimodal_content(
+        objective: str,
+        attachments: list,
+        *,
+        attachment_processor: Callable[..., list[dict[str, Any]]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Build a content array mixing text and attachment parts.
+
+        When *attachment_processor* is provided (e.g.
+        ``llm.process_attachments``), it is called with the raw
+        ``Attachment`` list and its output is used directly.  Otherwise
+        the framework-level ``AttachmentProcessor`` is used as a fallback.
+
+        Returns a list of dicts suitable for the ``content`` field of a
+        ChatMessage.
+        """
+        parts: list[dict[str, Any]] = []
+
+        if objective:
+            parts.append({"type": "text", "text": objective})
+
+        if attachment_processor is not None:
+            parts.extend(attachment_processor(attachments))
+        else:
+            processed: list[ContentPart] = AttachmentProcessor.process(attachments)
+            for cp in processed:
+                if cp.type == "text" and cp.text is not None:
+                    parts.append({"type": "text", "text": cp.text})
+                elif cp.type == "image_url" and cp.image_url is not None:
+                    parts.append({"type": "image_url", "image_url": cp.image_url})
+                elif cp.metadata is not None:
+                    parts.append({"type": cp.type, **cp.metadata})
+
+        return parts
 
     @staticmethod
     def format_plan(plan: Plan | List[Dict[str, Any]]) -> str:

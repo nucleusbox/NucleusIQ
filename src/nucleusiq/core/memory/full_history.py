@@ -25,7 +25,10 @@ class FullHistoryMemory(BaseMemory):
         return "full_history"
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
-        self._messages.append({"role": role, "content": content})
+        entry: Dict[str, Any] = {"role": role, "content": content}
+        if "metadata" in kwargs:
+            entry["metadata"] = kwargs["metadata"]
+        self._messages.append(entry)
 
     def get_context(
         self, query: str | None = None, **kwargs: Any

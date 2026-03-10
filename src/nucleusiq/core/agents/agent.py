@@ -17,6 +17,7 @@ from typing import Any, ClassVar, Dict, List, Type
 
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.components.executor import Executor
+from nucleusiq.agents.components.usage_tracker import UsageTracker
 from nucleusiq.agents.config.agent_config import AgentMetrics, AgentState
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
@@ -117,6 +118,7 @@ class Agent(BaseAgent):
     _structured_output: StructuredOutputHandler = PrivateAttr(
         default_factory=StructuredOutputHandler
     )
+    _usage_tracker: UsageTracker = PrivateAttr(default_factory=UsageTracker)
 
     # ------------------------------------------------------------------ #
     # LIFECYCLE                                                           #
@@ -290,15 +292,6 @@ class Agent(BaseAgent):
         )
         agent_ctx = await self._plugin_manager.run_before_agent(agent_ctx)
 
-        if self.memory:
-            user_input = (
-                task.objective
-                if hasattr(task, "objective")
-                else task.to_dict().get("objective", "")
-            )
-            if user_input:
-                await self.memory.aadd_message("user", user_input)
-
         max_tools = self.config.get_effective_max_tool_calls()
         if len(self.tools) > max_tools:
             mode_value = (
@@ -311,6 +304,8 @@ class Agent(BaseAgent):
                 f"{mode_value.upper()} mode allows max {max_tools}. "
                 f"Reduce tools or switch to a higher execution mode."
             )
+
+        self._usage_tracker.reset()
 
         mode = self._resolve_mode()
         return task, mode, agent_ctx
@@ -450,6 +445,24 @@ class Agent(BaseAgent):
         Delegates to ``StructuredOutputHandler``.
         """
         return self._structured_output.wrap_result(response, output_config)
+
+    # ------------------------------------------------------------------ #
+    # USAGE TRACKING                                                      #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def last_usage(self) -> dict[str, Any]:
+        """Return the accumulated usage summary from the most recent execution.
+
+        The summary includes total token counts and a per-purpose breakdown
+        (main, tool_loop, planning, critic, refiner).
+        """
+        return self._usage_tracker.summary
+
+    @property
+    def usage_tracker(self) -> UsageTracker:
+        """Direct access to the underlying UsageTracker (for advanced use)."""
+        return self._usage_tracker
 
     # ------------------------------------------------------------------ #
     # UTILITY METHODS (stay on Agent)                                     #

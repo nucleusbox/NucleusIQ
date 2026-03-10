@@ -9,7 +9,11 @@ via ``Agent.register_mode()`` — no changes to Agent required (Open/Closed).
 """
 
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
-from nucleusiq.agents.modes.base_mode import BaseExecutionMode
+from nucleusiq.agents.modes.base_mode import (
+    BaseExecutionMode,
+    build_attachment_metadata,
+    build_attachment_prefix,
+)
 from nucleusiq.agents.modes.direct_mode import DirectMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
 
@@ -18,4 +22,6 @@ __all__ = [
     "DirectMode",
     "StandardMode",
     "AutonomousMode",
+    "build_attachment_metadata",
+    "build_attachment_prefix",
 ]

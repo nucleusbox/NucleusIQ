@@ -65,12 +65,16 @@ class ChatMessage(BaseModel):
 
     Replaces ``Dict[str, Any]`` in internal message lists.  Converts
     cleanly to / from the dict format that LLM providers expect.
+
+    ``content`` may be a plain string **or** a list of content parts
+    (multimodal format) when the message carries attachments such as
+    images alongside text.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     role: Literal["system", "user", "assistant", "tool", "function"]
-    content: str | None = None
+    content: str | List[Dict[str, Any]] | None = None
     tool_calls: List[ToolCallRequest] | None = None
     tool_call_id: str | None = None
     name: str | None = None

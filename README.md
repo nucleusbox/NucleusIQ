@@ -61,9 +61,12 @@ See [INSTALLATION.md](INSTALLATION.md) for full setup instructions (pip, uv, dev
 | **3 Execution Modes** | `DIRECT` (single call), `STANDARD` (tool loop), `AUTONOMOUS` (orchestration + validation + retry) |
 | **Streaming** | `execute_stream()` — real-time token-by-token output with tool call visibility across all modes |
 | **7 Prompt Techniques** | ZeroShot, FewShot, ChainOfThought, AutoCoT, RAG, PromptComposer, MetaPrompt |
+| **Multimodal Attachments** | 7 attachment types (text, PDF, images, files) with provider-native optimisation |
+| **Built-in File Tools** | `FileReadTool`, `FileSearchTool`, `DirectoryListTool`, `FileExtractTool` — sandboxed to workspace |
 | **Tool System** | `BaseTool` interface + OpenAI native tools (function, code_interpreter, file_search, web_search, MCP) |
-| **Memory** | 5 strategies: full history, sliding window, summary, summary+window, token budget |
-| **Plugins** | 9 built-in: call limits, retry, fallback, PII guard, human approval, tool guard, context window, result validator |
+| **Memory** | 5 strategies (full history, sliding window, summary, summary+window, token budget) with file-aware metadata |
+| **Plugins** | 10 built-in: call limits, retry, fallback, PII guard, human approval, tool guard, attachment guard, context window, result validator |
+| **Usage Tracking** | Token usage per call with purpose tagging (main, planning, tool loop, critic, refiner) |
 | **Structured Output** | Schema-based output parsing with Pydantic, dataclass, TypedDict support |
 
 ## Execution Modes
@@ -116,10 +119,10 @@ docs/                      # Documentation
 ## Testing
 
 ```bash
-# Core tests (1207 passing, 2 skipped)
+# Core tests (1596 passing, 2 skipped)
 cd src/nucleusiq && python -m pytest tests/ -q
 
-# OpenAI provider tests (116 passing)
+# OpenAI provider tests
 cd src/providers/llms/openai && python -m pytest tests/ -q
 ```
 
@@ -128,6 +131,7 @@ cd src/providers/llms/openai && python -m pytest tests/ -q
 - [INSTALLATION.md](INSTALLATION.md) — Setup instructions (pip, uv, development)
 - [CHANGELOG.md](CHANGELOG.md) — Release notes
 - [RELEASE.md](RELEASE.md) — Release process and branching strategy
+- [docs/guides/file-handling.md](docs/guides/file-handling.md) — File handling decision guide (Attachment vs Tool vs Both)
 - [docs/IMPLEMENTATION_TRACKER.md](docs/IMPLEMENTATION_TRACKER.md) — Detailed implementation status
 
 ## Contributing

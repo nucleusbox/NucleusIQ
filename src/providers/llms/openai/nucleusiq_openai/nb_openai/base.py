@@ -28,12 +28,19 @@ Structured Output Support::
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import openai
+from nucleusiq.agents.attachments import (
+    MAX_FILE_SIZE_BYTES,
+    Attachment,
+    AttachmentProcessor,
+    AttachmentType,
+)
 from nucleusiq.llms.base_llm import BaseLLM
 from nucleusiq.streaming.events import StreamEvent
 from pydantic import BaseModel
@@ -81,6 +88,84 @@ class BaseOpenAI(BaseLLM):
 
     NATIVE_TOOL_TYPES: frozenset = NATIVE_TOOL_TYPES
 
+    NATIVE_ATTACHMENT_TYPES: frozenset = frozenset(
+        {
+            AttachmentType.PDF,
+            AttachmentType.FILE_BASE64,
+            AttachmentType.FILE_URL,
+            AttachmentType.TEXT,
+            AttachmentType.FILE_BYTES,
+        }
+    )
+    """Attachment types that OpenAI processes server-side with full fidelity.
+
+    ``IMAGE_URL`` and ``IMAGE_BASE64`` are handled via the standard
+    ``image_url`` wire format (not file input) and are therefore not
+    listed here — they work identically across all providers.
+    """
+
+    SUPPORTED_FILE_EXTENSIONS: frozenset[str] = frozenset(
+        {
+            ".pdf",
+            ".txt",
+            ".md",
+            ".json",
+            ".html",
+            ".htm",
+            ".xml",
+            ".css",
+            ".js",
+            ".mjs",
+            ".py",
+            ".sql",
+            ".csv",
+            ".tsv",
+            ".xlsx",
+            ".xls",
+            ".doc",
+            ".docx",
+            ".ppt",
+            ".pptx",
+            ".rtf",
+            ".odt",
+            ".rst",
+            ".log",
+            ".c",
+            ".cpp",
+            ".h",
+            ".java",
+            ".rb",
+            ".pl",
+            ".sh",
+            ".bat",
+        }
+    )
+
+    _EXT_TO_MIME: dict[str, str] = {
+        ".pdf": "application/pdf",
+        ".txt": "text/plain",
+        ".md": "text/markdown",
+        ".json": "application/json",
+        ".html": "text/html",
+        ".htm": "text/html",
+        ".xml": "text/xml",
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".mjs": "application/javascript",
+        ".py": "text/x-python",
+        ".sql": "application/x-sql",
+        ".csv": "text/csv",
+        ".tsv": "text/tsv",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xls": "application/vnd.ms-excel",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".ppt": "application/vnd.ms-powerpoint",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".rtf": "application/rtf",
+        ".odt": "application/vnd.oasis.opendocument.text",
+    }
+
     # ================================================================== #
     # Tool spec conversion                                                #
     # ================================================================== #
@@ -109,6 +194,211 @@ class BaseOpenAI(BaseLLM):
                 "description": spec["description"],
                 "parameters": parameters,
             },
+        }
+
+    # ================================================================== #
+    # Attachment processing (OpenAI-native file input)                    #
+    # ================================================================== #
+
+    _HANDLED_ATTACHMENT_TYPES: frozenset[AttachmentType] = frozenset(AttachmentType)
+    """Every ``AttachmentType`` member must be explicitly handled in
+    ``_process_attachment_openai``.  The import-time assertion at module
+    level verifies this set equals ``set(AttachmentType)``."""
+
+    def process_attachments(
+        self,
+        attachments: list,
+    ) -> list[dict[str, Any]]:
+        """Convert attachments to OpenAI-native file-input content parts.
+
+        For file types that OpenAI can process server-side (PDF, DOCX,
+        XLSX, CSV, code files, etc.), the raw file data is sent as a
+        Chat Completions ``file`` content part.  The Responses API
+        normalizer converts these to ``input_file`` parts automatically.
+
+        For ``FILE_URL`` attachments, an ``input_file`` part with
+        ``file_url`` is produced (Responses API only; Chat Completions
+        will receive a text fallback).
+
+        Images fall back to the framework's standard ``image_url`` format.
+        """
+        parts: list[dict[str, Any]] = []
+        for att in attachments:
+            AttachmentProcessor.validate_size(att, limit=MAX_FILE_SIZE_BYTES)
+            parts.extend(self._process_attachment_openai(att))
+        return parts
+
+    def _process_attachment_openai(
+        self,
+        att: Attachment,
+    ) -> list[dict[str, Any]]:
+        """Route a single attachment to the appropriate OpenAI format.
+
+        Raises ``ValueError`` for unrecognised types instead of silently
+        falling back — this forces explicit handling of every
+        ``AttachmentType`` and prevents silent degradation.
+        """
+        if att.type == AttachmentType.FILE_URL:
+            return self._att_file_url(att)
+
+        if att.type == AttachmentType.PDF:
+            return self._att_native_file(att, fallback_mime="application/pdf")
+
+        if att.type == AttachmentType.FILE_BASE64:
+            return self._att_base64_file(att)
+
+        if att.type == AttachmentType.FILE_BYTES:
+            if self._is_supported_extension(att.name):
+                return self._att_native_file(att)
+            return self._framework_fallback([att])
+
+        if att.type == AttachmentType.TEXT:
+            if self._is_supported_extension(att.name):
+                return self._att_native_file(att, fallback_mime="text/plain")
+            return self._framework_fallback([att])
+
+        if att.type in (AttachmentType.IMAGE_URL, AttachmentType.IMAGE_BASE64):
+            return self._framework_fallback([att])
+
+        raise ValueError(
+            f"Unhandled attachment type '{att.type}' in OpenAI provider. "
+            f"Add routing for this type in _process_attachment_openai()."
+        )
+
+    # -- OpenAI-native helpers ----------------------------------------- #
+
+    def _att_native_file(
+        self,
+        att: Attachment,
+        *,
+        fallback_mime: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Produce a Chat Completions ``file`` content part with base64 data."""
+        if isinstance(att.data, bytes):
+            raw = att.data
+        else:
+            raw = att.data.encode("utf-8")
+
+        b64 = base64.b64encode(raw).decode()
+        mime = (
+            att.mime_type
+            or self._guess_mime(att.name)
+            or fallback_mime
+            or "application/octet-stream"
+        )
+        filename = att.name or "attachment"
+
+        return [
+            {
+                "type": "file",
+                "file": {
+                    "filename": filename,
+                    "file_data": f"data:{mime};base64,{b64}",
+                },
+            }
+        ]
+
+    def _att_base64_file(self, att: Attachment) -> list[dict[str, Any]]:
+        """Pass pre-encoded base64 data directly — no double-encoding."""
+        b64_str = att.data if isinstance(att.data, str) else att.data.decode()
+        mime = att.mime_type or self._guess_mime(att.name) or "application/octet-stream"
+        filename = att.name or "attachment"
+        return [
+            {
+                "type": "file",
+                "file": {
+                    "filename": filename,
+                    "file_data": f"data:{mime};base64,{b64_str}",
+                },
+            }
+        ]
+
+    def _att_file_url(self, att: Attachment) -> list[dict[str, Any]]:
+        """Produce a Responses API ``input_file`` part with ``file_url``.
+
+        Chat Completions does not support file URLs — the Responses API
+        normalizer will pass this through, and the Chat Completions path
+        strips unsupported ``input_file`` parts with a logged warning.
+        """
+        url = att.data if isinstance(att.data, str) else att.data.decode()
+        return [{"type": "input_file", "file_url": url}]
+
+    def _framework_fallback(
+        self,
+        attachments: list,
+    ) -> list[dict[str, Any]]:
+        """Delegate to the framework's default attachment processing."""
+        return super().process_attachments(attachments)
+
+    def _is_supported_extension(self, name: str | None) -> bool:
+        if not name:
+            return False
+        dot = name.rfind(".")
+        if dot < 0:
+            return False
+        return name[dot:].lower() in self.SUPPORTED_FILE_EXTENSIONS
+
+    def _guess_mime(self, name: str | None) -> str | None:
+        if not name:
+            return None
+        dot = name.rfind(".")
+        if dot < 0:
+            return None
+        return self._EXT_TO_MIME.get(name[dot:].lower())
+
+    # ================================================================== #
+    # Attachment capability introspection                                  #
+    # ================================================================== #
+
+    def describe_attachment_support(self) -> dict[str, Any]:
+        """Return OpenAI-specific attachment handling summary.
+
+        Overrides ``BaseLLM.describe_attachment_support()`` to provide
+        details about native server-side processing, conditional
+        extension-based routing, and the standard image format.
+        """
+        type_details: dict[str, str] = {
+            AttachmentType.PDF.value: (
+                "native: sent as OpenAI 'file' content part; "
+                "server extracts text AND images"
+            ),
+            AttachmentType.FILE_BASE64.value: (
+                "native: base64 passed directly in 'file' content part "
+                "(no double-encoding)"
+            ),
+            AttachmentType.FILE_URL.value: (
+                "native: sent as 'input_file' with file_url; "
+                "model fetches server-side (Responses API)"
+            ),
+            AttachmentType.TEXT.value: (
+                "conditional: native 'file' for supported extensions "
+                f"({len(self.SUPPORTED_FILE_EXTENSIONS)} types); "
+                "framework text fallback otherwise"
+            ),
+            AttachmentType.FILE_BYTES.value: (
+                "conditional: native 'file' for supported extensions; "
+                "framework text/base64 fallback otherwise"
+            ),
+            AttachmentType.IMAGE_URL.value: (
+                "standard: sent as 'image_url' content part (all providers)"
+            ),
+            AttachmentType.IMAGE_BASE64.value: (
+                "standard: sent as data-URI 'image_url' content part (all providers)"
+            ),
+        }
+
+        return {
+            "provider": "BaseOpenAI",
+            "native_types": sorted(t.value for t in self.NATIVE_ATTACHMENT_TYPES),
+            "supported_extensions": sorted(self.SUPPORTED_FILE_EXTENSIONS),
+            "type_details": type_details,
+            "notes": (
+                "OpenAI processes PDF, FILE_BASE64, and FILE_URL natively "
+                "with full fidelity. TEXT and FILE_BYTES are native when the "
+                "file extension is in SUPPORTED_FILE_EXTENSIONS. "
+                "Images use the standard image_url wire format. "
+                "Max file size: 50 MB."
+            ),
         }
 
     # ================================================================== #
@@ -663,3 +953,16 @@ class BaseOpenAI(BaseLLM):
             ):
                 return True
         return False
+
+
+# ====================================================================== #
+# Import-time exhaustiveness check for attachment routing                  #
+# ====================================================================== #
+
+_missing_att = set(AttachmentType) - BaseOpenAI._HANDLED_ATTACHMENT_TYPES
+if _missing_att:
+    raise AssertionError(
+        f"BaseOpenAI._HANDLED_ATTACHMENT_TYPES is missing: "
+        f"{sorted(m.value for m in _missing_att)}. "
+        f"Every AttachmentType MUST be handled in _process_attachment_openai()."
+    )
