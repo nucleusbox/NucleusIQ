@@ -8,6 +8,7 @@ Usage::
 
     from nucleusiq.tools.builtin import (
         FileReadTool,
+        FileWriteTool,
         FileSearchTool,
         DirectoryListTool,
         FileExtractTool,
@@ -17,6 +18,7 @@ Usage::
         llm=llm,
         tools=[
             FileReadTool(workspace_root="./data"),
+            FileWriteTool(workspace_root="./data"),
             FileSearchTool(workspace_root="./data"),
             DirectoryListTool(workspace_root="./data"),
             FileExtractTool(workspace_root="./data"),
@@ -32,6 +34,7 @@ from nucleusiq.tools.builtin.file_extract import (
 )
 from nucleusiq.tools.builtin.file_read import FileReadTool
 from nucleusiq.tools.builtin.file_search import FileSearchTool
+from nucleusiq.tools.builtin.file_write import FileWriteTool
 from nucleusiq.tools.builtin.workspace import (
     WorkspaceSecurityError,
     resolve_safe_path,
@@ -42,6 +45,7 @@ __all__ = [
     "FileExtractTool",
     "FileReadTool",
     "FileSearchTool",
+    "FileWriteTool",
     "WorkspaceSecurityError",
     "register_extract_format",
     "resolve_safe_path",

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] — 2026-03-11
+
+### Added
+
+- **Token Origin Split** — `TokenOrigin` enum (`USER` / `FRAMEWORK`) and `PURPOSE_ORIGIN_MAP` in `UsageTracker`. Every `UsageRecord` now carries an `origin` field. The summary includes a `by_origin` breakdown separating user tokens (the initial MAIN call) from framework overhead (planning, tool loops, critic, refiner). Designed for direct consumption by the future Observability plugin
+- **`UsageSummary` Pydantic schema** — `agent.last_usage` now returns a typed `UsageSummary` model (not a raw dict) with `TokenCount`, `BucketStats` sub-models:
+  - `usage.summary()` — returns a plain `dict` for JSON serialization / logging / dashboards
+  - `usage.display()` — returns a formatted human-readable string (totals, by-purpose, by-origin with % split)
+  - Individual attribute access: `usage.total.prompt_tokens`, `usage.by_origin["user"].total_tokens`, etc.
+- **`FileWriteTool`** — new built-in tool for writing/appending text files within the workspace sandbox. Features: backup-on-overwrite (`.bak` copy, configurable), max write size limit (default 5 MB), automatic parent directory creation, write/append modes
+- **`FileExtractTool` query filtering** — two new parameters:
+  - `columns` — comma-separated column names for CSV/TSV filtering (case-insensitive matching)
+  - `key_path` — dot-separated key path for JSON/YAML/TOML navigation with array index support (e.g. `"database.host"`, `"items.0.name"`)
+- **`FileSearchTool` configurable binary extensions** — `DEFAULT_BINARY_EXTENSIONS` promoted to module-level constant; three new constructor params: `include_extensions` (whitelist mode), `exclude_extensions` (additions to skip set), `binary_extensions` (full override)
+- **`DirectoryListTool` max entries** — `max_entries` constructor parameter (default 200) with truncation message to prevent LLM context waste on large directory trees
+- **`FileReadTool` encoding auto-detection** — `_detect_encoding()` using `chardet` (optional dependency, first 4 KB sample). Default encoding changed from `"utf-8"` to `"auto"` (auto-detect with UTF-8 fallback)
+- **New examples** — `v050_features_example.py` (all 6 features), `usage_tracking_example.py` (OpenAI usage tracking with `summary()` and `display()`)
+- **`MockLLM` now returns simulated `usage` data** — enables realistic token tracking in tests and examples without a real LLM
+
+### Changed
+
+- Bumped `nucleusiq` to 0.5.0 (OpenAI provider remains at 0.4.0 — no provider changes)
+- `agent.last_usage` return type changed from `dict` to `UsageSummary` (Pydantic model) — use `.summary()` for a plain dict, `.display()` for formatted string
+- `StandardMode._tool_call_loop` now tags first LLM call as `MAIN` (user) and subsequent calls after tool results as `TOOL_LOOP` (framework) — matching the streaming path behavior
+- `agents/__init__.py` now exports `TokenCount`, `BucketStats`, `UsageSummary`, `TokenOrigin`
+- `FileExtractTool` handlers refactored: shared `_format_csv_table()` and `_format_json_value()` renderers (DRY), `ExtractOptions` parameter bag, `_resolve_key_path()` and `_filter_tabular_columns()` helpers
+- `tools/builtin/__init__.py` now exports `FileWriteTool`
+
+### Testing
+
+- **1,721 tests passing** (core + all v0.5.0 additions, 4 skipped)
+- 59 usage tracker tests (including Pydantic models, display, summary, origin split)
+- 50 tool feature tests covering FileWriteTool, query filtering, search config, max entries, encoding detection
+
+---
+
 ## [0.4.0] — 2026-03-10
 
 ### Added
@@ -211,21 +247,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.5.0
+### Planned for v0.6.0
 
 - Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
-- FileWriteTool (with HumanApprovalPlugin integration)
-- ShellTool (sandboxed command execution)
-- RAG-based file search (PDFSearchTool, CSVSearchTool)
-- Audio/Video attachment types
-- PDF chunking / smart splitting
-- Framework vs user token split, cost estimation
-- Gemini provider (`nucleusiq-gemini`)
-- Anthropic provider (`nucleusiq-anthropic`)
-- Ollama provider (`nucleusiq-ollama`)
+- New LLM Providers: Anthropic, Gemini, Ollama
+- See `docs/v0.6.0-gaps.md` and `docs/BACKLOG.md` for full list
 
+[0.5.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.5.0
 [0.4.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.4.0
 [0.3.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.3.0
 [0.2.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.2.0
 [0.1.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.1.0
-[Unreleased]: https://github.com/nucleusbox/NucleusIQ/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/nucleusbox/NucleusIQ/compare/v0.5.0...HEAD

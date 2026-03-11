@@ -1,4 +1,4 @@
-"""Tests for UsageTracker, UsageRecord, CallPurpose, and mode-level wiring."""
+"""Tests for UsageTracker, UsageRecord, CallPurpose, TokenOrigin, and mode-level wiring."""
 
 from __future__ import annotations
 
@@ -8,8 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from nucleusiq.agents.components.usage_tracker import (
+    PURPOSE_ORIGIN_MAP,
+    BucketStats,
     CallPurpose,
+    TokenCount,
+    TokenOrigin,
     UsageRecord,
+    UsageSummary,
     UsageTracker,
 )
 
@@ -32,6 +37,157 @@ class TestCallPurpose:
 
 
 # ================================================================== #
+# TokenOrigin enum                                                     #
+# ================================================================== #
+
+
+class TestTokenOrigin:
+    def test_values(self):
+        assert TokenOrigin.USER == "user"
+        assert TokenOrigin.FRAMEWORK == "framework"
+
+    def test_purpose_origin_map(self):
+        assert PURPOSE_ORIGIN_MAP[CallPurpose.MAIN] == TokenOrigin.USER
+        assert PURPOSE_ORIGIN_MAP[CallPurpose.PLANNING] == TokenOrigin.FRAMEWORK
+        assert PURPOSE_ORIGIN_MAP[CallPurpose.TOOL_LOOP] == TokenOrigin.FRAMEWORK
+        assert PURPOSE_ORIGIN_MAP[CallPurpose.CRITIC] == TokenOrigin.FRAMEWORK
+        assert PURPOSE_ORIGIN_MAP[CallPurpose.REFINER] == TokenOrigin.FRAMEWORK
+
+    def test_all_purposes_mapped(self):
+        for purpose in CallPurpose:
+            assert purpose in PURPOSE_ORIGIN_MAP
+
+
+# ================================================================== #
+# Pydantic summary models                                              #
+# ================================================================== #
+
+
+class TestTokenCount:
+    def test_defaults(self):
+        tc = TokenCount()
+        assert tc.prompt_tokens == 0
+        assert tc.completion_tokens == 0
+        assert tc.total_tokens == 0
+        assert tc.reasoning_tokens == 0
+
+    def test_model_dump(self):
+        tc = TokenCount(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        d = tc.model_dump()
+        assert d == {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+            "reasoning_tokens": 0,
+        }
+
+
+class TestBucketStats:
+    def test_defaults(self):
+        bs = BucketStats()
+        assert bs.calls == 0
+        assert bs.total_tokens == 0
+
+    def test_inherits_token_count(self):
+        bs = BucketStats(prompt_tokens=10, calls=3)
+        assert bs.prompt_tokens == 10
+        assert bs.calls == 3
+
+    def test_model_dump(self):
+        bs = BucketStats(
+            prompt_tokens=50, completion_tokens=20, total_tokens=70, calls=2
+        )
+        d = bs.model_dump()
+        assert d["calls"] == 2
+        assert d["total_tokens"] == 70
+
+
+class TestUsageSummaryModel:
+    def test_defaults(self):
+        s = UsageSummary()
+        assert s.call_count == 0
+        assert s.total.total_tokens == 0
+        assert s.by_purpose == {}
+        assert s.by_origin == {}
+
+    def test_model_dump_roundtrip(self):
+        s = UsageSummary(
+            total=TokenCount(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+            call_count=2,
+            by_purpose={"main": BucketStats(total_tokens=150, calls=2)},
+            by_origin={"user": BucketStats(total_tokens=150, calls=2)},
+        )
+        d = s.model_dump()
+        assert d["total"]["prompt_tokens"] == 100
+        assert d["by_purpose"]["main"]["calls"] == 2
+        assert d["by_origin"]["user"]["total_tokens"] == 150
+        restored = UsageSummary.model_validate(d)
+        assert restored.call_count == 2
+
+    def test_summary_returns_dict(self):
+        s = UsageSummary(
+            total=TokenCount(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+            call_count=2,
+            by_purpose={"main": BucketStats(total_tokens=75, calls=1)},
+            by_origin={"user": BucketStats(total_tokens=75, calls=1)},
+        )
+        d = s.summary()
+        assert isinstance(d, dict)
+        assert d["total"]["prompt_tokens"] == 100
+        assert d["call_count"] == 2
+        assert d["by_purpose"]["main"]["total_tokens"] == 75
+        assert d["by_origin"]["user"]["calls"] == 1
+
+    def test_summary_equals_model_dump(self):
+        s = UsageSummary(
+            total=TokenCount(prompt_tokens=50, total_tokens=50),
+            call_count=1,
+        )
+        assert s.summary() == s.model_dump()
+
+    def test_display_returns_string(self):
+        s = UsageSummary(
+            total=TokenCount(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+            call_count=2,
+            by_purpose={
+                "main": BucketStats(total_tokens=75, calls=1),
+                "tool_loop": BucketStats(total_tokens=75, calls=1),
+            },
+            by_origin={
+                "user": BucketStats(total_tokens=75, calls=1),
+                "framework": BucketStats(total_tokens=75, calls=1),
+            },
+        )
+        text = s.display()
+        assert isinstance(text, str)
+        assert "Usage Summary (2 LLM calls)" in text
+        assert "150 tokens" in text
+        assert "main:" in text
+        assert "tool_loop:" in text
+        assert "user:" in text
+        assert "framework:" in text
+        assert "50%" in text
+
+    def test_display_empty_tracker(self):
+        s = UsageSummary()
+        text = s.display()
+        assert "0 LLM calls" in text
+        assert "0 tokens" in text
+
+    def test_display_single_call(self):
+        s = UsageSummary(
+            total=TokenCount(prompt_tokens=100, total_tokens=100),
+            call_count=1,
+            by_purpose={"main": BucketStats(total_tokens=100, calls=1)},
+            by_origin={"user": BucketStats(total_tokens=100, calls=1)},
+        )
+        text = s.display()
+        assert "1 LLM call)" in text
+        assert "1 call)" in text
+        assert "100%" in text
+
+
+# ================================================================== #
 # UsageRecord model                                                    #
 # ================================================================== #
 
@@ -44,10 +200,12 @@ class TestUsageRecord:
         assert rec.total_tokens == 0
         assert rec.reasoning_tokens == 0
         assert rec.call_round == 1
+        assert rec.origin == TokenOrigin.FRAMEWORK
 
     def test_with_values(self):
         rec = UsageRecord(
             purpose=CallPurpose.TOOL_LOOP,
+            origin=TokenOrigin.FRAMEWORK,
             prompt_tokens=100,
             completion_tokens=50,
             total_tokens=150,
@@ -55,9 +213,14 @@ class TestUsageRecord:
             call_round=3,
         )
         assert rec.purpose == CallPurpose.TOOL_LOOP
+        assert rec.origin == TokenOrigin.FRAMEWORK
         assert rec.prompt_tokens == 100
         assert rec.total_tokens == 150
         assert rec.call_round == 3
+
+    def test_origin_user(self):
+        rec = UsageRecord(purpose=CallPurpose.MAIN, origin=TokenOrigin.USER)
+        assert rec.origin == TokenOrigin.USER
 
 
 # ================================================================== #
@@ -71,11 +234,13 @@ class TestUsageTracker:
         assert tracker.call_count == 0
         assert tracker.total_tokens == 0
         summary = tracker.summary
-        assert summary["total"]["prompt_tokens"] == 0
-        assert summary["total"]["completion_tokens"] == 0
-        assert summary["total"]["total_tokens"] == 0
-        assert summary["by_purpose"] == {}
-        assert summary["call_count"] == 0
+        assert isinstance(summary, UsageSummary)
+        assert summary.total.prompt_tokens == 0
+        assert summary.total.completion_tokens == 0
+        assert summary.total.total_tokens == 0
+        assert summary.by_purpose == {}
+        assert summary.by_origin == {}
+        assert summary.call_count == 0
 
     def test_record_single_call(self):
         tracker = UsageTracker()
@@ -86,9 +251,9 @@ class TestUsageTracker:
         assert tracker.call_count == 1
         assert tracker.total_tokens == 150
         summary = tracker.summary
-        assert summary["total"]["prompt_tokens"] == 100
-        assert summary["total"]["completion_tokens"] == 50
-        assert summary["by_purpose"]["main"]["calls"] == 1
+        assert summary.total.prompt_tokens == 100
+        assert summary.total.completion_tokens == 50
+        assert summary.by_purpose["main"].calls == 1
 
     def test_record_multiple_calls(self):
         tracker = UsageTracker()
@@ -109,10 +274,10 @@ class TestUsageTracker:
         assert tracker.total_tokens == 150 + 280 + 310
 
         summary = tracker.summary
-        assert summary["by_purpose"]["main"]["calls"] == 1
-        assert summary["by_purpose"]["tool_loop"]["calls"] == 2
-        assert summary["by_purpose"]["tool_loop"]["prompt_tokens"] == 450
-        assert summary["by_purpose"]["tool_loop"]["completion_tokens"] == 140
+        assert summary.by_purpose["main"].calls == 1
+        assert summary.by_purpose["tool_loop"].calls == 2
+        assert summary.by_purpose["tool_loop"].prompt_tokens == 450
+        assert summary.by_purpose["tool_loop"].completion_tokens == 140
 
     def test_record_all_purposes(self):
         tracker = UsageTracker()
@@ -124,9 +289,9 @@ class TestUsageTracker:
 
         assert tracker.call_count == 5
         summary = tracker.summary
-        assert len(summary["by_purpose"]) == 5
+        assert len(summary.by_purpose) == 5
         for purpose in CallPurpose:
-            assert summary["by_purpose"][purpose.value]["calls"] == 1
+            assert summary.by_purpose[purpose.value].calls == 1
 
     def test_record_none_usage_is_noop(self):
         tracker = UsageTracker()
@@ -182,8 +347,8 @@ class TestUsageTracker:
             },
         )
         summary = tracker.summary
-        assert summary["total"]["reasoning_tokens"] == 30
-        assert summary["by_purpose"]["main"]["reasoning_tokens"] == 30
+        assert summary.total.reasoning_tokens == 30
+        assert summary.by_purpose["main"].reasoning_tokens == 30
 
     def test_call_round(self):
         tracker = UsageTracker()
@@ -206,7 +371,7 @@ class TestUsageTracker:
         tracker.reset()
         assert tracker.call_count == 0
         assert tracker.total_tokens == 0
-        assert tracker.summary["by_purpose"] == {}
+        assert tracker.summary.by_purpose == {}
 
     def test_records_returns_copy(self):
         tracker = UsageTracker()
@@ -214,6 +379,95 @@ class TestUsageTracker:
         records = tracker.records
         records.clear()
         assert tracker.call_count == 1
+
+    def test_summary_model_dump(self):
+        """summary.model_dump() returns a plain dict for serialization."""
+        tracker = UsageTracker()
+        tracker.record(
+            CallPurpose.MAIN,
+            {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+        )
+        d = tracker.summary.model_dump()
+        assert isinstance(d, dict)
+        assert d["total"]["prompt_tokens"] == 100
+        assert d["by_purpose"]["main"]["calls"] == 1
+        assert d["call_count"] == 1
+
+
+# ================================================================== #
+# TokenOrigin — by_origin summary split                                #
+# ================================================================== #
+
+
+class TestByOriginSummary:
+    def test_main_call_tagged_as_user(self):
+        tracker = UsageTracker()
+        tracker.record(
+            CallPurpose.MAIN,
+            {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+        )
+        summary = tracker.summary
+        assert "user" in summary.by_origin
+        assert summary.by_origin["user"].total_tokens == 150
+
+    def test_tool_loop_tagged_as_framework(self):
+        tracker = UsageTracker()
+        tracker.record(
+            CallPurpose.TOOL_LOOP,
+            {"prompt_tokens": 200, "completion_tokens": 80, "total_tokens": 280},
+        )
+        summary = tracker.summary
+        assert "framework" in summary.by_origin
+        assert summary.by_origin["framework"].total_tokens == 280
+
+    def test_mixed_calls_split_correctly(self):
+        tracker = UsageTracker()
+        tracker.record(
+            CallPurpose.MAIN,
+            {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+        )
+        tracker.record(
+            CallPurpose.TOOL_LOOP,
+            {"prompt_tokens": 200, "completion_tokens": 80, "total_tokens": 280},
+        )
+        tracker.record(
+            CallPurpose.CRITIC,
+            {"prompt_tokens": 60, "completion_tokens": 30, "total_tokens": 90},
+        )
+
+        summary = tracker.summary
+        assert summary.by_origin["user"].total_tokens == 150
+        assert summary.by_origin["user"].calls == 1
+        assert summary.by_origin["framework"].total_tokens == 280 + 90
+        assert summary.by_origin["framework"].calls == 2
+
+    def test_explicit_origin_override(self):
+        tracker = UsageTracker()
+        tracker.record(
+            CallPurpose.TOOL_LOOP,
+            {"prompt_tokens": 50, "total_tokens": 50},
+            origin=TokenOrigin.USER,
+        )
+        summary = tracker.summary
+        assert summary.by_origin["user"].total_tokens == 50
+        assert "framework" not in summary.by_origin
+
+    def test_all_purposes_auto_origin(self):
+        tracker = UsageTracker()
+        for purpose in CallPurpose:
+            tracker.record(
+                purpose,
+                {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
+        summary = tracker.summary
+        assert summary.by_origin["user"].calls == 1
+        assert summary.by_origin["framework"].calls == 4
+
+    def test_reset_clears_by_origin(self):
+        tracker = UsageTracker()
+        tracker.record(CallPurpose.MAIN, {"prompt_tokens": 100, "total_tokens": 100})
+        tracker.reset()
+        assert tracker.summary.by_origin == {}
 
 
 # ================================================================== #
@@ -439,13 +693,28 @@ class TestAgentLastUsage:
         assert hasattr(agent, "_usage_tracker")
         assert isinstance(agent._usage_tracker, UsageTracker)
 
-    def test_last_usage_empty(self):
+    def test_last_usage_returns_pydantic_model(self):
         from nucleusiq.agents.agent import Agent
 
         agent = Agent(name="test", role="test", objective="test")
         usage = agent.last_usage
-        assert usage["call_count"] == 0
-        assert usage["total"]["total_tokens"] == 0
+        assert isinstance(usage, UsageSummary)
+        assert usage.call_count == 0
+        assert usage.total.total_tokens == 0
+
+    def test_last_usage_model_dump(self):
+        """model_dump() gives a plain dict for serialization / logging."""
+        from nucleusiq.agents.agent import Agent
+
+        agent = Agent(name="test", role="test", objective="test")
+        agent.usage_tracker.record(
+            CallPurpose.MAIN,
+            {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+        )
+        d = agent.last_usage.model_dump()
+        assert isinstance(d, dict)
+        assert d["total"]["prompt_tokens"] == 100
+        assert d["by_purpose"]["main"]["calls"] == 1
 
     def test_usage_tracker_property(self):
         from nucleusiq.agents.agent import Agent
@@ -454,7 +723,7 @@ class TestAgentLastUsage:
         tracker = agent.usage_tracker
         assert isinstance(tracker, UsageTracker)
         tracker.record(CallPurpose.MAIN, {"prompt_tokens": 50, "total_tokens": 50})
-        assert agent.last_usage["call_count"] == 1
+        assert agent.last_usage.call_count == 1
 
     @pytest.mark.asyncio
     async def test_usage_reset_on_execute(self):
@@ -473,7 +742,7 @@ class TestAgentLastUsage:
         agent._usage_tracker.record(
             CallPurpose.MAIN, {"prompt_tokens": 999, "total_tokens": 999}
         )
-        assert agent.last_usage["call_count"] == 1
+        assert agent.last_usage.call_count == 1
 
         from nucleusiq.agents.task import Task
 
@@ -481,7 +750,7 @@ class TestAgentLastUsage:
         await agent.execute(task)
 
         summary = agent.last_usage
-        assert summary["total"]["total_tokens"] != 999 or summary["call_count"] == 0
+        assert summary.total.total_tokens != 999 or summary.call_count == 0
 
 
 # ================================================================== #

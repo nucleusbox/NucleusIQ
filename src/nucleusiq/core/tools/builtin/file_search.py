@@ -22,6 +22,42 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_RESULTS = 50
 
+DEFAULT_BINARY_EXTENSIONS = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".ico",
+        ".pdf",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".7z",
+        ".rar",
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".bin",
+        ".mp3",
+        ".mp4",
+        ".wav",
+        ".avi",
+        ".mov",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".eot",
+        ".pyc",
+        ".pyo",
+        ".class",
+        ".o",
+    }
+)
+
 
 class FileSearchTool(BaseTool):
     """Search for text or regex patterns inside files.
@@ -32,6 +68,14 @@ class FileSearchTool(BaseTool):
             Defaults to ``"."`` (entire workspace).
         regex (bool, optional): Treat *pattern* as a regex (default ``False``).
         max_results (int, optional): Maximum matches to return (default 50).
+
+    Constructor options for filtering which files are searched:
+        include_extensions: If set, *only* files with these extensions
+            are searched (e.g. ``[".py", ".js"]``).
+        exclude_extensions: Additional extensions to skip beyond the
+            default binary set (e.g. ``[".parquet", ".pkl"]``).
+        binary_extensions: Override the entire default binary extension
+            set.  Pass ``frozenset()`` to disable binary skipping.
     """
 
     def __init__(
@@ -39,6 +83,9 @@ class FileSearchTool(BaseTool):
         workspace_root: str,
         *,
         max_results: int = DEFAULT_MAX_RESULTS,
+        include_extensions: list[str] | None = None,
+        exclude_extensions: list[str] | None = None,
+        binary_extensions: frozenset[str] | None = None,
         name: str = "file_search",
         description: str = (
             "Search for a text or regex pattern inside files. "
@@ -48,6 +95,22 @@ class FileSearchTool(BaseTool):
         super().__init__(name=name, description=description)
         self.workspace_root = workspace_root
         self.max_results = max_results
+        self._include_extensions: frozenset[str] | None = (
+            frozenset(e.lower() for e in include_extensions)
+            if include_extensions
+            else None
+        )
+        base_binary = (
+            binary_extensions
+            if binary_extensions is not None
+            else DEFAULT_BINARY_EXTENSIONS
+        )
+        extra = (
+            frozenset(e.lower() for e in exclude_extensions)
+            if exclude_extensions
+            else frozenset()
+        )
+        self._skip_extensions: frozenset[str] = base_binary | extra
 
     async def initialize(self) -> None:
         return
@@ -127,41 +190,6 @@ class FileSearchTool(BaseTool):
         matches: list[str],
         limit: int,
     ) -> None:
-        _BINARY_EXTENSIONS = frozenset(
-            {
-                ".png",
-                ".jpg",
-                ".jpeg",
-                ".gif",
-                ".webp",
-                ".bmp",
-                ".ico",
-                ".pdf",
-                ".zip",
-                ".tar",
-                ".gz",
-                ".7z",
-                ".rar",
-                ".exe",
-                ".dll",
-                ".so",
-                ".dylib",
-                ".bin",
-                ".mp3",
-                ".mp4",
-                ".wav",
-                ".avi",
-                ".mov",
-                ".woff",
-                ".woff2",
-                ".ttf",
-                ".eot",
-                ".pyc",
-                ".pyo",
-                ".class",
-                ".o",
-            }
-        )
         for dirpath, _dirnames, filenames in os.walk(dir_path):
             for fname in sorted(filenames):
                 if len(matches) >= limit:
@@ -175,7 +203,11 @@ class FileSearchTool(BaseTool):
                         fname,
                     ),
                 )
-                if fpath.suffix.lower() in _BINARY_EXTENSIONS:
+                ext = fpath.suffix.lower()
+                if self._include_extensions is not None:
+                    if ext not in self._include_extensions:
+                        continue
+                elif ext in self._skip_extensions:
                     continue
                 self._search_file(fpath, pattern, compiled, matches, limit)
 

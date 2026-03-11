@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.executor import Executor
+from nucleusiq.agents.components.usage_tracker import CallPurpose
 from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.task import Task
@@ -147,14 +148,17 @@ class StandardMode(BaseExecutionMode):
         """Core tool-calling loop: LLM -> tool -> LLM -> ... -> final answer."""
         max_tool_calls = agent.config.get_effective_max_tool_calls()
         tool_call_count = 0
+        call_round = 0
         empty_retries_remaining = 1
 
         while tool_call_count < max_tool_calls:
+            call_round += 1
+            purpose = CallPurpose.MAIN if call_round == 1 else CallPurpose.TOOL_LOOP
             call_kwargs = self.build_call_kwargs(
                 agent, messages, tool_specs or None, max_tokens=2048
             )
             response = await self.call_llm(
-                agent, call_kwargs, messages, tool_specs or None
+                agent, call_kwargs, messages, tool_specs or None, purpose=purpose
             )
 
             structured = self.handle_structured_output(agent, response)

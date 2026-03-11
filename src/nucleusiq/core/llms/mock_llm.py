@@ -49,9 +49,23 @@ class MockLLM(BaseLLM):
         def __init__(self, message: "MockLLM.Message"):
             self.message = message
 
+    class Usage:
+        """Simulated token usage matching the structure real providers return."""
+
+        def __init__(self, prompt_tokens: int = 50, completion_tokens: int = 25):
+            self.prompt_tokens = prompt_tokens
+            self.completion_tokens = completion_tokens
+            self.total_tokens = prompt_tokens + completion_tokens
+            self.reasoning_tokens = 0
+
     class LLMResponse:
-        def __init__(self, choices: list["MockLLM.Choice"]):
+        def __init__(
+            self,
+            choices: list["MockLLM.Choice"],
+            usage: "MockLLM.Usage | None" = None,
+        ):
             self.choices = choices
+            self.usage = usage or MockLLM.Usage()
 
     # ------------------------------------------------------------------ #
     # Non-streaming call                                                  #

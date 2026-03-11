@@ -187,6 +187,6 @@ class TestFileToolsUsageTracking:
         agent = _make_agent(workspace, "file_read", {"path": "report.txt"})
         await agent.execute(Task(id="t10", objective="Read and analyze the report"))
         usage = agent.last_usage
-        assert "call_count" in usage
-        assert "by_purpose" in usage
-        assert "total" in usage
+        assert hasattr(usage, "call_count")
+        assert hasattr(usage, "by_purpose")
+        assert hasattr(usage, "total")

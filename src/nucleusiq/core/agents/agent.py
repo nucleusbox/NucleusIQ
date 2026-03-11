@@ -17,7 +17,7 @@ from typing import Any, ClassVar, Dict, List, Type
 
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.components.executor import Executor
-from nucleusiq.agents.components.usage_tracker import UsageTracker
+from nucleusiq.agents.components.usage_tracker import UsageSummary, UsageTracker
 from nucleusiq.agents.config.agent_config import AgentMetrics, AgentState
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
@@ -451,11 +451,14 @@ class Agent(BaseAgent):
     # ------------------------------------------------------------------ #
 
     @property
-    def last_usage(self) -> dict[str, Any]:
+    def last_usage(self) -> UsageSummary:
         """Return the accumulated usage summary from the most recent execution.
 
-        The summary includes total token counts and a per-purpose breakdown
-        (main, tool_loop, planning, critic, refiner).
+        Returns a :class:`UsageSummary` Pydantic model with typed fields:
+        ``total``, ``call_count``, ``by_purpose``, ``by_origin``.
+
+        Access fields via attribute (``agent.last_usage.total.prompt_tokens``)
+        or convert to a plain dict with ``agent.last_usage.model_dump()``.
         """
         return self._usage_tracker.summary
 

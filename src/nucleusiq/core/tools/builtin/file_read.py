@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_LINES = 500
 DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 _BINARY_CHECK_BYTES = 512
+_DETECT_SAMPLE_BYTES = 4096
 
 
 def _is_binary(file_path: Any) -> bool:
@@ -41,6 +42,30 @@ def _is_binary(file_path: Any) -> bool:
         return False
 
 
+def _detect_encoding(file_path: Any) -> str | None:
+    """Detect file encoding using ``chardet`` if available.
+
+    Reads the first 4 KB and returns the detected encoding name,
+    or ``None`` when ``chardet`` is not installed or detection fails.
+    """
+    try:
+        import chardet  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+
+    try:
+        with open(file_path, "rb") as f:
+            sample = f.read(_DETECT_SAMPLE_BYTES)
+        result = chardet.detect(sample)
+        encoding = result.get("encoding")
+        confidence = result.get("confidence", 0)
+        if encoding and confidence > 0.5:
+            return encoding
+    except Exception:
+        pass
+    return None
+
+
 class FileReadTool(BaseTool):
     """Read file content, optionally restricting to a line range.
 
@@ -48,7 +73,9 @@ class FileReadTool(BaseTool):
         path (str): File path relative to *workspace_root*.
         start_line (int, optional): 1-based first line to read.
         end_line (int, optional): 1-based last line to read (inclusive).
-        encoding (str, optional): File encoding (default ``utf-8``).
+        encoding (str, optional): File encoding.  ``"auto"`` (default)
+            uses ``chardet`` to detect encoding from the first 4 KB
+            when available, falling back to UTF-8 otherwise.
     """
 
     def __init__(
@@ -75,7 +102,7 @@ class FileReadTool(BaseTool):
         path: str = kwargs.get("path", "")
         start_line: int | None = kwargs.get("start_line")
         end_line: int | None = kwargs.get("end_line")
-        encoding: str = kwargs.get("encoding", "utf-8")
+        encoding: str = kwargs.get("encoding", "auto")
 
         if not path:
             return "Error: 'path' parameter is required."
@@ -102,6 +129,10 @@ class FileReadTool(BaseTool):
                 f"Error: '{path}' appears to be a binary file "
                 f"({format_file_size(size)}). FileReadTool only reads text files."
             )
+
+        if encoding == "auto":
+            detected = _detect_encoding(resolved)
+            encoding = detected or "utf-8"
 
         try:
             text = resolved.read_text(encoding=encoding, errors="replace")
@@ -160,8 +191,12 @@ class FileReadTool(BaseTool):
                     },
                     "encoding": {
                         "type": "string",
-                        "description": "File encoding (default: utf-8).",
-                        "default": "utf-8",
+                        "description": (
+                            "File encoding. Use 'auto' to detect via chardet "
+                            "(falls back to utf-8 if chardet is not installed). "
+                            "Default: auto."
+                        ),
+                        "default": "auto",
                     },
                 },
                 "required": ["path"],

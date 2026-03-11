@@ -337,11 +337,11 @@ class TestUsageTrackerWithAttachments:
         assert result is not None
 
         usage = agent.last_usage
-        assert "total" in usage
-        assert "call_count" in usage
-        assert "by_purpose" in usage
-        assert isinstance(usage["total"]["prompt_tokens"], int)
-        assert isinstance(usage["total"]["completion_tokens"], int)
+        assert hasattr(usage, "total")
+        assert hasattr(usage, "call_count")
+        assert hasattr(usage, "by_purpose")
+        assert isinstance(usage.total.prompt_tokens, int)
+        assert isinstance(usage.total.completion_tokens, int)
 
     @pytest.mark.asyncio
     async def test_usage_tracker_records_with_usage_in_response(self):
@@ -377,9 +377,9 @@ class TestUsageTrackerWithAttachments:
         await agent.execute(task)
 
         usage = agent.last_usage
-        assert usage["call_count"] >= 1
-        assert usage["total"]["prompt_tokens"] >= 250
-        assert usage["total"]["total_tokens"] >= 300
+        assert usage.call_count >= 1
+        assert usage.total.prompt_tokens >= 250
+        assert usage.total.total_tokens >= 300
 
 
 # ================================================================== #

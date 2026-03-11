@@ -7,6 +7,13 @@ library where possible; YAML requires ``PyYAML`` (optional).
 Returns a structured summary: headers/keys, row count, sample rows,
 and optional query context.  This is the lightweight alternative to
 pandas for agent data exploration.
+
+**Query filtering (v0.5.0):**
+
+- ``columns`` — for CSV/TSV, select specific columns by name.
+- ``key_path`` — for JSON/YAML/TOML, navigate to a nested value
+  using dot notation (e.g. ``"users.0.name"``).
+- ``query`` — natural-language hint passed through as context.
 """
 
 from __future__ import annotations
@@ -32,10 +39,95 @@ DEFAULT_SAMPLE_ROWS = 5
 
 
 # ------------------------------------------------------------------ #
+# Filtering helpers                                                    #
+# ------------------------------------------------------------------ #
+
+
+def _resolve_key_path(data: Any, key_path: str) -> tuple[Any, bool]:
+    """Walk *data* along a dot-separated *key_path*.
+
+    Numeric segments index into lists (e.g. ``"items.0.name"``).
+    Returns ``(value, True)`` on success, ``(None, False)`` on miss.
+    """
+    current = data
+    for segment in key_path.split("."):
+        if isinstance(current, dict):
+            if segment in current:
+                current = current[segment]
+            else:
+                return None, False
+        elif isinstance(current, list):
+            try:
+                idx = int(segment)
+                current = current[idx]
+            except (ValueError, IndexError):
+                return None, False
+        else:
+            return None, False
+    return current, True
+
+
+def _filter_tabular_columns(
+    headers: list[str],
+    data_rows: list[list[str]],
+    columns: list[str],
+) -> tuple[list[str], list[list[str]]]:
+    """Return only the requested columns from a tabular dataset.
+
+    Column matching is case-insensitive.  Unknown column names are
+    silently ignored (the output header notes which were matched).
+    """
+    lower_map = {h.lower(): i for i, h in enumerate(headers)}
+    indices = [lower_map[c.lower()] for c in columns if c.lower() in lower_map]
+    if not indices:
+        return headers, data_rows
+    filtered_headers = [headers[i] for i in indices]
+    filtered_rows = [
+        [row[i] if i < len(row) else "" for i in indices] for row in data_rows
+    ]
+    return filtered_headers, filtered_rows
+
+
+# ------------------------------------------------------------------ #
 # Per-format extraction handlers                                       #
 # ------------------------------------------------------------------ #
 
-FormatHandler = Callable[["FileExtractTool", str, str, int, int, str], str]
+FormatHandler = Callable[
+    ["FileExtractTool", str, str, int, int, str, "ExtractOptions"], str
+]
+
+
+class ExtractOptions:
+    """Bag of extra parameters passed from ``execute()`` to handlers."""
+
+    __slots__ = ("columns", "key_path")
+
+    def __init__(self, columns: list[str] | None = None, key_path: str = "") -> None:
+        self.columns = columns
+        self.key_path = key_path
+
+
+def _format_csv_table(headers: list[str], rows: list[list[str]]) -> list[str]:
+    """Render a pretty-printed table for CSV/TSV sample output."""
+    col_widths = [len(h) for h in headers]
+    for row in rows:
+        for i, val in enumerate(row):
+            if i < len(col_widths):
+                col_widths[i] = max(col_widths[i], len(val))
+
+    parts: list[str] = []
+    header_line = " | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
+    parts.append(f"  {header_line}")
+    parts.append(f"  {'-+-'.join('-' * w for w in col_widths)}")
+    for row in rows:
+        padded = [
+            (row[i] if i < len(row) else "").ljust(
+                col_widths[i] if i < len(col_widths) else 0
+            )
+            for i in range(len(headers))
+        ]
+        parts.append(f"  {' | '.join(padded)}")
+    return parts
 
 
 def _extract_csv(
@@ -45,6 +137,7 @@ def _extract_csv(
     size: int,
     max_sample: int,
     query: str,
+    opts: ExtractOptions | None = None,
 ) -> str:
     reader = csv.reader(io.StringIO(text))
     rows = list(reader)
@@ -55,6 +148,9 @@ def _extract_csv(
     headers = rows[0]
     data_rows = rows[1:]
     total = len(data_rows)
+
+    if opts and opts.columns:
+        headers, data_rows = _filter_tabular_columns(headers, data_rows, opts.columns)
 
     parts: list[str] = [
         f"File: {path} | CSV | {format_file_size(size)}",
@@ -68,23 +164,7 @@ def _extract_csv(
     if data_rows:
         sample = data_rows[:max_sample]
         parts.append(f"\nSample data (first {len(sample)} rows):")
-        col_widths = [len(h) for h in headers]
-        for row in sample:
-            for i, val in enumerate(row):
-                if i < len(col_widths):
-                    col_widths[i] = max(col_widths[i], len(val))
-
-        header_line = " | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
-        parts.append(f"  {header_line}")
-        parts.append(f"  {'-+-'.join('-' * w for w in col_widths)}")
-        for row in sample:
-            padded = [
-                (row[i] if i < len(row) else "").ljust(
-                    col_widths[i] if i < len(col_widths) else 0
-                )
-                for i in range(len(headers))
-            ]
-            parts.append(f"  {' | '.join(padded)}")
+        parts.extend(_format_csv_table(headers, sample))
 
     return "\n".join(parts)
 
@@ -96,6 +176,7 @@ def _extract_tsv(
     size: int,
     max_sample: int,
     query: str,
+    opts: ExtractOptions | None = None,
 ) -> str:
     reader = csv.reader(io.StringIO(text), delimiter="\t")
     rows = list(reader)
@@ -106,6 +187,9 @@ def _extract_tsv(
     headers = rows[0]
     data_rows = rows[1:]
     total = len(data_rows)
+
+    if opts and opts.columns:
+        headers, data_rows = _filter_tabular_columns(headers, data_rows, opts.columns)
 
     parts: list[str] = [
         f"File: {path} | TSV | {format_file_size(size)}",
@@ -119,48 +203,27 @@ def _extract_tsv(
     if data_rows:
         sample = data_rows[:max_sample]
         parts.append(f"\nSample data (first {len(sample)} rows):")
-        for row in sample:
-            parts.append("  " + "\t".join(row))
+        parts.extend(_format_csv_table(headers, sample))
 
     return "\n".join(parts)
 
 
-def _extract_json(
-    tool: FileExtractTool,
-    path: str,
-    text: str,
-    size: int,
-    max_sample: int,
-    query: str,
-) -> str:
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        return f"Error: Invalid JSON in '{path}': {exc}"
-
-    parts: list[str] = [
-        f"File: {path} | JSON | {format_file_size(size)}",
-    ]
-
-    if query:
-        parts.append(f"Query context: {query}")
-
+def _format_json_value(data: Any, max_sample: int) -> list[str]:
+    """Render a JSON/YAML value summary regardless of where it came from."""
+    parts: list[str] = []
     if isinstance(data, list):
         parts.append(f"Type: Array with {len(data)} items")
         if data and isinstance(data[0], dict):
             keys = list(data[0].keys())
             parts.append(f"Item keys ({len(keys)}): {', '.join(keys)}")
-            parts.append(f"\nSample items (first {min(max_sample, len(data))}):")
-            for item in data[:max_sample]:
-                parts.append(f"  {json.dumps(item, ensure_ascii=False, default=str)}")
-        elif data:
+        if data:
             parts.append(f"\nSample items (first {min(max_sample, len(data))}):")
             for item in data[:max_sample]:
                 parts.append(f"  {json.dumps(item, ensure_ascii=False, default=str)}")
     elif isinstance(data, dict):
         keys = list(data.keys())
         parts.append(f"Type: Object with {len(keys)} keys")
-        parts.append(f"Keys: {', '.join(keys)}")
+        parts.append(f"Keys: {', '.join(str(k) for k in keys)}")
         parts.append("\nValues summary:")
         for key in keys[:max_sample]:
             val = data[key]
@@ -176,7 +239,39 @@ def _extract_json(
     else:
         parts.append(f"Type: {type(data).__name__}")
         parts.append(f"Value: {json.dumps(data, ensure_ascii=False, default=str)}")
+    return parts
 
+
+def _extract_json(
+    tool: FileExtractTool,
+    path: str,
+    text: str,
+    size: int,
+    max_sample: int,
+    query: str,
+    opts: ExtractOptions | None = None,
+) -> str:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return f"Error: Invalid JSON in '{path}': {exc}"
+
+    parts: list[str] = [
+        f"File: {path} | JSON | {format_file_size(size)}",
+    ]
+
+    if opts and opts.key_path:
+        value, found = _resolve_key_path(data, opts.key_path)
+        if not found:
+            parts.append(f"key_path '{opts.key_path}' not found in data.")
+            return "\n".join(parts)
+        parts.append(f"key_path: {opts.key_path}")
+        data = value
+
+    if query:
+        parts.append(f"Query context: {query}")
+
+    parts.extend(_format_json_value(data, max_sample))
     return "\n".join(parts)
 
 
@@ -187,6 +282,7 @@ def _extract_jsonl(
     size: int,
     max_sample: int,
     query: str,
+    opts: ExtractOptions | None = None,
 ) -> str:
     lines = [ln for ln in text.splitlines() if ln.strip()]
     total = len(lines)
@@ -210,10 +306,16 @@ def _extract_jsonl(
     if isinstance(first, dict):
         parts.append(f"Item keys ({len(first)}): {', '.join(first.keys())}")
 
+    key_path = opts.key_path if opts else ""
+
     parts.append(f"\nSample lines (first {min(max_sample, total)}):")
     for ln in lines[:max_sample]:
         try:
             obj = json.loads(ln)
+            if key_path and isinstance(obj, dict):
+                value, found = _resolve_key_path(obj, key_path)
+                if found:
+                    obj = {key_path: value}
             parts.append(f"  {json.dumps(obj, ensure_ascii=False, default=str)}")
         except json.JSONDecodeError:
             parts.append(f"  (invalid JSON) {ln[:120]}")
@@ -228,6 +330,7 @@ def _extract_yaml(
     size: int,
     max_sample: int,
     query: str,
+    opts: ExtractOptions | None = None,
 ) -> str:
     try:
         import yaml  # type: ignore[import-untyped]
@@ -243,32 +346,21 @@ def _extract_yaml(
         f"File: {path} | YAML | {format_file_size(size)}",
     ]
 
+    if opts and opts.key_path:
+        value, found = _resolve_key_path(data, opts.key_path)
+        if not found:
+            parts.append(f"key_path '{opts.key_path}' not found in data.")
+            return "\n".join(parts)
+        parts.append(f"key_path: {opts.key_path}")
+        data = value
+
     if query:
         parts.append(f"Query context: {query}")
 
-    if isinstance(data, list):
-        parts.append(f"Type: Array with {len(data)} items")
-        if data and isinstance(data[0], dict):
-            parts.append(f"Item keys: {', '.join(data[0].keys())}")
-        parts.append(f"\nSample items (first {min(max_sample, len(data))}):")
-        for item in data[:max_sample]:
-            parts.append(f"  {json.dumps(item, ensure_ascii=False, default=str)}")
-    elif isinstance(data, dict):
-        keys = list(data.keys())
-        parts.append(f"Type: Object with {len(keys)} keys")
-        parts.append(f"Keys: {', '.join(str(k) for k in keys)}")
-        parts.append("\nValues summary:")
-        for key in keys[:max_sample]:
-            val = data[key]
-            s = json.dumps(val, ensure_ascii=False, default=str)
-            if len(s) > 80:
-                s = s[:77] + "..."
-            parts.append(f"  {key}: {s}")
-    elif data is None:
+    if data is None:
         parts.append("(empty document)")
     else:
-        parts.append(f"Type: {type(data).__name__}")
-        parts.append(f"Value: {data}")
+        parts.extend(_format_json_value(data, max_sample))
 
     return "\n".join(parts)
 
@@ -280,6 +372,7 @@ def _extract_xml(
     size: int,
     max_sample: int,
     query: str,
+    opts: ExtractOptions | None = None,
 ) -> str:
     try:
         root = ET.fromstring(text)
@@ -335,6 +428,7 @@ def _extract_toml(
     size: int,
     max_sample: int,
     query: str,
+    opts: ExtractOptions | None = None,
 ) -> str:
     if sys.version_info >= (3, 11):
         import tomllib
@@ -359,20 +453,18 @@ def _extract_toml(
         f"File: {path} | TOML | {format_file_size(size)}",
     ]
 
+    if opts and opts.key_path:
+        value, found = _resolve_key_path(data, opts.key_path)
+        if not found:
+            parts.append(f"key_path '{opts.key_path}' not found in data.")
+            return "\n".join(parts)
+        parts.append(f"key_path: {opts.key_path}")
+        data = value
+
     if query:
         parts.append(f"Query context: {query}")
 
-    keys = list(data.keys())
-    parts.append(f"Type: Object with {len(keys)} top-level keys")
-    parts.append(f"Keys: {', '.join(keys)}")
-    parts.append("\nValues summary:")
-    for key in keys[:max_sample]:
-        val = data[key]
-        s = json.dumps(val, ensure_ascii=False, default=str)
-        if len(s) > 80:
-            s = s[:77] + "..."
-        parts.append(f"  {key}: {s}")
-
+    parts.extend(_format_json_value(data, max_sample))
     return "\n".join(parts)
 
 
@@ -402,7 +494,7 @@ def register_extract_format(extension: str, handler: FormatHandler) -> None:
         File extension including the dot (e.g. ``".parquet"``).
     handler : FormatHandler
         Callable with signature
-        ``(tool, path, text, size, max_sample, query) -> str``.
+        ``(tool, path, text, size, max_sample, query, opts) -> str``.
     """
     _FORMAT_HANDLERS[extension.lower()] = handler
 
@@ -425,8 +517,11 @@ class FileExtractTool(BaseTool):
     Parameters accepted by ``execute()``:
         path (str): File path relative to *workspace_root*.
         query (str, optional): Natural-language hint about what to
-            extract (passed through as context -- the tool always
-            returns the structural summary).
+            extract (passed through as context).
+        columns (str, optional): Comma-separated column names for
+            CSV/TSV filtering (e.g. ``"name,email,revenue"``).
+        key_path (str, optional): Dot-separated key path for
+            JSON/YAML/TOML navigation (e.g. ``"data.users.0.name"``).
         max_sample_rows (int, optional): Number of sample rows
             to include (default 5).
     """
@@ -440,7 +535,8 @@ class FileExtractTool(BaseTool):
         description: str = (
             "Extract structured data from data files (CSV, TSV, JSON, JSONL, "
             "YAML, XML, TOML). Returns headers, row count, and sample rows "
-            "for data exploration."
+            "for data exploration. Use 'columns' to select CSV/TSV columns "
+            "or 'key_path' to navigate JSON/YAML/TOML keys."
         ),
     ) -> None:
         super().__init__(name=name, description=description)
@@ -454,6 +550,8 @@ class FileExtractTool(BaseTool):
         path: str = kwargs.get("path", "")
         query: str = kwargs.get("query", "")
         max_sample: int = kwargs.get("max_sample_rows", self.max_sample_rows)
+        columns_raw: str = kwargs.get("columns", "")
+        key_path: str = kwargs.get("key_path", "")
 
         if not path:
             return "Error: 'path' parameter is required."
@@ -482,7 +580,14 @@ class FileExtractTool(BaseTool):
                 f"FileExtractTool supports: {supported}"
             )
 
-        return handler(self, path, text, size, max_sample, query)
+        columns = (
+            [c.strip() for c in columns_raw.split(",") if c.strip()]
+            if columns_raw
+            else None
+        )
+        opts = ExtractOptions(columns=columns, key_path=key_path)
+
+        return handler(self, path, text, size, max_sample, query, opts)
 
     def get_spec(self) -> Dict[str, Any]:
         supported = ", ".join(sorted(_FORMAT_HANDLERS.keys()))
@@ -502,8 +607,22 @@ class FileExtractTool(BaseTool):
                     "query": {
                         "type": "string",
                         "description": (
-                            "Optional hint about what data to focus on "
+                            "Optional natural-language hint about what data to focus on "
                             "(e.g. 'revenue figures', 'user emails')."
+                        ),
+                    },
+                    "columns": {
+                        "type": "string",
+                        "description": (
+                            "Comma-separated column names for CSV/TSV filtering "
+                            "(e.g. 'name,email'). Case-insensitive."
+                        ),
+                    },
+                    "key_path": {
+                        "type": "string",
+                        "description": (
+                            "Dot-separated key path for JSON/YAML/TOML navigation "
+                            "(e.g. 'data.users.0.name'). Numeric segments index arrays."
                         ),
                     },
                     "max_sample_rows": {

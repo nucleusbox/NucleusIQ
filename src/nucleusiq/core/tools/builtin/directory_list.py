@@ -19,6 +19,8 @@ from nucleusiq.tools.builtin.workspace import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MAX_ENTRIES = 200
+
 
 class DirectoryListTool(BaseTool):
     """List files and directories with optional glob filtering.
@@ -29,12 +31,18 @@ class DirectoryListTool(BaseTool):
         pattern (str, optional): Glob pattern to filter entries
             (default ``"*"``).
         recursive (bool, optional): Search recursively (default ``False``).
+
+    Constructor options:
+        max_entries: Maximum number of entries to return (default 200).
+            Prevents huge output on large directory trees that would
+            waste LLM context tokens.
     """
 
     def __init__(
         self,
         workspace_root: str,
         *,
+        max_entries: int = DEFAULT_MAX_ENTRIES,
         name: str = "directory_list",
         description: str = (
             "List files and directories at a given path. Supports glob "
@@ -43,6 +51,7 @@ class DirectoryListTool(BaseTool):
     ) -> None:
         super().__init__(name=name, description=description)
         self.workspace_root = workspace_root
+        self.max_entries = max_entries
 
     async def initialize(self) -> None:
         return
@@ -78,6 +87,11 @@ class DirectoryListTool(BaseTool):
         if not safe_entries:
             return f"No entries matching '{pattern}' in {path}."
 
+        total_found = len(safe_entries)
+        truncated = total_found > self.max_entries
+        if truncated:
+            safe_entries = safe_entries[: self.max_entries]
+
         lines: list[str] = []
         dir_count = 0
         file_count = 0
@@ -101,7 +115,13 @@ class DirectoryListTool(BaseTool):
             header += " (recursive)"
         header += "\n"
 
-        return header + "\n".join(lines)
+        result = header + "\n".join(lines)
+        if truncated:
+            result += (
+                f"\n\n--- Showing {self.max_entries} of {total_found} entries. "
+                f"Use a more specific path or pattern to narrow results. ---"
+            )
+        return result
 
     def get_spec(self) -> Dict[str, Any]:
         return {
