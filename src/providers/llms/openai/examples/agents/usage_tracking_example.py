@@ -104,9 +104,13 @@ async def main() -> None:
     print(f"  usage.total.total_tokens        = {usage.total.total_tokens}")
     print(f"  usage.call_count                = {usage.call_count}")
     if "user" in usage.by_origin:
-        print(f"  usage.by_origin['user'].tokens  = {usage.by_origin['user'].total_tokens}")
+        print(
+            f"  usage.by_origin['user'].tokens  = {usage.by_origin['user'].total_tokens}"
+        )
     if "framework" in usage.by_origin:
-        print(f"  usage.by_origin['framework']    = {usage.by_origin['framework'].total_tokens}")
+        print(
+            f"  usage.by_origin['framework']    = {usage.by_origin['framework'].total_tokens}"
+        )
 
     # ------------------------------------------------------------------ #
     # Step 4: .summary() -- plain dict for logging / dashboards            #

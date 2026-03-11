@@ -154,7 +154,9 @@ class UsageSummary(BaseModel):
               framework:   75 tokens (1 call)  — 50%
         """
         lines: list[str] = []
-        lines.append(f"Usage Summary ({self.call_count} LLM call{'s' if self.call_count != 1 else ''})")
+        lines.append(
+            f"Usage Summary ({self.call_count} LLM call{'s' if self.call_count != 1 else ''})"
+        )
         lines.append("-" * 36)
 
         lines.append("Totals")
