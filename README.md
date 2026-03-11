@@ -1,9 +1,12 @@
 # NucleusIQ
 
 [![CI](https://github.com/nucleusbox/NucleusIQ/actions/workflows/ci.yml/badge.svg)](https://github.com/nucleusbox/NucleusIQ/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/nucleusiq)](https://pypi.org/project/nucleusiq/)
-[![Python](https://img.shields.io/pypi/pyversions/nucleusiq)](https://pypi.org/project/nucleusiq/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+| Package | PyPI | Version | Python |
+|---------|------|---------|--------|
+| **nucleusiq** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq)](https://pypi.org/project/nucleusiq/) | ![Version](https://img.shields.io/pypi/v/nucleusiq?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq)](https://pypi.org/project/nucleusiq/) |
+| **nucleusiq-openai** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq-openai)](https://pypi.org/project/nucleusiq-openai/) | ![Version](https://img.shields.io/pypi/v/nucleusiq-openai?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq-openai)](https://pypi.org/project/nucleusiq-openai/) |
 
 ---
 
