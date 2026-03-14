@@ -153,7 +153,7 @@ async def main():
     print("  Attachment  = file-as-context (one-shot, in the prompt)")
     print("  File Tool   = file-as-workspace (iterative, agent decides)")
     print()
-    print("See docs/guides/file-handling.md for the full decision guide.")
+    print("See https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/file-handling/ for the full decision guide.")
 
     await example_tools_only()
     await example_attachment_plus_tools()

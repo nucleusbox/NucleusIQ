@@ -133,11 +133,12 @@ cd src/providers/llms/openai && python -m pytest tests/ -q
 
 ## Documentation
 
+- **Published docs** — https://nucleusbox.github.io/nucleusiq-docs/
+- **Docs repository** — https://github.com/nucleusbox/nucleusiq-docs
 - [INSTALLATION.md](INSTALLATION.md) — Setup instructions (pip, uv, development)
 - [CHANGELOG.md](CHANGELOG.md) — Release notes
 - [RELEASE.md](RELEASE.md) — Release process and branching strategy
-- [docs/guides/file-handling.md](docs/guides/file-handling.md) — File handling decision guide (Attachment vs Tool vs Both)
-- [docs/IMPLEMENTATION_TRACKER.md](docs/IMPLEMENTATION_TRACKER.md) — Detailed implementation status
+- [File handling guide](https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/file-handling/) — Attachment vs Tool vs Both decision guide
 
 ## Contributing
 
