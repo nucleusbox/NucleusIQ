@@ -1,7 +1,7 @@
 # NucleusIQ
 
 <p align="center">
-  <img src="assets/images/nucleusiq-logo.png" alt="NucleusIQ logo" width="190" />
+  <img src="assets/images/nucleusiq-logo.png" alt="NucleusIQ logo" width="280" />
 </p>
 
 [![CI](https://github.com/nucleusbox/NucleusIQ/actions/workflows/ci.yml/badge.svg)](https://github.com/nucleusbox/NucleusIQ/actions/workflows/ci.yml)
