@@ -1,5 +1,9 @@
 # NucleusIQ
 
+<p align="center">
+  <img src="assets/images/nucleusiq-logo.png" alt="NucleusIQ logo" width="190" />
+</p>
+
 [![CI](https://github.com/nucleusbox/NucleusIQ/actions/workflows/ci.yml/badge.svg)](https://github.com/nucleusbox/NucleusIQ/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
