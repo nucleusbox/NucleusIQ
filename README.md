@@ -9,6 +9,7 @@
 |---------|------|---------|--------|
 | **nucleusiq** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq)](https://pypi.org/project/nucleusiq/) | ![Version](https://img.shields.io/pypi/v/nucleusiq?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq)](https://pypi.org/project/nucleusiq/) |
 | **nucleusiq-openai** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq-openai)](https://pypi.org/project/nucleusiq-openai/) | ![Version](https://img.shields.io/pypi/v/nucleusiq-openai?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq-openai)](https://pypi.org/project/nucleusiq-openai/) |
+| **nucleusiq-gemini** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq-gemini)](https://pypi.org/project/nucleusiq-gemini/) | ![Version](https://img.shields.io/pypi/v/nucleusiq-gemini?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq-gemini)](https://pypi.org/project/nucleusiq-gemini/) |
 
 ---
 
@@ -36,6 +37,9 @@ See **[NucleusIQ_Philosphy.md](NucleusIQ_Philosphy.md)**.
 ```bash
 # Install core + OpenAI provider
 pip install nucleusiq nucleusiq-openai
+
+# Or with Gemini provider
+pip install nucleusiq nucleusiq-gemini
 
 # Or with uv
 uv pip install nucleusiq nucleusiq-openai
@@ -68,11 +72,12 @@ See [INSTALLATION.md](INSTALLATION.md) for full setup instructions (pip, uv, dev
 | **7 Prompt Techniques** | ZeroShot, FewShot, ChainOfThought, AutoCoT, RAG, PromptComposer, MetaPrompt |
 | **Multimodal Attachments** | 7 attachment types (text, PDF, images, files) with provider-native optimisation |
 | **Built-in File Tools** | `FileReadTool`, `FileSearchTool`, `DirectoryListTool`, `FileExtractTool` — sandboxed to workspace |
-| **Tool System** | `BaseTool` interface + OpenAI native tools (function, code_interpreter, file_search, web_search, MCP) |
+| **Tool System** | `BaseTool` interface + `@tool` decorator + provider native tools (OpenAI: code_interpreter, file_search, web_search; Gemini: Google Search, Code Execution, URL Context, Maps) |
 | **Memory** | 5 strategies (full history, sliding window, summary, summary+window, token budget) with file-aware metadata |
 | **Plugins** | 10 built-in: call limits, retry, fallback, PII guard, human approval, tool guard, attachment guard, context window, result validator |
-| **Usage Tracking** | Token usage per call with purpose tagging (main, planning, tool loop, critic, refiner) |
+| **Usage Tracking** | Token usage per call with purpose tagging (main, planning, tool loop, critic, refiner) and cost estimation |
 | **Structured Output** | Schema-based output parsing with Pydantic, dataclass, TypedDict support |
+| **Provider Portability** | Swap providers (OpenAI, Gemini) with one line — same agent code, same tools, same plugins |
 
 ## Execution Modes
 
@@ -110,6 +115,7 @@ See the [PE Due Diligence notebook](notebooks/agents/pe_due_diligence.ipynb) for
 |---------|-------------|---------|
 | [`nucleusiq`](https://pypi.org/project/nucleusiq/) | Core framework | `pip install nucleusiq` |
 | [`nucleusiq-openai`](https://pypi.org/project/nucleusiq-openai/) | OpenAI provider | `pip install nucleusiq-openai` |
+| [`nucleusiq-gemini`](https://pypi.org/project/nucleusiq-gemini/) | Google Gemini provider | `pip install nucleusiq-gemini` |
 
 ## Project Structure
 
@@ -117,18 +123,24 @@ See the [PE Due Diligence notebook](notebooks/agents/pe_due_diligence.ipynb) for
 src/
   nucleusiq/core/          # Core framework (agents, prompts, tools, memory, plugins)
   providers/llms/openai/   # OpenAI provider
+  providers/llms/gemini/   # Gemini provider
 notebooks/agents/          # Example notebooks
-docs/                      # Documentation
 ```
 
 ## Testing
 
 ```bash
-# Core tests (1596 passing, 2 skipped)
+# Core tests (1,795 passing)
 cd src/nucleusiq && python -m pytest tests/ -q
 
-# OpenAI provider tests
+# OpenAI provider tests (224 passing)
 cd src/providers/llms/openai && python -m pytest tests/ -q
+
+# Gemini provider unit tests (221 passing)
+cd src/providers/llms/gemini && python -m pytest tests/unit/ -q
+
+# Gemini integration tests (requires GEMINI_API_KEY)
+cd src/providers/llms/gemini && python -m pytest tests/integration/ -q
 ```
 
 ## Documentation

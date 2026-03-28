@@ -289,13 +289,30 @@ Built-in pricing tables include:
 
 ## Error Handling & Retry
 
-The Gemini provider includes automatic retry with exponential backoff:
+The Gemini provider maps SDK errors to NucleusIQ's framework-level exception hierarchy, so you can catch provider-agnostic errors regardless of which LLM you use:
 
-- **Rate limits (429)**: Auto-retry up to 3 times with exponential backoff
-- **Server errors (5xx)**: Auto-retry with backoff
-- **Connection errors**: Auto-retry with backoff
-- **Auth errors (401/403)**: Raise `ValueError` immediately (no retry)
-- **Bad requests (400)**: Raise `ValueError` immediately
+```python
+from nucleusiq.llms.errors import RateLimitError, AuthenticationError, LLMError
+
+try:
+    result = await agent.execute("Hello")
+except RateLimitError as e:
+    print(f"Rate limited by {e.provider}, status {e.status_code}")
+except AuthenticationError:
+    print("Invalid API key")
+except LLMError as e:
+    print(f"LLM error from {e.provider}: {e}")
+```
+
+Built-in retry with exponential backoff:
+
+- **Rate limits (429)** → `RateLimitError` after 3 retries with backoff
+- **Server errors (5xx)** → `ProviderServerError` after 3 retries with backoff
+- **Connection errors** → `ProviderConnectionError` after 3 retries with backoff
+- **Auth errors (401)** → `AuthenticationError` immediately (no retry)
+- **Permission denied (403)** → `PermissionDeniedError` immediately (no retry)
+- **Bad requests (400)** → `InvalidRequestError` immediately
+- **Model not found (404)** → `ModelNotFoundError` immediately
 
 The `google-genai` SDK also has built-in tenacity retry for HTTP-level transient failures, providing a second layer of resilience.
 
