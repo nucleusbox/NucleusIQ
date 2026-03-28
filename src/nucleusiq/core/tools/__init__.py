@@ -7,11 +7,14 @@ from nucleusiq.tools.builtin import (
     FileReadTool,
     FileSearchTool,
 )
+from nucleusiq.tools.decorators import DecoratedTool, tool
 
 __all__ = [
     "BaseTool",
+    "DecoratedTool",
     "DirectoryListTool",
     "FileExtractTool",
     "FileReadTool",
     "FileSearchTool",
+    "tool",
 ]

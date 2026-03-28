@@ -24,8 +24,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "nucleusiq>=0.1.0",
-    "google-generativeai>=0.3.0",
+    "nucleusiq>=0.6.0",
+    "google-genai>=1.0.0",
 ]
 
 [project.urls]
@@ -37,6 +37,8 @@ Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
 test = [
     "pytest>=8.0,<10.0",
     "pytest-asyncio>=0.23,<2.0",
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
 ]
 dev = [{ include-group = "test" }]
 
@@ -49,3 +51,6 @@ packages = ["nucleusiq_gemini"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: tests that make real API calls (require GEMINI_API_KEY)",
+]

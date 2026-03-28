@@ -621,7 +621,7 @@ class TestCallLlmUsageRecording:
         call_kwargs: dict[str, Any] = {
             "model": "test",
             "messages": [],
-            "max_tokens": 100,
+            "max_output_tokens": 100,
         }
 
         await mode.call_llm(mock_agent, call_kwargs, purpose=CallPurpose.MAIN)
@@ -652,7 +652,7 @@ class TestCallLlmUsageRecording:
         mode = DummyMode()
         await mode.call_llm(
             mock_agent,
-            {"model": "test", "messages": [], "max_tokens": 100},
+            {"model": "test", "messages": [], "max_output_tokens": 100},
             purpose=CallPurpose.CRITIC,
         )
         assert tracker.records[0].purpose == CallPurpose.CRITIC
@@ -676,7 +676,7 @@ class TestCallLlmUsageRecording:
 
         mode = DummyMode()
         await mode.call_llm(
-            mock_agent, {"model": "test", "messages": [], "max_tokens": 100}
+            mock_agent, {"model": "test", "messages": [], "max_output_tokens": 100}
         )
 
 
@@ -793,7 +793,7 @@ class TestStreamingToolLoopUsage:
         mock_agent._usage_tracker = tracker
         mock_agent._current_llm_overrides = {}
         mock_agent.config = MagicMock()
-        mock_agent.config.llm_max_tokens = 1024
+        mock_agent.config.llm_max_output_tokens = 1024
         mock_agent._resolve_response_format = MagicMock(return_value=None)
         mock_agent._get_structured_output_kwargs = MagicMock(return_value={})
 

@@ -315,7 +315,7 @@ class TestMockedOpenAICallPayload:
         result = await llm.call(
             model="gpt-4o",
             messages=msg_dicts,
-            max_tokens=1024,
+            max_output_tokens=1024,
         )
 
         call_args = llm._client.chat.completions.create.call_args

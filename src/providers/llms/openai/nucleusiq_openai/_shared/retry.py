@@ -3,6 +3,9 @@
 Both the Chat Completions and Responses API backends delegate their
 retry/error-handling to ``call_with_retry`` so the behaviour is
 identical and maintained in one place.
+
+All errors are mapped to framework-level exceptions from
+``nucleusiq.llms.errors`` so callers never need to import SDK types.
 """
 
 from __future__ import annotations
@@ -15,6 +18,17 @@ from typing import Any
 
 import httpx
 import openai
+from nucleusiq.llms.errors import (
+    AuthenticationError,
+    InvalidRequestError,
+    PermissionDeniedError,
+    ProviderConnectionError,
+    ProviderError,
+    ProviderServerError,
+    RateLimitError,
+)
+
+_PROVIDER = "openai"
 
 
 async def call_with_retry(
@@ -39,6 +53,15 @@ async def call_with_retry(
 
     Returns:
         The raw API response from *api_call*.
+
+    Raises:
+        AuthenticationError: Invalid API key (maps from ``openai.AuthenticationError``).
+        PermissionDeniedError: Access denied (maps from ``openai.PermissionDeniedError``).
+        InvalidRequestError: Bad request (maps from ``openai.BadRequestError``).
+        RateLimitError: Rate limit exceeded after max retries.
+        ProviderServerError: API server error after max retries.
+        ProviderConnectionError: Connection failure after max retries.
+        ProviderError: Any other unexpected error.
     """
     attempt = 0
     while True:
@@ -53,7 +76,12 @@ async def call_with_retry(
             attempt += 1
             if attempt > max_retries:
                 logger.error("Rate limit exceeded after %d retries: %s", max_retries, e)
-                raise
+                raise RateLimitError.from_provider_error(
+                    provider=_PROVIDER,
+                    message=f"Rate limit exceeded after {max_retries} retries: {e}",
+                    status_code=429,
+                    original_error=e,
+                ) from e
             backoff = 2**attempt
             logger.warning(
                 "Rate limit hit (%s); retry %d/%d in %ds",
@@ -71,7 +99,11 @@ async def call_with_retry(
             attempt += 1
             if attempt > max_retries:
                 logger.error("Connection error after %d retries: %s", max_retries, e)
-                raise
+                raise ProviderConnectionError.from_provider_error(
+                    provider=_PROVIDER,
+                    message=f"Connection error after {max_retries} retries: {e}",
+                    original_error=e,
+                ) from e
             backoff = 2**attempt
             logger.warning(
                 "Connection error (%s); retry %d/%d in %ds",
@@ -87,23 +119,43 @@ async def call_with_retry(
 
         except openai.AuthenticationError as e:
             logger.error("Authentication failed: %s", e)
-            raise ValueError(f"Invalid API key or authentication failed: {e}") from e
+            raise AuthenticationError.from_provider_error(
+                provider=_PROVIDER,
+                message=f"Invalid API key or authentication failed: {e}",
+                status_code=401,
+                original_error=e,
+            ) from e
 
         except openai.PermissionDeniedError as e:
             logger.error("Permission denied: %s", e)
-            raise ValueError(f"Permission denied: {e}") from e
+            raise PermissionDeniedError.from_provider_error(
+                provider=_PROVIDER,
+                message=f"Permission denied: {e}",
+                status_code=403,
+                original_error=e,
+            ) from e
 
         except (openai.BadRequestError, openai.UnprocessableEntityError) as e:
             if on_bad_request is not None and on_bad_request():
                 continue
             logger.error("Invalid request: %s", e)
-            raise ValueError(f"Invalid request parameters: {e}") from e
+            raise InvalidRequestError.from_provider_error(
+                provider=_PROVIDER,
+                message=f"Invalid request parameters: {e}",
+                status_code=400,
+                original_error=e,
+            ) from e
 
         except openai.APIError as e:
             attempt += 1
             if attempt > max_retries:
                 logger.error("API error after %d retries: %s", max_retries, e)
-                raise
+                raise ProviderServerError.from_provider_error(
+                    provider=_PROVIDER,
+                    message=f"API error after {max_retries} retries: {e}",
+                    status_code=getattr(e, "status_code", None),
+                    original_error=e,
+                ) from e
             backoff = 2**attempt
             logger.warning(
                 "API error (%s); retry %d/%d in %ds",
@@ -121,7 +173,11 @@ async def call_with_retry(
             attempt += 1
             if attempt > max_retries:
                 logger.error("HTTP error after %d retries: %s", max_retries, e)
-                raise
+                raise ProviderConnectionError.from_provider_error(
+                    provider=_PROVIDER,
+                    message=f"HTTP error after {max_retries} retries: {e}",
+                    original_error=e,
+                ) from e
             backoff = 2**attempt
             logger.warning(
                 "HTTP error (%s); retry %d/%d in %ds",
@@ -137,4 +193,8 @@ async def call_with_retry(
 
         except Exception as e:
             logger.error("Unexpected error during OpenAI call: %s", e, exc_info=True)
-            raise
+            raise ProviderError.from_provider_error(
+                provider=_PROVIDER,
+                message=f"Unexpected OpenAI error: {e}",
+                original_error=e,
+            ) from e

@@ -151,7 +151,7 @@ class BaseLLM(BaseLanguageModel, ABC):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = None,
-        max_tokens: int = 150,
+        max_output_tokens: int = 150,
         temperature: float = 0.5,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
@@ -163,6 +163,22 @@ class BaseLLM(BaseLanguageModel, ABC):
 
         Provider-specific parameters (from ``LLMParams`` subclasses) are
         forwarded via ``**kwargs``.
+
+        ``max_output_tokens`` is the provider-neutral name for the
+        maximum number of tokens to generate.  Each provider translates
+        this to the API-specific parameter name internally.
+
+        Raises:
+            nucleusiq.llms.errors.AuthenticationError: Invalid API key (401).
+            nucleusiq.llms.errors.PermissionDeniedError: Access denied (403).
+            nucleusiq.llms.errors.RateLimitError: Too many requests (429),
+                after exhausting retry attempts.
+            nucleusiq.llms.errors.InvalidRequestError: Bad parameters (400).
+            nucleusiq.llms.errors.ModelNotFoundError: Model not found (404).
+            nucleusiq.llms.errors.ContentFilterError: Content blocked by safety.
+            nucleusiq.llms.errors.ProviderServerError: Provider 5xx, after retries.
+            nucleusiq.llms.errors.ProviderConnectionError: Network failure, after retries.
+            nucleusiq.llms.errors.ProviderError: Other provider-specific error.
         """
         raise NotImplementedError
 
@@ -177,7 +193,7 @@ class BaseLLM(BaseLanguageModel, ABC):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = None,
-        max_tokens: int = 150,
+        max_output_tokens: int = 150,
         temperature: float = 0.5,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
@@ -200,7 +216,7 @@ class BaseLLM(BaseLanguageModel, ABC):
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
-            max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
             temperature=temperature,
             top_p=top_p,
             frequency_penalty=frequency_penalty,

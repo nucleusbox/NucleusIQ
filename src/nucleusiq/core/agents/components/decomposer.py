@@ -99,7 +99,7 @@ class Decomposer:
             response = await agent.llm.call(
                 model=getattr(agent.llm, "model_name", "default"),
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=512,
+                max_output_tokens=512,
             )
             return self._parse_analysis(response)
         except Exception as e:

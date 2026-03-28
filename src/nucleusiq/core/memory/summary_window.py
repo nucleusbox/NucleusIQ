@@ -151,7 +151,7 @@ class SummaryWindowMemory(BaseMemory):
         response = await self.llm.call(
             model=self.llm_model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=self.summary_max_tokens,
+            max_output_tokens=self.summary_max_tokens,
         )
         if hasattr(response, "choices") and response.choices:
             msg = response.choices[0].message

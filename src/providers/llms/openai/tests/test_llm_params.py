@@ -26,9 +26,9 @@ class TestOpenAILLMParamsConstruction:
 
     def test_inherits_base_fields(self):
         """OpenAILLMParams has all base LLMParams fields."""
-        p = OpenAILLMParams(temperature=0.5, max_tokens=200, seed=42)
+        p = OpenAILLMParams(temperature=0.5, max_output_tokens=200, seed=42)
         assert p.temperature == 0.5
-        assert p.max_tokens == 200
+        assert p.max_output_tokens == 200
         assert p.seed == 42
 
     def test_openai_specific_defaults(self):
@@ -187,11 +187,11 @@ class TestOpenAIMerge:
 
     def test_openai_merge_with_base(self):
         """OpenAILLMParams override merges on top of base LLMParams."""
-        base = LLMParams(temperature=0.5, max_tokens=100)
+        base = LLMParams(temperature=0.5, max_output_tokens=100)
         override = OpenAILLMParams(temperature=0.9, reasoning_effort="low")
         result = base.merge(override)
         assert result.temperature == 0.9
-        assert result.max_tokens == 100  # kept from base
+        assert result.max_output_tokens == 100  # kept from base
 
     def test_openai_merge_openai(self):
         """Two OpenAILLMParams merge correctly."""

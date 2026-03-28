@@ -494,7 +494,7 @@ class BaseOpenAI(BaseLLM):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = None,
-        max_tokens: int = 1024,
+        max_output_tokens: int = 1024,
         temperature: float | None = None,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
@@ -526,6 +526,11 @@ class BaseOpenAI(BaseLLM):
         **Routing is automatic** — callers never specify which API to use.
         If *tools* contains any native OpenAI tool the Responses API is used;
         otherwise the Chat Completions API is used.
+
+        ``max_output_tokens`` is the framework-neutral name; internally
+        this is translated to the wire parameter the chosen API + model
+        combination requires (``max_tokens``, ``max_completion_tokens``,
+        or ``max_output_tokens``).
         """
         # ---- 1. Resolve structured output config ----
         output_schema_type = None
@@ -574,7 +579,7 @@ class BaseOpenAI(BaseLLM):
                 messages=messages,
                 tools=tools,
                 tool_choice=tool_choice,
-                max_tokens=max_tokens,
+                max_tokens=max_output_tokens,
                 temperature=temperature,
                 top_p=top_p,
                 stream=stream,
@@ -588,7 +593,7 @@ class BaseOpenAI(BaseLLM):
                 messages=messages,
                 tools=tools,
                 tool_choice=tool_choice,
-                max_tokens=max_tokens,
+                max_tokens=max_output_tokens,
                 temperature=temperature,
                 default_temperature=self.temperature,
                 top_p=top_p,
@@ -629,7 +634,7 @@ class BaseOpenAI(BaseLLM):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = None,
-        max_tokens: int = 1024,
+        max_output_tokens: int = 1024,
         temperature: float | None = None,
         top_p: float = 1.0,
         frequency_penalty: float = 0.0,
@@ -654,7 +659,7 @@ class BaseOpenAI(BaseLLM):
                 messages=messages,
                 tools=tools,
                 tool_choice=tool_choice,
-                max_tokens=max_tokens,
+                max_tokens=max_output_tokens,
                 temperature=temperature,
                 top_p=top_p,
                 **kwargs,
@@ -666,7 +671,7 @@ class BaseOpenAI(BaseLLM):
                 messages=messages,
                 tools=tools,
                 tool_choice=tool_choice,
-                max_tokens=max_tokens,
+                max_tokens=max_output_tokens,
                 temperature=temperature,
                 top_p=top_p,
                 frequency_penalty=frequency_penalty,

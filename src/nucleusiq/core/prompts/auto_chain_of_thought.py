@@ -182,7 +182,7 @@ class AutoChainOfThoughtPrompt(BasePrompt):
         ]
         return self.llm.create_completion(
             messages=messages,
-            max_tokens=150,
+            max_output_tokens=150,
             temperature=0.5,
             top_p=1.0,
             frequency_penalty=0.0,

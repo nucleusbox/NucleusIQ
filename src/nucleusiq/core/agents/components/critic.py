@@ -663,7 +663,7 @@ class Critic:
             call_kwargs = {
                 "model": getattr(agent.llm, "model_name", "default"),
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1024,
+                "max_output_tokens": 1024,
             }
             call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
             response = await agent.llm.call(**call_kwargs)

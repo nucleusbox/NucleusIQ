@@ -107,8 +107,8 @@ class ModelRequest(BaseModel):
         # Add metadata
         modified = request.with_(metadata={**request.metadata, "attempt": 2})
 
-        # Override max_tokens
-        modified = request.with_(max_tokens=4096)
+        # Override max_output_tokens
+        modified = request.with_(max_output_tokens=4096)
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -120,7 +120,7 @@ class ModelRequest(BaseModel):
     tools: List[Dict[str, Any]] | None = Field(
         default=None, description="LLM-formatted tool specifications"
     )
-    max_tokens: int = 1024
+    max_output_tokens: int = 1024
     call_count: int = Field(
         default=0, description="Number of LLM calls so far in this execution"
     )
@@ -140,7 +140,7 @@ class ModelRequest(BaseModel):
 
         Example::
 
-            new_req = request.with_(model="gpt-4o-mini", max_tokens=2048)
+            new_req = request.with_(model="gpt-4o-mini", max_output_tokens=2048)
         """
         return self.model_copy(update=updates)
 
@@ -165,7 +165,7 @@ class ModelRequest(BaseModel):
             "model": self.model,
             "messages": raw_msgs,
             "tools": self.tools,
-            "max_tokens": self.max_tokens,
+            "max_output_tokens": self.max_output_tokens,
         }
         kwargs.update(self.extra_kwargs)
         return kwargs

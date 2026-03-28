@@ -23,6 +23,8 @@ jobs:
       core-version: ${{ steps.core.outputs.version }}
       publish-openai: ${{ steps.openai.outputs.publish }}
       openai-version: ${{ steps.openai.outputs.version }}
+      publish-gemini: ${{ steps.gemini.outputs.publish }}
+      gemini-version: ${{ steps.gemini.outputs.version }}
 
     steps:
       - uses: actions/checkout@v6
@@ -73,6 +75,28 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "nucleusiq-openai $VERSION not on PyPI — will publish"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check nucleusiq-gemini
+        id: gemini
+        run: |
+          VERSION=$(python -c "
+          import re
+          with open('src/providers/llms/gemini/pyproject.toml') as f:
+              m = re.search(r'version\s*=\s*\"(.+?)\"', f.read())
+              print(m.group(1))
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://pypi.org/pypi/nucleusiq-gemini/${VERSION}/json")
+
+          if [ "$STATUS" = "200" ]; then
+            echo "nucleusiq-gemini $VERSION already on PyPI — skipping"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "nucleusiq-gemini $VERSION not on PyPI — will publish"
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -138,3 +162,36 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: src/providers/llms/openai/dist/
+
+  # ── Publish Gemini provider ──────────────────────────────────────
+  publish-gemini:
+    name: "Publish nucleusiq-gemini ${{ needs.check-versions.outputs.gemini-version }} to PyPI"
+    runs-on: ubuntu-latest
+    needs: [check-versions, publish-core]
+    if: |
+      always() &&
+      needs.check-versions.outputs.publish-gemini == 'true' &&
+      (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
+    environment: pypi
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build package
+        working-directory: src/providers/llms/gemini
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: src/providers/llms/gemini/dist/

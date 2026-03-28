@@ -101,7 +101,7 @@ class StandardMode(BaseExecutionMode):
                 messages,
                 tool_specs,
                 max_tool_calls=max_tool_calls,
-                max_tokens=2048,
+                max_output_tokens=2048,
             ):
                 if event.type == StreamEventType.COMPLETE:
                     final_content = event.content
@@ -155,7 +155,7 @@ class StandardMode(BaseExecutionMode):
             call_round += 1
             purpose = CallPurpose.MAIN if call_round == 1 else CallPurpose.TOOL_LOOP
             call_kwargs = self.build_call_kwargs(
-                agent, messages, tool_specs or None, max_tokens=2048
+                agent, messages, tool_specs or None, max_output_tokens=2048
             )
             response = await self.call_llm(
                 agent, call_kwargs, messages, tool_specs or None, purpose=purpose

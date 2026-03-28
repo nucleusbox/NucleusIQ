@@ -6,7 +6,7 @@ financial tools, and multi-agent systems. With NucleusIQ, developers have the co
 components and flexibility needed to develop advanced AI applications effortlessly.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.6.0"
 
 # Load environment variables from project root .env (if present).
 # This makes OPENAI_API_KEY etc. available no matter which submodule is imported.

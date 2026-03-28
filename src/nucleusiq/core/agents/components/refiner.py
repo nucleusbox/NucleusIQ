@@ -250,7 +250,7 @@ class Refiner:
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": prompt}],
             "tools": tool_specs if tool_specs else None,
-            "max_tokens": getattr(
+            "max_output_tokens": getattr(
                 agent.config,
                 "step_inference_max_tokens",
                 2048,
@@ -473,7 +473,7 @@ class Refiner:
         call_kwargs: Dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": getattr(
+            "max_output_tokens": getattr(
                 agent.config,
                 "step_inference_max_tokens",
                 2048,

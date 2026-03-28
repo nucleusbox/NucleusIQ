@@ -7,24 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.5.0] — 2026-03-11
+## [0.6.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.6.0) — 2026-03-28
+
+### Added
+
+- **Google Gemini Provider** (`nucleusiq-gemini` v0.1.0) — second LLM provider proving provider portability:
+  - `BaseGemini` implementing the `BaseLLM` contract via `google-genai` SDK (GA)
+  - `call()` and `call_stream()` with system/user/assistant messages
+  - Multimodal attachment support (images, PDFs, files) via `process_attachments()`
+  - Streaming adapters converting Gemini SDK chunks into framework `StreamEvent` objects
+  - Thinking/reasoning support via `GeminiThinkingConfig` for Gemini 2.5+ models
+  - 4 native tools: Google Search, Code Execution, URL Context, Google Maps
+  - Structured output via JSON schema mode (`response_mime_type` + `response_json_schema`)
+  - `GeminiLLMParams` with safety settings, thinking config, and candidate count
+  - Retry with exponential backoff for rate limits (429), server errors (5xx), connection errors
+  - 10 examples covering basic usage, streaming, tools, agent modes, native tools, cost estimation
+  - Comprehensive `README.md` with full usage documentation
+- `**@tool` Decorator** — create tools from plain functions without subclassing `BaseTool`:
+  - `@tool`, `@tool("name")`, `@tool(name="...", description="...")` decorator forms
+  - Auto-generates `get_spec()` from function signature + type hints
+  - Docstring parsing (first-line, `:param:`, Google-style `Args:`)
+  - Supports `str`, `int`, `float`, `bool`, `list`, `dict` parameter types and optional defaults
+  - Both sync and async function support
+  - Optional `args_schema` for Pydantic model validation
+  - Handles `from __future__ import annotations` (string annotation resolution)
+- **Cost Estimation** — dollar-cost tracking from token usage:
+  - `CostTracker` with `ModelPricing` Pydantic model and `CostBreakdown`
+  - Built-in pricing tables for 15 models (OpenAI: gpt-4o, gpt-4.1, o3, o4-mini, etc.; Gemini: 2.5-pro, 2.5-flash, 2.0-flash, etc.)
+  - Cost breakdown by purpose (main, planning, tool_loop, critic, refiner) and origin (user vs framework)
+  - User-configurable pricing via `tracker.register("my-model", ModelPricing(...))`
+  - Prefix-match model lookup (e.g. `gpt-4o-2024-11-20-custom` matches `gpt-4o`)
+- **Framework-Level Error Taxonomy** — provider-agnostic exception hierarchy:
+  - `NucleusIQError` → `LLMError` base with 9 typed exceptions: `AuthenticationError`, `RateLimitError`, `InvalidRequestError`, `ModelNotFoundError`, `ContentFilterError`, `ProviderServerError`, `ProviderConnectionError`, `PermissionDeniedError`, `ProviderError`
+  - Each error carries `provider`, `status_code`, `original_error` attributes
+  - `from_provider_error()` factory classmethod for consistent error mapping
+  - `BaseLLM.call()` documents the exception contract
+  - Both OpenAI and Gemini retry modules map SDK errors to framework types
+- **LLM Parameter Standardization** — universal `max_output_tokens` across all providers:
+  - `LLMParams.max_output_tokens` replaces `max_tokens` as the canonical parameter
+  - Each provider translates internally: OpenAI uses `max_tokens` (older) or `max_completion_tokens` (o-series); Gemini uses `max_output_tokens`
+  - O-series model detection (`o1`, `o3`, `o4-mini`) for correct wire format
+  - All core framework call sites updated (modes, components, plugins, memory)
+
+### Changed
+
+- Bumped `nucleusiq` to 0.6.0
+- Bumped `nucleusiq-openai` to 0.5.0 (requires `nucleusiq>=0.6.0`)
+- New package `nucleusiq-gemini` 0.1.0 (requires `nucleusiq>=0.6.0`, `google-genai>=1.0.0`)
+- OpenAI `_shared/retry.py` now raises framework-level exceptions (`RateLimitError`, `AuthenticationError`, etc.) instead of raw SDK exceptions
+- `BaseLLM.call()` / `call_stream()` signature uses `max_output_tokens` (was `max_tokens`)
+- Removed `n` and `stream` from base `LLMParams` (provider-specific concerns)
+- `ContextWindowPlugin.max_tokens` clarified as input context window budget (not output tokens)
+
+### Testing
+
+- **2,285 tests passing** (1,795 core + 224 OpenAI + 221 Gemini unit + 45 Gemini integration)
+- 266 Gemini tests covering call, stream, tools, native tools, structured output, agent integration, provider portability, retry/error handling
+- 38 `@tool` decorator tests (decorator forms, execution, spec generation, docstring parsing, Pydantic schema)
+- 35 cost estimation tests (pricing validation, registration, lookup, estimation, display, integration with UsageTracker)
+- 12 framework error taxonomy tests (hierarchy, attributes, factory, catchability, provider-agnostic behavior)
+
+---
+
+## [0.5.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.5.0) — 2026-03-11
 
 ### Added
 
 - **Token Origin Split** — `TokenOrigin` enum (`USER` / `FRAMEWORK`) and `PURPOSE_ORIGIN_MAP` in `UsageTracker`. Every `UsageRecord` now carries an `origin` field. The summary includes a `by_origin` breakdown separating user tokens (the initial MAIN call) from framework overhead (planning, tool loops, critic, refiner). Designed for direct consumption by the future Observability plugin
-- **`UsageSummary` Pydantic schema** — `agent.last_usage` now returns a typed `UsageSummary` model (not a raw dict) with `TokenCount`, `BucketStats` sub-models:
+- `**UsageSummary` Pydantic schema** — `agent.last_usage` now returns a typed `UsageSummary` model (not a raw dict) with `TokenCount`, `BucketStats` sub-models:
   - `usage.summary()` — returns a plain `dict` for JSON serialization / logging / dashboards
   - `usage.display()` — returns a formatted human-readable string (totals, by-purpose, by-origin with % split)
   - Individual attribute access: `usage.total.prompt_tokens`, `usage.by_origin["user"].total_tokens`, etc.
-- **`FileWriteTool`** — new built-in tool for writing/appending text files within the workspace sandbox. Features: backup-on-overwrite (`.bak` copy, configurable), max write size limit (default 5 MB), automatic parent directory creation, write/append modes
-- **`FileExtractTool` query filtering** — two new parameters:
+- `**FileWriteTool`** — new built-in tool for writing/appending text files within the workspace sandbox. Features: backup-on-overwrite (`.bak` copy, configurable), max write size limit (default 5 MB), automatic parent directory creation, write/append modes
+- `**FileExtractTool` query filtering** — two new parameters:
   - `columns` — comma-separated column names for CSV/TSV filtering (case-insensitive matching)
   - `key_path` — dot-separated key path for JSON/YAML/TOML navigation with array index support (e.g. `"database.host"`, `"items.0.name"`)
-- **`FileSearchTool` configurable binary extensions** — `DEFAULT_BINARY_EXTENSIONS` promoted to module-level constant; three new constructor params: `include_extensions` (whitelist mode), `exclude_extensions` (additions to skip set), `binary_extensions` (full override)
-- **`DirectoryListTool` max entries** — `max_entries` constructor parameter (default 200) with truncation message to prevent LLM context waste on large directory trees
-- **`FileReadTool` encoding auto-detection** — `_detect_encoding()` using `chardet` (optional dependency, first 4 KB sample). Default encoding changed from `"utf-8"` to `"auto"` (auto-detect with UTF-8 fallback)
+- `**FileSearchTool` configurable binary extensions** — `DEFAULT_BINARY_EXTENSIONS` promoted to module-level constant; three new constructor params: `include_extensions` (whitelist mode), `exclude_extensions` (additions to skip set), `binary_extensions` (full override)
+- `**DirectoryListTool` max entries** — `max_entries` constructor parameter (default 200) with truncation message to prevent LLM context waste on large directory trees
+- `**FileReadTool` encoding auto-detection** — `_detect_encoding()` using `chardet` (optional dependency, first 4 KB sample). Default encoding changed from `"utf-8"` to `"auto"` (auto-detect with UTF-8 fallback)
 - **New examples** — `v050_features_example.py` (all 6 features), `usage_tracking_example.py` (OpenAI usage tracking with `summary()` and `display()`)
-- **`MockLLM` now returns simulated `usage` data** — enables realistic token tracking in tests and examples without a real LLM
+- `**MockLLM` now returns simulated `usage` data** — enables realistic token tracking in tests and examples without a real LLM
 
 ### Changed
 
@@ -43,7 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.4.0] — 2026-03-10
+## [0.4.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.4.0) — 2026-03-10
 
 ### Added
 
@@ -56,18 +118,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `DirectoryListTool` — list directory with glob filtering, recursive option, file sizes
   - `FileExtractTool` — structured extraction for CSV, TSV, JSON, JSONL/NDJSON, YAML, XML, TOML via pluggable `_FORMAT_HANDLERS` registry with `register_extract_format()` for extensibility
 - **Workspace sandbox** (`workspace.py`) — `resolve_safe_path()` blocks `../` traversal, symlink escape, and absolute path injection
-- **`AttachmentGuardPlugin`** — policy-based attachment validation (allowed/blocked types, max file size, max count, extension filter) via `before_agent` hook
+- `**AttachmentGuardPlugin`** — policy-based attachment validation (allowed/blocked types, max file size, max count, extension filter) via `before_agent` hook
 - **File-aware memory** — all 5 memory strategies store attachment metadata alongside messages; user messages get a `[Attached: ...]` summary prefix for context continuity
-- **`UsageTracker`** — `UsageRecord`, `CallPurpose` enum (MAIN, PLANNING, TOOL_LOOP, CRITIC, REFINER), wired into all 3 execution modes with `agent.last_usage` and streaming metadata
+- `**UsageTracker`** — `UsageRecord`, `CallPurpose` enum (MAIN, PLANNING, TOOL_LOOP, CRITIC, REFINER), wired into all 3 execution modes with `agent.last_usage` and streaming metadata
 - **OpenAI API auto-routing** — transparent routing between Chat Completions and Responses API based on tool types, with format conversion and streaming adapters for both
 - **Validation hardening** — `AttachmentProcessor.process()` enforces size limits (50 MB), MIME magic-bytes check (warn on mismatch), and large text warning (> 100 KB suggests FileReadTool)
-- **File handling guide** — https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/file-handling/ (Attachment vs Tool vs Both decision flowchart)
+- **File handling guide** — [https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/file-handling/](https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/file-handling/) (Attachment vs Tool vs Both decision flowchart)
 - **New examples** — `file_attachment_example.py`, `file_tools_example.py`, `attachment_guard_example.py`, OpenAI-native file input examples
 - **v0.5.0 gap analysis** — `docs/v0.5.0-gaps.md` consolidating 10 prioritized items from the post-release audit
 
 ### Fixed (v0.4.0 audit)
 
-- **`AutonomousMode.run_stream()` missing `store_task_in_memory`** — streaming autonomous mode now stores the user's task in memory before decomposition, matching the non-streaming path
+- `**AutonomousMode.run_stream()` missing `store_task_in_memory`** — streaming autonomous mode now stores the user's task in memory before decomposition, matching the non-streaming path
 - **Removed dead `_last_metadata` field** from `SummaryMemory` — was stored but never exposed or persisted
 - **Removed duplicate `build_attachment_*` helpers** — consolidated module-level and static method versions in `base_mode.py`
 
@@ -92,15 +154,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.3.0] — 2026-02-27
+## [0.3.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.3.0) — 2026-02-27
 
 ### Added
 
 - **End-to-end streaming** via `Agent.execute_stream()` — async generator yielding `StreamEvent` objects with real-time token-by-token output across all 3 execution modes
-- **`StreamEvent` + `StreamEventType`** data model (`core/streaming/events.py`) — 8 event types: `TOKEN`, `TOOL_CALL_START`, `TOOL_CALL_END`, `LLM_CALL_START`, `LLM_CALL_END`, `THINKING`, `COMPLETE`, `ERROR`
-- **`BaseLLM.call_stream()`** — abstract streaming contract with non-streaming fallback; `MockLLM.call_stream()` for testing
-- **`BaseOpenAI.call_stream()`** — OpenAI provider streaming for both Chat Completions and Responses API backends
-- **`stream_adapters.py`** — adapter layer converting raw OpenAI SDK chunks/SSE events into framework `StreamEvent` objects
+- `**StreamEvent` + `StreamEventType`** data model (`core/streaming/events.py`) — 8 event types: `TOKEN`, `TOOL_CALL_START`, `TOOL_CALL_END`, `LLM_CALL_START`, `LLM_CALL_END`, `THINKING`, `COMPLETE`, `ERROR`
+- `**BaseLLM.call_stream()**` — abstract streaming contract with non-streaming fallback; `MockLLM.call_stream()` for testing
+- `**BaseOpenAI.call_stream()**` — OpenAI provider streaming for both Chat Completions and Responses API backends
+- `**stream_adapters.py**` — adapter layer converting raw OpenAI SDK chunks/SSE events into framework `StreamEvent` objects
 - **Streaming in all execution modes** — `DirectMode.run_stream()`, `StandardMode.run_stream()`, `AutonomousMode.run_stream()` with reusable `_streaming_tool_call_loop()` in base mode
 - **Usage telemetry** in `_LLMResponse` — `usage` (prompt/completion/reasoning tokens), `id`, `model`, `created`, `service_tier`, `system_fingerprint`
 - **Streaming example** — `examples/agents/streaming_example.py` demonstrating all 3 modes
@@ -129,7 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.0] — 2026-02-25
+## [0.2.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.2.0) — 2026-02-25
 
 ### Added
 
@@ -137,7 +199,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tool support in DirectMode** — up to 5 tool calls (previously no tools)
 - **Critic/Refiner integration in AutonomousMode** — replaces simple LLM review (Layer 3) and generic retry with independent verification and targeted correction
 - **Tool limit validation** — agent raises `ValueError` at execution time if more tools are configured than the mode allows
-- **`AgentConfig.get_effective_max_tool_calls()`** — centralized method for mode-aware tool limits
+- `**AgentConfig.get_effective_max_tool_calls()`** — centralized method for mode-aware tool limits
 - 198 new tests for tool limits, DirectMode tool support, and Critic/Refiner flow
 
 ### Removed
@@ -163,16 +225,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0] — 2026-02-24
+## [0.1.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.1.0) — 2026-02-24
 
 **Initial public release** of the NucleusIQ framework and OpenAI provider.
 
 ### Packages
 
-| Package | Version | PyPI |
-|---------|---------|------|
-| `nucleusiq` | 0.1.0 | [nucleusiq](https://pypi.org/project/nucleusiq/) |
-| `nucleusiq-openai` | 0.1.0 | [nucleusiq-openai](https://pypi.org/project/nucleusiq-openai/) |
+
+| Package            | Version | PyPI                                                           |
+| ------------------ | ------- | -------------------------------------------------------------- |
+| `nucleusiq`        | 0.1.0   | [nucleusiq](https://pypi.org/project/nucleusiq/)               |
+| `nucleusiq-openai` | 0.1.0   | [nucleusiq-openai](https://pypi.org/project/nucleusiq-openai/) |
+
 
 ### Agent System
 
@@ -181,20 +245,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `STANDARD` — LLM + tool-calling loop
   - `AUTONOMOUS` — orchestration with parallel execution, external validation, structured retry, and progress tracking
 - **Autonomous Mode** with `ValidationPipeline` (3-layer validation: tool checks → plugin validators → optional LLM review), `ProgressTracker`, and `Decomposer` for complex task parallelization
-- **`ResultValidatorPlugin`** — abstract base class for domain-specific external validation (the framework orchestrates, the LLM executes, external signals validate)
+- `**ResultValidatorPlugin`** — abstract base class for domain-specific external validation (the framework orchestrates, the LLM executes, external signals validate)
 - **ReAct Agent** — Reasoning + Acting pattern implementation
 - **Structured Output** — schema-based output parsing and validation
-- **`AgentConfig`** — Pydantic configuration with execution mode, retry settings, and sub-agent limits
+- `**AgentConfig`** — Pydantic configuration with execution mode, retry settings, and sub-agent limits
 
 ### Prompt Engineering
 
 - **7 Prompt Techniques**: `ZeroShot`, `FewShot`, `ChainOfThought`, `AutoChainOfThought`, `RetrievalAugmentedGeneration`, `PromptComposer`, `MetaPrompt`
-- **`PromptFactory`** — create prompts by technique name via `PromptTechnique` enum
+- `**PromptFactory`** — create prompts by technique name via `PromptTechnique` enum
 
 ### Tool System
 
-- **`BaseTool`** — LLM-agnostic tool interface with JSON schema generation
-- **`BaseTool.from_function()`** — create tools from plain Python functions
+- `**BaseTool**` — LLM-agnostic tool interface with JSON schema generation
+- `**BaseTool.from_function()**` — create tools from plain Python functions
 - **OpenAI native tools**: `function`, `code_interpreter`, `file_search`, `web_search`, `mcp`, `connector` (via `OpenAITool`)
 
 ### Memory System
@@ -208,28 +272,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Plugin System
 
-- **`BasePlugin`** ABC with typed request models (`ModelRequest`, `ToolRequest`, `AgentContext`)
-- **`PluginManager`** — chain-of-responsibility hook pipeline
+- `**BasePlugin`** ABC with typed request models (`ModelRequest`, `ToolRequest`, `AgentContext`)
+- `**PluginManager**` — chain-of-responsibility hook pipeline
 - **Decorator API** — `@before_agent`, `@after_agent`, `@before_model`, `@after_model`, `@wrap_model_call`, `@wrap_tool_call`
 - **9 Built-in Plugins**:
 
-| Plugin | Purpose |
-|--------|---------|
-| `ModelCallLimitPlugin` | Limits LLM call count per execution |
-| `ToolCallLimitPlugin` | Limits tool call count |
-| `ToolRetryPlugin` | Retries failed tools with exponential backoff |
-| `ModelFallbackPlugin` | Tries fallback models on primary failure |
-| `PIIGuardPlugin` | Detects/redacts/masks/blocks PII |
-| `HumanApprovalPlugin` | Human approval gate with `ApprovalHandler` pattern |
-| `ContextWindowPlugin` | Trims messages to fit context window |
-| `ToolGuardPlugin` | Tool whitelist/blacklist |
+
+| Plugin                  | Purpose                                             |
+| ----------------------- | --------------------------------------------------- |
+| `ModelCallLimitPlugin`  | Limits LLM call count per execution                 |
+| `ToolCallLimitPlugin`   | Limits tool call count                              |
+| `ToolRetryPlugin`       | Retries failed tools with exponential backoff       |
+| `ModelFallbackPlugin`   | Tries fallback models on primary failure            |
+| `PIIGuardPlugin`        | Detects/redacts/masks/blocks PII                    |
+| `HumanApprovalPlugin`   | Human approval gate with `ApprovalHandler` pattern  |
+| `ContextWindowPlugin`   | Trims messages to fit context window                |
+| `ToolGuardPlugin`       | Tool whitelist/blacklist                            |
 | `ResultValidatorPlugin` | Abstract base for domain-specific result validation |
+
 
 ### LLM Provider — OpenAI (`nucleusiq-openai`)
 
 - **Chat Completions API** — full support with tool calling
 - **Responses API** — automatic routing based on tool types
-- **`OpenAILLMParams`** — type-safe parameters with typo detection and merge chain (LLM defaults < AgentConfig < per-execute overrides)
+- `**OpenAILLMParams`** — type-safe parameters with typo detection and merge chain (LLM defaults < AgentConfig < per-execute overrides)
 - **6 Native Tool Types** — function, code_interpreter, file_search, web_search_preview, mcp, connector
 - **Structured Output** — JSON schema enforcement via `response_format`
 
@@ -245,17 +311,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.6.0...HEAD)
 
-### Planned for v0.6.0
+### Planned for v0.7.0
 
+- Comprehensive Exception Handling Framework (agent-level, tool errors, structured error results, error observability)
 - Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
-- New LLM Providers: Anthropic, Gemini, Ollama
-- See `docs/v0.6.0-gaps.md` and `docs/BACKLOG.md` for full list
+- New LLM Providers: Anthropic, Ollama
+- Gemini advanced features: Batch API, Deep Research Agent, File Search
+- CostTracker Agent integration (`agent.last_cost`)
+- See `docs/BACKLOG.md` for full list
 
-[0.5.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.5.0
-[0.4.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.4.0
-[0.3.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.3.0
-[0.2.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.2.0
-[0.1.0]: https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.1.0
-[Unreleased]: https://github.com/nucleusbox/NucleusIQ/compare/v0.5.0...HEAD

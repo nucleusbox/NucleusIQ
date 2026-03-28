@@ -65,7 +65,9 @@ class ContextWindowPlugin(BasePlugin):
 
     Args:
         max_messages: Maximum number of messages allowed. ``None`` = no limit.
-        max_tokens: Maximum approximate token count. ``None`` = no limit.
+        max_tokens: Maximum approximate token count for the context window. ``None`` = no limit.
+            This is NOT the LLM output token limit — it controls how many tokens
+            of conversation history to retain.
         keep_recent: Number of recent messages to always keep.
         token_counter: Custom function ``(str) -> int`` for token counting.
         placeholder: Text inserted where messages are trimmed. ``None`` = no placeholder.

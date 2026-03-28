@@ -254,7 +254,7 @@ class TestLLMParamsIntegration:
         events: list[StreamEvent] = []
         async for e in agent.execute_stream(
             {"id": "p1", "objective": "params test"},
-            llm_params=LLMParams(temperature=0.1, max_tokens=200),
+            llm_params=LLMParams(temperature=0.1, max_output_tokens=200),
         ):
             events.append(e)
 

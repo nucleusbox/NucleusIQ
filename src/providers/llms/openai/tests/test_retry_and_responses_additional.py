@@ -112,7 +112,9 @@ async def test_retry_sync_sleep_and_exhaustion_paths(monkeypatch):
     def conn_always_fail():
         raise _DummyAPIConnectionError("network down")
 
-    with pytest.raises(_DummyAPIConnectionError):
+    from nucleusiq.llms.errors import ProviderConnectionError as FrameworkConnError
+
+    with pytest.raises(FrameworkConnError):
         await call_with_retry(
             conn_always_fail,
             max_retries=0,

@@ -230,11 +230,11 @@ class BaseExecutionMode(ABC):
         agent: "Agent",
         messages: List[ChatMessage],
         tool_specs: List[Dict[str, Any]] | None = None,
-        max_tokens: int | None = None,
+        max_output_tokens: int | None = None,
     ) -> LLMCallKwargs:
         """Build the kwargs dict for ``agent.llm.call()``.
 
-        Merges model name, messages, tool specs, max_tokens,
+        Merges model name, messages, tool specs, max_output_tokens,
         per-execute LLM overrides, and structured-output kwargs.
         """
         output_config = agent._resolve_response_format()
@@ -242,7 +242,8 @@ class BaseExecutionMode(ABC):
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": messages_to_dicts(messages),
             "tools": tool_specs if tool_specs else None,
-            "max_tokens": max_tokens or getattr(agent.config, "llm_max_tokens", 1024),
+            "max_output_tokens": max_output_tokens
+            or getattr(agent.config, "llm_max_output_tokens", 1024),
         }
         call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
         call_kwargs.update(agent._get_structured_output_kwargs(output_config))
@@ -351,14 +352,14 @@ class BaseExecutionMode(ABC):
         if pm is None or not pm.has_plugins():
             response = await agent.llm.call(**call_kwargs)
         else:
-            reserved = {"model", "messages", "tools", "max_tokens"}
+            reserved = {"model", "messages", "tools", "max_output_tokens"}
             extra = {k: v for k, v in call_kwargs.items() if k not in reserved}
 
             request = ModelRequest(
                 model=call_kwargs.get("model", "default"),
                 messages=messages or [],
                 tools=tool_specs,
-                max_tokens=call_kwargs.get("max_tokens", 1024),
+                max_output_tokens=call_kwargs.get("max_output_tokens", 1024),
                 call_count=pm.increment_model_calls(),
                 agent_name=agent.name,
                 extra_kwargs=extra,
@@ -430,7 +431,7 @@ class BaseExecutionMode(ABC):
         tool_specs: List[Dict[str, Any]] | None,
         *,
         max_tool_calls: int = 30,
-        max_tokens: int = 2048,
+        max_output_tokens: int = 2048,
         purpose: CallPurpose = CallPurpose.MAIN,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Reusable streaming LLM ↔ tool loop.
@@ -458,7 +459,7 @@ class BaseExecutionMode(ABC):
             yield StreamEvent.llm_start_event(call_round)
 
             call_kwargs = self.build_call_kwargs(
-                agent, messages, tool_specs, max_tokens=max_tokens
+                agent, messages, tool_specs, max_output_tokens=max_output_tokens
             )
 
             complete_event: StreamEvent | None = None

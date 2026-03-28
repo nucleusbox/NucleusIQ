@@ -263,7 +263,7 @@ class TestExecuteStreamLLMParams:
     @pytest.mark.asyncio
     async def test_llm_params_applied(self):
         agent = _make_agent()
-        params = LLMParams(temperature=0.1, max_tokens=500)
+        params = LLMParams(temperature=0.1, max_output_tokens=500)
 
         events = await _collect(agent.execute_stream(_make_task(), llm_params=params))
 

@@ -48,7 +48,7 @@ class DirectMode(BaseExecutionMode):
             tool_specs = self._get_tool_specs(agent) if has_tools else None
 
             call_kwargs = self.build_call_kwargs(
-                agent, messages, tool_specs, max_tokens=1024
+                agent, messages, tool_specs, max_output_tokens=1024
             )
             response = await self.call_llm(agent, call_kwargs, messages, tool_specs)
 
@@ -124,7 +124,7 @@ class DirectMode(BaseExecutionMode):
                 messages,
                 tool_specs,
                 max_tool_calls=max_tool_calls,
-                max_tokens=1024,
+                max_output_tokens=1024,
             ):
                 yield event
 
@@ -191,7 +191,7 @@ class DirectMode(BaseExecutionMode):
                 return f"Error: Tool '{tc.name}' execution failed: {str(e)}"
 
         call_kwargs = self.build_call_kwargs(
-            agent, messages, tool_specs, max_tokens=1024
+            agent, messages, tool_specs, max_output_tokens=1024
         )
         response = await self.call_llm(agent, call_kwargs, messages, tool_specs)
 

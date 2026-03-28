@@ -1,15 +1,24 @@
 """
 Type-safe LLM call parameters.
 
-Provides a base ``LLMParams`` class with universally supported parameters
-(temperature, max_tokens, seed, etc.) and validation.  Provider-specific
-subclasses (e.g. ``OpenAILLMParams``) extend this with provider-only
-fields such as ``reasoning_effort`` or ``service_tier``.
+Provides a base ``LLMParams`` class with **universally supported**
+parameters that every LLM provider recognises (temperature, seed,
+stop, etc.).  Provider-specific subclasses (``OpenAILLMParams``,
+``GeminiLLMParams``) extend this with provider-only fields.
 
-Design:
-    - ``extra = "forbid"`` catches typos immediately.
-    - ``to_call_kwargs()`` returns only non-None values as a dict.
-    - The merge chain is: LLM defaults < AgentConfig.llm_params < per-execute llm_params.
+**Design principles:**
+
+- Only parameters supported by *all* major providers live here.
+- Parameters whose *name* or *semantics* differ across providers
+  (``n`` vs ``candidate_count``, ``stream``) are provider-level.
+- ``max_output_tokens`` is the provider-neutral name for "max tokens
+  to generate".  Each provider translates it to the API-specific
+  parameter (``max_tokens``, ``max_completion_tokens``,
+  ``max_output_tokens``) in its payload builder.
+- ``extra = "forbid"`` catches typos immediately.
+- ``to_call_kwargs()`` returns only non-None values as a dict.
+- The merge chain is:
+  LLM defaults < AgentConfig.llm_params < per-execute llm_params.
 """
 
 from __future__ import annotations
@@ -23,8 +32,9 @@ class LLMParams(BaseModel):
     """
     Base type-safe LLM call parameters.
 
-    All fields are optional — only set what you need to override.
-    Provider-specific subclasses add extra typed fields.
+    Contains only parameters that are **universally supported** across
+    all LLM providers.  Provider-specific fields live in subclasses
+    (e.g. ``OpenAILLMParams``, ``GeminiLLMParams``).
 
     Usage::
 
@@ -44,10 +54,15 @@ class LLMParams(BaseModel):
         le=2.0,
         description="Sampling temperature. 0 = deterministic, 2 = max randomness.",
     )
-    max_tokens: int | None = Field(
+    max_output_tokens: int | None = Field(
         None,
         ge=1,
-        description="Maximum tokens to generate.",
+        description=(
+            "Maximum tokens to generate in the response. "
+            "Each provider translates this to the appropriate API "
+            "parameter (e.g. max_tokens, max_completion_tokens, "
+            "max_output_tokens)."
+        ),
     )
     top_p: float | None = Field(
         None,
@@ -76,16 +91,6 @@ class LLMParams(BaseModel):
     stop: List[str] | None = Field(
         None,
         description="Stop sequences — generation halts when any of these appear.",
-    )
-    n: int | None = Field(
-        None,
-        ge=1,
-        le=128,
-        description="Number of completions to generate.",
-    )
-    stream: bool | None = Field(
-        None,
-        description="Enable streaming (async generator of chunks).",
     )
 
     # ------------------------------------------------------------------ #
@@ -118,6 +123,5 @@ class LLMParams(BaseModel):
         base = self.to_call_kwargs()
         top = override.to_call_kwargs()
         base.update(top)
-        # Use the most-derived class for the result
         cls = type(override) if type(override) is not LLMParams else type(self)
         return cls(**base)

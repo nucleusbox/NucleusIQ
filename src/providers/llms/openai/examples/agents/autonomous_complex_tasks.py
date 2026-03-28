@@ -378,7 +378,7 @@ When researching:
             execution_mode=ExecutionMode.AUTONOMOUS,
             verbose=False,
             max_iterations=15,
-            llm_max_tokens=2048,
+            llm_max_output_tokens=2048,
         ),
     )
 

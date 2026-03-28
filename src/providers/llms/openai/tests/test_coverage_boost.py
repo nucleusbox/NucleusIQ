@@ -143,7 +143,29 @@ async def test_retry_error_branches(monkeypatch):
     )
     assert sleep_calls
 
-    with pytest.raises(_DummyRateLimitError):
+    from nucleusiq.llms.errors import (
+        AuthenticationError as FrameworkAuthError,
+    )
+    from nucleusiq.llms.errors import (
+        InvalidRequestError as FrameworkInvalidReqError,
+    )
+    from nucleusiq.llms.errors import (
+        PermissionDeniedError as FrameworkPermError,
+    )
+    from nucleusiq.llms.errors import (
+        ProviderConnectionError as FrameworkConnError,
+    )
+    from nucleusiq.llms.errors import (
+        ProviderError as FrameworkProviderError,
+    )
+    from nucleusiq.llms.errors import (
+        ProviderServerError as FrameworkServerError,
+    )
+    from nucleusiq.llms.errors import (
+        RateLimitError as FrameworkRateLimitError,
+    )
+
+    with pytest.raises(FrameworkRateLimitError):
         n = {"v": 0}
 
         async def always_rate_limit():
@@ -157,14 +179,14 @@ async def test_retry_error_branches(monkeypatch):
             logger=logger,
         )
 
-    with pytest.raises(ValueError, match="Invalid API key"):
+    with pytest.raises(FrameworkAuthError):
 
         async def auth_err():
             raise _DummyAuthenticationError("bad key")
 
         await call_with_retry(auth_err, max_retries=0, async_mode=True, logger=logger)
 
-    with pytest.raises(ValueError, match="Permission denied"):
+    with pytest.raises(FrameworkPermError):
 
         async def perm_err():
             raise _DummyPermissionDeniedError("forbidden")
@@ -193,7 +215,7 @@ async def test_retry_error_branches(monkeypatch):
         == "patched-ok"
     )
 
-    with pytest.raises(ValueError, match="Invalid request parameters"):
+    with pytest.raises(FrameworkInvalidReqError):
 
         async def unprocessable():
             raise _DummyUnprocessableEntityError("nope")
@@ -205,21 +227,21 @@ async def test_retry_error_branches(monkeypatch):
             logger=logger,
         )
 
-    with pytest.raises(_DummyAPIError):
+    with pytest.raises(FrameworkServerError):
 
         async def api_error():
             raise _DummyAPIError("api down")
 
         await call_with_retry(api_error, max_retries=0, async_mode=True, logger=logger)
 
-    with pytest.raises(httpx.HTTPError):
+    with pytest.raises(FrameworkConnError):
 
         async def http_error():
             raise httpx.HTTPError("transport")
 
         await call_with_retry(http_error, max_retries=0, async_mode=True, logger=logger)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(FrameworkProviderError):
 
         async def unknown_error():
             raise RuntimeError("boom")
@@ -250,7 +272,7 @@ async def test_retry_error_branches(monkeypatch):
         == "ok-sync"
     )
 
-    with pytest.raises(_DummyAPIError):
+    with pytest.raises(FrameworkServerError):
 
         def api_err_sync():
             raise _DummyAPIError("api-sync")
@@ -262,7 +284,7 @@ async def test_retry_error_branches(monkeypatch):
             logger=logger,
         )
 
-    with pytest.raises(httpx.HTTPError):
+    with pytest.raises(FrameworkConnError):
 
         def http_err_sync():
             raise httpx.HTTPError("http-sync")

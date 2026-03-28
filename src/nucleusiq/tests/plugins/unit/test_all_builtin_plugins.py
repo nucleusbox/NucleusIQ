@@ -312,13 +312,13 @@ class TestModelFallbackPluginDetailed:
 
         req = ModelRequest(
             model="primary",
-            max_tokens=2048,
+            max_output_tokens=2048,
             messages=[{"role": "user", "content": "hi"}],
         )
         await p.wrap_model_call(req, handler)
         fb_req = received_requests[1]
         assert fb_req.model == "fb1"
-        assert fb_req.max_tokens == 2048
+        assert fb_req.max_output_tokens == 2048
         assert fb_req.messages == req.messages
 
     @pytest.mark.asyncio

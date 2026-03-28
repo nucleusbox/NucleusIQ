@@ -219,7 +219,7 @@ class ValidationPipeline:
             response = await agent.llm.call(
                 model=getattr(agent.llm, "model_name", "default"),
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=200,
+                max_output_tokens=200,
             )
             text = ""
             if hasattr(response, "choices") and response.choices:

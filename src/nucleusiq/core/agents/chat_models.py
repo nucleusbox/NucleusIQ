@@ -114,7 +114,7 @@ class LLMCallKwargs(TypedDict, total=False):
     model: str
     messages: List[Dict[str, Any]]
     tools: List[Dict[str, Any]] | None
-    max_tokens: int | None
+    max_output_tokens: int | None
     response_format: Any
 
 

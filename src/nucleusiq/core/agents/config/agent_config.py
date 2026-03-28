@@ -46,7 +46,7 @@ class AgentConfig(BaseModel):
     )
 
     # LLM call budgets (model-agnostic knobs)
-    llm_max_tokens: int = Field(
+    llm_max_output_tokens: int = Field(
         default=2048,
         description="Token budget for normal LLM calls.",
     )

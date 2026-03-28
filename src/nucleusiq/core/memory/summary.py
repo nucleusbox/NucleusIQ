@@ -83,7 +83,7 @@ class SummaryMemory(BaseMemory):
                 self.llm.call(
                     model=self.llm_model,
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=self.summary_max_tokens,
+                    max_output_tokens=self.summary_max_tokens,
                 )
             )
             self._summary = self._extract_text(response)
@@ -124,7 +124,7 @@ class SummaryMemory(BaseMemory):
         response = await self.llm.call(
             model=self.llm_model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=self.summary_max_tokens,
+            max_output_tokens=self.summary_max_tokens,
         )
         self._summary = self._extract_text(response)
 

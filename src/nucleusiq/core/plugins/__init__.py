@@ -12,7 +12,7 @@ Two APIs:
 Request models use the **immutable override** pattern — call ``.with_()``
 to create modified copies::
 
-    request.with_(model="gpt-4o-mini", max_tokens=2048)
+    request.with_(model="gpt-4o-mini", max_output_tokens=2048)
 
 Example (decorator)::
 

@@ -39,7 +39,7 @@ class TestModelRequest:
         assert req.model == "default"
         assert req.messages == []
         assert req.tools is None
-        assert req.max_tokens == 1024
+        assert req.max_output_tokens == 1024
         assert req.call_count == 0
         assert req.metadata == {}
         assert req.extra_kwargs == {}
@@ -51,18 +51,18 @@ class TestModelRequest:
             messages=[{"role": "user", "content": "hi"}],
             tools=[{"type": "function", "function": {"name": "f"}}],
             call_count=5,
-            max_tokens=2048,
+            max_output_tokens=2048,
         )
         assert req.call_count == 5
         assert req.model == "gpt-4"
-        assert req.max_tokens == 2048
+        assert req.max_output_tokens == 2048
 
     def test_with_creates_copy(self):
         original = ModelRequest(agent_name="a", model="gpt-4", call_count=3)
-        modified = original.with_(model="gpt-4o-mini", max_tokens=512)
+        modified = original.with_(model="gpt-4o-mini", max_output_tokens=512)
 
         assert modified.model == "gpt-4o-mini"
-        assert modified.max_tokens == 512
+        assert modified.max_output_tokens == 512
         assert modified.call_count == 3  # unchanged
         assert original.model == "gpt-4"  # original unchanged
 
@@ -77,14 +77,14 @@ class TestModelRequest:
             model="gpt-4",
             messages=[],
             tools=None,
-            max_tokens=1024,
+            max_output_tokens=1024,
             extra_kwargs={"temperature": 0.5},
         )
         kwargs = req.to_call_kwargs()
         assert kwargs["model"] == "gpt-4"
         assert kwargs["messages"] == []
         assert kwargs["tools"] is None
-        assert kwargs["max_tokens"] == 1024
+        assert kwargs["max_output_tokens"] == 1024
         assert kwargs["temperature"] == 0.5
 
 

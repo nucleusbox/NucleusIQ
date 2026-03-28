@@ -36,7 +36,7 @@ async def test_basic_completion():
         response = await client.call(
             model="gpt-3.5-turbo",
             messages=messages,
-            max_tokens=50,
+            max_output_tokens=50,
         )
 
         message = response.choices[0].message
@@ -83,7 +83,7 @@ async def test_function_calling():
             model="gpt-3.5-turbo",
             messages=messages,
             tools=tools,
-            max_tokens=100,
+            max_output_tokens=100,
         )
 
         message = response.choices[0].message
@@ -121,7 +121,7 @@ async def test_conversation():
         response1 = await client.call(
             model="gpt-3.5-turbo",
             messages=messages,
-            max_tokens=50,
+            max_output_tokens=50,
         )
 
         answer1 = response1.choices[0].message.content or ""
@@ -134,7 +134,7 @@ async def test_conversation():
         response2 = await client.call(
             model="gpt-3.5-turbo",
             messages=messages,
-            max_tokens=50,
+            max_output_tokens=50,
         )
 
         answer2 = response2.choices[0].message.content or ""
@@ -163,7 +163,7 @@ async def test_error_handling():
         await client.call(
             model="invalid-model-name-xyz",
             messages=messages,
-            max_tokens=10,
+            max_output_tokens=10,
         )
         logger.error("❌ Should have raised an error")
         return False

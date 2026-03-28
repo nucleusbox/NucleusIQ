@@ -164,7 +164,7 @@ class AutonomousMode(BaseExecutionMode):
                     messages,
                     tool_specs,
                     max_tool_calls=max_tool_calls,
-                    max_tokens=2048,
+                    max_output_tokens=2048,
                 ):
                     if event.type == StreamEventType.COMPLETE:
                         final_content = event.content
@@ -289,7 +289,7 @@ class AutonomousMode(BaseExecutionMode):
                     messages,
                     tool_specs,
                     max_tool_calls=max_tool_calls,
-                    max_tokens=2048,
+                    max_output_tokens=2048,
                 ):
                     if event.type == StreamEventType.COMPLETE:
                         final_content = event.content
@@ -627,7 +627,7 @@ class AutonomousMode(BaseExecutionMode):
             call_kwargs = {
                 "model": getattr(agent.llm, "model_name", "default"),
                 "messages": [{"role": "user", "content": verification_prompt}],
-                "max_tokens": 1024,
+                "max_output_tokens": 1024,
             }
             response = await self.call_llm(
                 agent, call_kwargs, purpose=CallPurpose.CRITIC
