@@ -6,19 +6,14 @@ financial tools, and multi-agent systems. With NucleusIQ, developers have the co
 components and flexibility needed to develop advanced AI applications effortlessly.
 """
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
-# Load environment variables from project root .env (if present).
-# This makes OPENAI_API_KEY etc. available no matter which submodule is imported.
+# Auto-load the user's .env so API keys (OPENAI_API_KEY, etc.) are available.
+# load_dotenv() with no args uses find_dotenv() which searches from the
+# caller's CWD upward — works for any consumer project, not just this repo.
 try:
-    from pathlib import Path
-
     from dotenv import load_dotenv
 
-    _repo_root = Path(__file__).resolve().parents[2]
-    _env_path = _repo_root / ".env"
-    if _env_path.exists():
-        load_dotenv(_env_path, override=False)
+    load_dotenv(override=False)
 except Exception:
-    # Never fail import due to dotenv loading.
     pass

@@ -180,3 +180,6 @@ test_results.xml
 
 # Documentation (generated/private)
 docs/
+
+# Internal integration test (not for release)
+integration_test/

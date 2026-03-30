@@ -7,12 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.1](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.1) — 2026-03-30
+
+### Fixed
+
+- **`.env` loading broken for pip-installed consumers** — `core/__init__.py` used a hard-coded `Path(__file__).parents[2]` to locate `.env`, which resolved into `site-packages/` for anyone who `pip install nucleusiq`. Replaced with `load_dotenv(override=False)` (no path argument), which uses `python-dotenv`'s built-in `find_dotenv()` to search from the caller's **working directory** upward. Any project with a `.env` in its root now works out of the box.
+
+### Packages
+
+| Package | Version | Note |
+|---------|---------|------|
+| `nucleusiq` | **0.7.1** | Patch fix for `.env` loading |
+| `nucleusiq-openai` | 0.6.0 | No change (requires `nucleusiq>=0.7.0`, accepts 0.7.1) |
+| `nucleusiq-gemini` | 0.2.0 | No change (requires `nucleusiq>=0.7.0`, accepts 0.7.1) |
+
+---
+
 ## [0.7.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.0) — 2026-03-30
 
 ### Security
 
-- **`requests`** — minimum raised to `>=2.33.0` (security advisory; Dependabot). Lockfiles refreshed for transitive and dev dependencies.
-- **`pygments`** (transitive, dev/test) — constrained to `>=2.20.0` via `[tool.uv] constraint-dependencies` so lockfiles avoid **CVE-2026-4539** (ReDoS in `AdlLexer`, fixed post-2.19.2). Scanners that show “no patched version” are often stale; **2.20.0** is current on PyPI.
+- **`requests`** — minimum raised to `>=2.33.0` (CVE-2026-25645: insecure temp-file reuse in `extract_zipped_paths()`). Lockfiles refreshed for all transitive and dev dependencies.
+- **`pygments`** (transitive, dev/test) — constrained to `>=2.20.0` via `[tool.uv] constraint-dependencies` to avoid **CVE-2026-4539** (ReDoS in `AdlLexer`). Lockfiles updated to `2.20.0`.
 
 ### Breaking changes
 
@@ -20,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **PyPI wheel packaging** — `nucleusiq.tools.builtin` was omitted from `[tool.setuptools] packages`, so `pip install nucleusiq` produced a broken install (`ModuleNotFoundError: No module named 'nucleusiq.tools.builtin'` when importing `nucleusiq.agents.agent` or `nucleusiq.tools`). The subpackage is now included in the wheel.
+- **PyPI wheel packaging** — `nucleusiq.tools.builtin` was omitted from `[tool.setuptools] packages`, so `pip install nucleusiq` produced a broken install (`ModuleNotFoundError: No module named 'nucleusiq.tools.builtin'`). The subpackage is now included in the wheel.
 
 ### Added
 
@@ -30,6 +46,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### CI
 
 - **`actions/upload-artifact`** — v6 → v7 (workflow maintenance).
+
+### Dependencies (lockfile refresh)
+
+- `requests` 2.32.5 → **2.33.0** (security)
+- `pygments` 2.19.2 → **2.20.0** (security)
+- `python-dotenv` 1.2.1 → **1.2.2**
+- `pytest-cov` 7.0.0 → **7.1.0**
+- `ruff` 0.15.2 → **0.15.8**
+- `openai` (SDK) → **2.30.0**
+
+### Packages
+
+| Package | Version | Requires |
+|---------|---------|----------|
+| `nucleusiq` | **0.7.0** | — |
+| `nucleusiq-openai` | **0.6.0** | `nucleusiq>=0.7.0` |
+| `nucleusiq-gemini` | **0.2.0** | `nucleusiq>=0.7.0` |
 
 ---
 
@@ -337,7 +370,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.0...HEAD)
+## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.1...HEAD)
 
 ### Planned for v0.8.0+
 
