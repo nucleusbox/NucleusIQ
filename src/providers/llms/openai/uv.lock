@@ -437,7 +437,7 @@ wheels = [
 
 [[package]]
 name = "nucleusiq"
-version = "0.7.0"
+version = "0.7.1"
 source = { editable = "../../../nucleusiq" }
 dependencies = [
     { name = "pydantic" },
