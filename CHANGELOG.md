@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.0) — 2026-03-30
+
+### Security
+
+- **`requests`** — minimum raised to `>=2.33.0` (security advisory; Dependabot). Lockfiles refreshed for transitive and dev dependencies.
+- **`pygments`** (transitive, dev/test) — constrained to `>=2.20.0` via `[tool.uv] constraint-dependencies` so lockfiles avoid **CVE-2026-4539** (ReDoS in `AdlLexer`, fixed post-2.19.2). Scanners that show “no patched version” are often stale; **2.20.0** is current on PyPI.
+
+### Breaking changes
+
+- **Provider packages** — `nucleusiq-openai` is now **0.6.0** and `nucleusiq-gemini` is **0.2.0**, both requiring **`nucleusiq>=0.7.0`**. Pin or upgrade core and providers together.
+
+### Fixed
+
+- **PyPI wheel packaging** — `nucleusiq.tools.builtin` was omitted from `[tool.setuptools] packages`, so `pip install nucleusiq` produced a broken install (`ModuleNotFoundError: No module named 'nucleusiq.tools.builtin'` when importing `nucleusiq.agents.agent` or `nucleusiq.tools`). The subpackage is now included in the wheel.
+
+### Added
+
+- **`scripts/verify_core_package_layout.py`** — fails CI if any `core/**/__init__.py` package is missing from `pyproject.toml` (prevents recurrence).
+- **CI: wheel smoke test** — after building the core wheel, install only from `dist/*.whl` in a clean venv and import `nucleusiq.tools.builtin` (catches wheel-only failures; editable installs always masked this).
+
+### CI
+
+- **`actions/upload-artifact`** — v6 → v7 (workflow maintenance).
+
+---
+
 ## [0.6.0](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.6.0) — 2026-03-28
 
 ### Added
@@ -311,9 +337,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.6.0...HEAD)
+## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.0...HEAD)
 
-### Planned for v0.7.0
+### Planned for v0.8.0+
 
 - Comprehensive Exception Handling Framework (agent-level, tool errors, structured error results, error observability)
 - Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
