@@ -9,7 +9,9 @@ def test_init_handles_dotenv_import_failure(monkeypatch):
     """If dotenv is somehow unimportable, import nucleusiq must still work."""
     import nucleusiq
 
-    real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+    real_import = (
+        __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+    )
 
     def _patched_import(name, *args, **kwargs):
         if name == "dotenv":
