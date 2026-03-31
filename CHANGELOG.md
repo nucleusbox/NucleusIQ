@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.2](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.2) — 2026-03-31
+
+### Added
+
+- **Unified exception hierarchy** — All framework errors now inherit from `NucleusIQError`. New error hierarchies for every subsystem:
+  - `ToolError` (ToolExecutionError, ToolTimeoutError, ToolValidationError, ToolPermissionError, ToolNotFoundError)
+  - `AgentError` (AgentConfigError, AgentExecutionError, AgentTimeoutError)
+  - `AttachmentError` (AttachmentValidationError, AttachmentProcessingError, AttachmentUnsupportedError)
+  - `NucleusMemoryError` (MemoryWriteError, MemoryReadError, MemoryImportError, MemoryCapacityError)
+  - `PromptError` (PromptTemplateError, PromptConfigError, PromptGenerationError)
+  - `StreamingError` (StreamInterruptedError, StreamOrchestrationError)
+  - `ContextLengthError` added to LLMError hierarchy
+  - `PluginExecutionError` added to PluginError hierarchy
+- **`AgentResult` response contract** — `Agent.execute()` now returns a typed, immutable `AgentResult` (Pydantic `BaseModel`, `frozen=True`) instead of raw `Any`. Includes: `output`, `status` (SUCCESS/ERROR/HALTED), `error`, `error_type`, `duration_ms`, `agent_id`, `agent_name`, `task_id`, `mode`, `model`, `created_at`, `usage`, and extension fields for future observability (`tool_calls`, `llm_calls`, `plugin_events`, etc.).
+- **Backward compatible** — `str(result)` returns the output text, `bool(result)` returns `True` on success. Existing `print(result)` and `if result:` patterns continue to work.
+
+### Changed
+
+- **Re-parented existing errors** — `PluginError`, `PluginHalt`, `StructuredOutputError`, `WorkspaceSecurityError` now extend `NucleusIQError` instead of bare `Exception`. Enables `except NucleusIQError` catch-all.
+- `NucleusIQError` canonical location moved to `nucleusiq.errors` (re-exported from `nucleusiq.llms.errors` for backward compat).
+- All error classes now carry structured context attributes (e.g. `tool_name`, `provider`, `status_code`, `mode`, `task_id`).
+- `Agent.execute()` catches all exceptions and wraps them in `AgentResult(status="error")` — no more unhandled exceptions from `execute()`.
+
+### Packages
+
+| Package | Version | Note |
+|---------|---------|------|
+| `nucleusiq` | **0.7.2** | Exception hierarchy + AgentResult |
+| `nucleusiq-openai` | 0.6.0 | No change |
+| `nucleusiq-gemini` | 0.2.0 | No change |
+
+---
+
 ## [0.7.1](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.1) — 2026-03-30
 
 ### Fixed

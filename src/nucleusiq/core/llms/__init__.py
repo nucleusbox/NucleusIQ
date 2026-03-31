@@ -4,6 +4,7 @@ from nucleusiq.llms.base_llm import BaseLLM
 from nucleusiq.llms.errors import (
     AuthenticationError,
     ContentFilterError,
+    ContextLengthError,
     InvalidRequestError,
     LLMError,
     ModelNotFoundError,
@@ -32,6 +33,7 @@ __all__ = [
     "InvalidRequestError",
     "ModelNotFoundError",
     "ContentFilterError",
+    "ContextLengthError",
     "ProviderServerError",
     "ProviderConnectionError",
     "ProviderError",

@@ -172,7 +172,7 @@ class TestDirectMode:
         task = Task(id="task1", objective="Test")
         result = await agent.execute(task)
 
-        assert "Echo:" in result
+        assert "Echo:" in str(result)
         assert agent.state == AgentState.COMPLETED
 
 
@@ -373,7 +373,7 @@ class TestModeRouting:
             task = Task(id="task1", objective="Test")
             result = await agent.execute(task)
 
-            assert result == "Direct result"
+            assert result.output == "Direct result"
             mock_direct.assert_called_once()
 
     @pytest.mark.asyncio
@@ -400,7 +400,7 @@ class TestModeRouting:
             task = Task(id="task1", objective="Test")
             result = await agent.execute(task)
 
-            assert result == "Standard result"
+            assert result.output == "Standard result"
             mock_standard.assert_called_once()
 
     @pytest.mark.asyncio
@@ -427,12 +427,12 @@ class TestModeRouting:
             task = Task(id="task1", objective="Test")
             result = await agent.execute(task)
 
-            assert result == "Autonomous result"
+            assert result.output == "Autonomous result"
             mock_autonomous.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_mode_routing_invalid(self):
-        """Test invalid execution mode raises error."""
+        """Test invalid execution mode returns error AgentResult."""
         llm = MockLLM()
         agent = Agent(
             name="TestAgent",
@@ -448,9 +448,10 @@ class TestModeRouting:
         agent.config.execution_mode = "invalid_mode"  # type: ignore
 
         task = Task(id="task1", objective="Test")
+        result = await agent.execute(task)
 
-        with pytest.raises(ValueError, match="Unknown execution mode"):
-            await agent.execute(task)
+        assert result.is_error
+        assert "Unknown execution mode" in result.error
 
 
 class TestExecutionModeIntegration:
@@ -543,7 +544,7 @@ class TestToolLimitValidation:
 
     @pytest.mark.asyncio
     async def test_direct_mode_rejects_6_tools(self):
-        """Direct mode allows max 5 tools — 6 should raise."""
+        """Direct mode allows max 5 tools — 6 should return error."""
         llm = MockLLM()
         agent = Agent(
             name="Test",
@@ -553,8 +554,9 @@ class TestToolLimitValidation:
             tools=_make_tools(6),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
-        with pytest.raises(ValueError, match="DIRECT mode allows max 5"):
-            await agent.execute(Task(id="t1", objective="Hi"))
+        result = await agent.execute(Task(id="t1", objective="Hi"))
+        assert result.is_error
+        assert "DIRECT mode allows max 5" in result.error
 
     @pytest.mark.asyncio
     async def test_direct_mode_accepts_5_tools(self):
@@ -573,7 +575,7 @@ class TestToolLimitValidation:
 
     @pytest.mark.asyncio
     async def test_standard_mode_rejects_31_tools(self):
-        """Standard mode allows max 30 tools — 31 should raise."""
+        """Standard mode allows max 30 tools — 31 should return error."""
         llm = MockLLM()
         agent = Agent(
             name="Test",
@@ -583,12 +585,13 @@ class TestToolLimitValidation:
             tools=_make_tools(31),
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         )
-        with pytest.raises(ValueError, match="STANDARD mode allows max 30"):
-            await agent.execute(Task(id="t1", objective="Hi"))
+        result = await agent.execute(Task(id="t1", objective="Hi"))
+        assert result.is_error
+        assert "STANDARD mode allows max 30" in result.error
 
     @pytest.mark.asyncio
     async def test_autonomous_mode_rejects_101_tools(self):
-        """Autonomous mode allows max 100 tools — 101 should raise."""
+        """Autonomous mode allows max 100 tools — 101 should return error."""
         llm = MockLLM()
         agent = Agent(
             name="Test",
@@ -598,8 +601,9 @@ class TestToolLimitValidation:
             tools=_make_tools(101),
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),
         )
-        with pytest.raises(ValueError, match="AUTONOMOUS mode allows max 100"):
-            await agent.execute(Task(id="t1", objective="Hi"))
+        result = await agent.execute(Task(id="t1", objective="Hi"))
+        assert result.is_error
+        assert "AUTONOMOUS mode allows max 100" in result.error
 
     @pytest.mark.asyncio
     async def test_custom_max_tool_calls_overrides_default(self):
@@ -634,8 +638,9 @@ class TestToolLimitValidation:
                 max_tool_calls=15,
             ),
         )
-        with pytest.raises(ValueError, match="DIRECT mode allows max 15"):
-            await agent.execute(Task(id="t1", objective="Hi"))
+        result = await agent.execute(Task(id="t1", objective="Hi"))
+        assert result.is_error
+        assert "DIRECT mode allows max 15" in result.error
 
     def test_get_effective_max_tool_calls_defaults(self):
         """Test mode defaults for tool limits."""

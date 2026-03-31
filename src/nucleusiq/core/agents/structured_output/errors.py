@@ -1,22 +1,29 @@
 # src/nucleusiq/agents/structured_output/errors.py
-"""
-Error classes for NucleusIQ Structured Output.
+"""Error classes for NucleusIQ Structured Output.
+
+Hierarchy::
+
+    NucleusIQError
+    └── StructuredOutputError
+        ├── SchemaValidationError  — output doesn't match schema
+        ├── SchemaParseError       — output isn't valid JSON
+        └── MultipleOutputError    — multiple outputs when one expected
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from nucleusiq.errors import NucleusIQError
 
-class StructuredOutputError(Exception):
-    """
-    Base exception for all structured output errors.
+
+class StructuredOutputError(NucleusIQError):
+    """Base exception for all structured output errors.
 
     Attributes:
-        message: Error description
-        schema_name: Name of the schema that failed
-        raw_output: The raw output that failed
-        retryable: Whether this error can be retried
+        schema_name: Name of the schema that failed.
+        raw_output: The raw output that failed.
+        retryable: Whether this error can be retried.
     """
 
     def __init__(

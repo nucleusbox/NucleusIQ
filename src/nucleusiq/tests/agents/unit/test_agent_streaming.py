@@ -429,7 +429,7 @@ class TestEndToEnd:
             if event.type == "complete":
                 final_content = event.content
 
-        assert result == final_content
+        assert str(result) == final_content
 
     @pytest.mark.asyncio
     async def test_sse_serialization(self):
@@ -562,7 +562,7 @@ class TestParityAcrossModes:
             if e.type == "complete":
                 final = e.content
 
-        assert result == final
+        assert str(result) == final
 
     @pytest.mark.asyncio
     async def test_standard_mode_parity(self):
@@ -575,7 +575,7 @@ class TestParityAcrossModes:
             if e.type == "complete":
                 final = e.content
 
-        assert result == final
+        assert str(result) == final
 
     @pytest.mark.asyncio
     async def test_tool_call_parity(self):
@@ -597,4 +597,4 @@ class TestParityAcrossModes:
             if e.type == "complete":
                 final = e.content
 
-        assert result == final
+        assert str(result) == final

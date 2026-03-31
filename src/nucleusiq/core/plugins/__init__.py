@@ -59,7 +59,7 @@ from nucleusiq.plugins.decorators import (
     wrap_model_call,
     wrap_tool_call,
 )
-from nucleusiq.plugins.errors import PluginError, PluginHalt
+from nucleusiq.plugins.errors import PluginError, PluginExecutionError, PluginHalt
 from nucleusiq.plugins.manager import PluginManager
 
 __all__ = [
@@ -71,8 +71,9 @@ __all__ = [
     "ModelHandler",
     "ToolHandler",
     # Errors
-    "PluginHalt",
     "PluginError",
+    "PluginExecutionError",
+    "PluginHalt",
     # Manager
     "PluginManager",
     # Decorators

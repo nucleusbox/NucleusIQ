@@ -8,6 +8,14 @@ from nucleusiq.tools.builtin import (
     FileSearchTool,
 )
 from nucleusiq.tools.decorators import DecoratedTool, tool
+from nucleusiq.tools.errors import (
+    ToolError,
+    ToolExecutionError,
+    ToolNotFoundError,
+    ToolPermissionError,
+    ToolTimeoutError,
+    ToolValidationError,
+)
 
 __all__ = [
     "BaseTool",
@@ -17,4 +25,10 @@ __all__ = [
     "FileReadTool",
     "FileSearchTool",
     "tool",
+    "ToolError",
+    "ToolExecutionError",
+    "ToolNotFoundError",
+    "ToolPermissionError",
+    "ToolTimeoutError",
+    "ToolValidationError",
 ]

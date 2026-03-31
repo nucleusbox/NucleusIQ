@@ -11,10 +11,12 @@ via a pluggable registry.  All heavy logic lives in:
 """
 
 import inspect
+import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Type
 
+from nucleusiq.agents.agent_result import AgentResult, ResultStatus
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.components.executor import Executor
 from nucleusiq.agents.components.usage_tracker import UsageSummary, UsageTracker
@@ -318,7 +320,7 @@ class Agent(BaseAgent):
         self,
         task: Task | Dict[str, Any],
         llm_params: LLMParams | None = None,
-    ) -> Any:
+    ) -> AgentResult:
         """Execute a task using the agent's capabilities.
 
         Execution Flow (Gearbox Strategy):
@@ -335,23 +337,88 @@ class Agent(BaseAgent):
                 execution only.
 
         Returns:
-            Execution result (final answer or tool result)
+            :class:`AgentResult` — immutable execution result. Backward
+            compatible: ``str(result)`` returns the output text.
         """
-        try:
-            task, mode, agent_ctx = await self._setup_execution(task, llm_params)
-        except PluginHalt as halt:
-            return halt.result
+        t0 = time.perf_counter()
+        task_obj: Task | None = None
 
         try:
             try:
-                result = await mode.run(self, task)
+                task_obj, mode, agent_ctx = await self._setup_execution(
+                    task, llm_params
+                )
             except PluginHalt as halt:
-                result = halt.result
+                status = ResultStatus.HALTED
+                output = halt.result
+                if task_obj is None:
+                    task_obj = task if isinstance(task, Task) else Task.from_dict(task)
+                return self._build_result(task_obj, status, output, None, None, t0)
 
-            result = await self._plugin_manager.run_after_agent(agent_ctx, result)
-            return result
+            status = ResultStatus.SUCCESS
+            try:
+                output = await mode.run(self, task_obj)
+            except PluginHalt as halt:
+                status = ResultStatus.HALTED
+                output = halt.result
+
+            output = await self._plugin_manager.run_after_agent(agent_ctx, output)
+            return self._build_result(task_obj, status, output, None, None, t0)
+
+        except Exception as exc:
+            if task_obj is None:
+                task_obj = task if isinstance(task, Task) else Task.from_dict(task)
+            return self._build_result(
+                task_obj,
+                ResultStatus.ERROR,
+                None,
+                str(exc),
+                type(exc).__name__,
+                t0,
+            )
         finally:
             self._current_llm_overrides = {}
+
+    def _build_result(
+        self,
+        task: Task,
+        status: ResultStatus,
+        output: Any,
+        error: str | None,
+        error_type: str | None,
+        t0: float,
+    ) -> AgentResult:
+        """Construct a frozen :class:`AgentResult` from execution data."""
+        mode_value = (
+            self.config.execution_mode.value
+            if hasattr(self.config.execution_mode, "value")
+            else str(self.config.execution_mode)
+        )
+        model_name: str | None = None
+        if self.llm is not None:
+            model_name = getattr(self.llm, "model", None) or getattr(
+                self.llm, "model_name", None
+            )
+
+        usage_dict: dict[str, Any] | None = None
+        try:
+            usage_dict = self._usage_tracker.summary.summary()
+        except Exception:
+            pass
+
+        return AgentResult(
+            agent_id=str(self.id),
+            agent_name=self.name,
+            task_id=task.id,
+            mode=mode_value,
+            model=model_name,
+            output=output,
+            status=status,
+            error=error,
+            error_type=error_type,
+            duration_ms=(time.perf_counter() - t0) * 1000,
+            usage=usage_dict,
+        )
 
     # ------------------------------------------------------------------ #
     # EXECUTION — streaming                                                #

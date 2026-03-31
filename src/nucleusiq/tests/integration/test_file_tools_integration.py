@@ -103,7 +103,11 @@ class TestFileReadToolIntegration:
             Task(id="t1", objective="Read the report and summarize revenue")
         )
         assert result is not None
-        assert "Revenue" in result or "revenue" in result or "function output" in result
+        assert (
+            "Revenue" in str(result)
+            or "revenue" in str(result)
+            or "function output" in str(result)
+        )
 
     @pytest.mark.asyncio
     async def test_agent_reads_file_with_line_range(self, workspace: Path) -> None:
@@ -126,7 +130,7 @@ class TestFileSearchToolIntegration:
             Task(id="t3", objective="Find all revenue mentions")
         )
         assert result is not None
-        assert "Revenue" in result or "function output" in result
+        assert "Revenue" in str(result) or "function output" in str(result)
 
     @pytest.mark.asyncio
     async def test_agent_searches_specific_file(self, workspace: Path) -> None:
@@ -159,7 +163,7 @@ class TestFileExtractToolIntegration:
         agent = _make_agent(workspace, "file_extract", {"path": "data.csv"})
         result = await agent.execute(Task(id="t7", objective="Extract data from CSV"))
         assert result is not None
-        assert "product" in result or "function output" in result
+        assert "product" in str(result) or "function output" in str(result)
 
     @pytest.mark.asyncio
     async def test_agent_extracts_json(self, workspace: Path) -> None:

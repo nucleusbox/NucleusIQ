@@ -141,7 +141,7 @@ class TestDirectModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Hello"))
-        assert "Echo:" in result
+        assert "Echo:" in str(result)
         assert agent.state == AgentState.COMPLETED
 
     @pytest.mark.asyncio
@@ -156,7 +156,7 @@ class TestDirectModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Hello"))
-        assert "Echo:" in result
+        assert "Echo:" in str(result)
         assert agent.state == AgentState.ERROR
 
     @pytest.mark.asyncio
@@ -171,7 +171,8 @@ class TestDirectModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Hello"))
-        assert "No response" in result or "STANDARD" in result or "AUTONOMOUS" in result
+        r = str(result)
+        assert "No response" in r or "STANDARD" in r or "AUTONOMOUS" in r
         assert agent.state == AgentState.COMPLETED
 
 
@@ -210,7 +211,7 @@ class TestStandardModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Hi"))
-        assert "Echo:" in result
+        assert "Echo:" in str(result)
 
     @pytest.mark.asyncio
     async def test_standard_llm_error_returns_error_message(self):
@@ -224,7 +225,7 @@ class TestStandardModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Hi"))
-        assert "Error:" in result
+        assert "Error:" in str(result)
         assert agent.state == AgentState.ERROR
 
 
@@ -248,7 +249,9 @@ class TestAutonomousModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Calculate (5+3)*2"))
-        assert isinstance(result, str)
+        from nucleusiq.agents.agent_result import AgentResult
+
+        assert isinstance(result, AgentResult)
         assert agent.state == AgentState.COMPLETED
 
     @pytest.mark.asyncio
@@ -262,7 +265,7 @@ class TestAutonomousModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Hi"))
-        assert "Echo:" in result
+        assert "Echo:" in str(result)
 
     @pytest.mark.asyncio
     async def test_autonomous_planning_fails_fallback_to_basic_plan(self):
@@ -414,8 +417,9 @@ class TestExecuteValidationCoverage:
         )
         await agent.initialize()
         agent.config.execution_mode = "invalid_mode"  # type: ignore
-        with pytest.raises(ValueError, match="Unknown execution mode"):
-            await agent.execute(Task(id="t1", objective="Test"))
+        result = await agent.execute(Task(id="t1", objective="Test"))
+        assert result.is_error
+        assert "Unknown execution mode" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_accepts_task_dict(self):

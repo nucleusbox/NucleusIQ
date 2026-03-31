@@ -10,9 +10,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from nucleusiq.errors import NucleusIQError
 
-class WorkspaceSecurityError(Exception):
-    """Raised when a path escapes the workspace sandbox."""
+
+class WorkspaceSecurityError(NucleusIQError):
+    """Raised when a path escapes the workspace sandbox.
+
+    Attributes:
+        path: The offending path that was attempted.
+        workspace_root: The workspace root it tried to escape.
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        path: str | None = None,
+        workspace_root: str | None = None,
+    ) -> None:
+        self.path = path
+        self.workspace_root = workspace_root
+        super().__init__(message)
 
 
 def resolve_safe_path(workspace_root: str | Path, user_path: str) -> Path:

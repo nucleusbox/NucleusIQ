@@ -63,7 +63,7 @@ class TestDirectModeWithPlugins:
     async def test_no_plugins_works(self):
         agent = make_agent()
         result = await agent.execute(make_task("Hello"))
-        assert "Echo" in result or "Hello" in result
+        assert "Echo" in str(result) or "Hello" in str(result)
 
     @pytest.mark.asyncio
     async def test_before_agent_runs(self):
@@ -86,7 +86,7 @@ class TestDirectModeWithPlugins:
 
         agent = make_agent(plugins=[add_suffix])
         result = await agent.execute(make_task("Hi"))
-        assert "[processed]" in result
+        assert "[processed]" in str(result)
 
     @pytest.mark.asyncio
     async def test_before_agent_halt(self):
@@ -96,7 +96,7 @@ class TestDirectModeWithPlugins:
 
         agent = make_agent(plugins=[halt])
         result = await agent.execute(make_task("Hi"))
-        assert result == "blocked"
+        assert str(result) == "blocked"
 
     @pytest.mark.asyncio
     async def test_before_model_runs(self):
@@ -148,7 +148,7 @@ class TestDirectModeWithPlugins:
 
         agent = make_agent(plugins=[cache])
         result = await agent.execute(make_task("Hi"))
-        assert result == "from_cache"
+        assert result.output == "from_cache"
 
     @pytest.mark.asyncio
     async def test_wrap_model_call_with_request_override(self):
@@ -247,7 +247,7 @@ class TestMultiplePlugins:
 
         agent = make_agent(plugins=[add_a, add_b])
         result = await agent.execute(make_task("Hi"))
-        assert result.endswith("_A_B")
+        assert str(result).endswith("_A_B")
 
 
 # ------------------------------------------------------------------ #

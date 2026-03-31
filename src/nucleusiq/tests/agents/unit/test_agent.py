@@ -301,7 +301,7 @@ class TestAgentExecute:
         task = {"id": "task1", "objective": "Test task"}
         result = await agent.execute(task)
 
-        assert result == "Echo: Test task"
+        assert str(result) == "Echo: Test task"
         assert agent.state == AgentState.COMPLETED
 
     @pytest.mark.asyncio
@@ -323,7 +323,7 @@ class TestAgentExecute:
         result = await agent.execute(task)
 
         # MockLLM will echo the content
-        assert "Echo:" in result or "Dummy Model" in result
+        assert "Echo:" in str(result) or "Dummy Model" in str(result)
         assert agent.state == AgentState.COMPLETED
 
     @pytest.mark.asyncio
@@ -423,8 +423,8 @@ class TestAgentExecute:
         task = {"id": "task1", "objective": "Test task"}
         result = await agent.execute(task)
 
-        # Should return error message and set ERROR state (no longer falls back to echo)
-        assert "Error:" in result
+        # Mode catches error internally and returns "Error: ..." string as output
+        assert "Error:" in str(result)
         assert agent.state == AgentState.ERROR
 
 

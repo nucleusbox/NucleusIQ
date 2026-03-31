@@ -9,15 +9,16 @@ Hierarchy::
 
     NucleusIQError
     └── LLMError
-        ├── AuthenticationError   — invalid API key (401)
-        ├── PermissionDeniedError — access denied (403)
-        ├── RateLimitError        — too many requests (429)
-        ├── InvalidRequestError   — bad parameters (400)
-        ├── ModelNotFoundError    — model does not exist (404)
-        ├── ContentFilterError    — content blocked by safety filter
-        ├── ProviderServerError   — provider 5xx error
-        ├── ProviderConnectionError — network / connection failure
-        └── ProviderError         — catch-all for other provider errors
+        ├── AuthenticationError      — invalid API key (401)
+        ├── PermissionDeniedError    — access denied (403)
+        ├── RateLimitError           — too many requests (429)
+        ├── InvalidRequestError      — bad parameters (400)
+        ├── ModelNotFoundError       — model does not exist (404)
+        ├── ContentFilterError       — content blocked by safety filter
+        ├── ContextLengthError       — input exceeds model context window
+        ├── ProviderServerError      — provider 5xx error
+        ├── ProviderConnectionError  — network / connection failure
+        └── ProviderError            — catch-all for other provider errors
 
 Usage in application code::
 
@@ -45,9 +46,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from nucleusiq.errors import NucleusIQError
 
-class NucleusIQError(Exception):
-    """Base exception for all NucleusIQ framework errors."""
+__all__ = [
+    "NucleusIQError",
+    "LLMError",
+    "AuthenticationError",
+    "PermissionDeniedError",
+    "RateLimitError",
+    "InvalidRequestError",
+    "ModelNotFoundError",
+    "ContentFilterError",
+    "ContextLengthError",
+    "ProviderServerError",
+    "ProviderConnectionError",
+    "ProviderError",
+]
 
 
 class LLMError(NucleusIQError):
@@ -148,6 +162,15 @@ class ProviderConnectionError(LLMError):
     """Network or connection failure when reaching the provider.
 
     DNS resolution, TCP connection, TLS handshake, or timeout failures.
+    """
+
+
+class ContextLengthError(LLMError):
+    """Input exceeds the model's context window limit.
+
+    Common when accumulated conversation history or tool output
+    pushes the prompt beyond the model's token capacity.
+    Providers typically report this as a 400 with a specific message.
     """
 
 
