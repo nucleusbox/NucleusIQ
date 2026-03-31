@@ -8,6 +8,7 @@ import importlib
 def test_init_loads_dotenv(monkeypatch):
     """load_dotenv() should be called on import (no path arg)."""
     import dotenv
+
     import nucleusiq
 
     loaded = {"called": False, "override": None}
@@ -27,6 +28,7 @@ def test_init_loads_dotenv(monkeypatch):
 def test_init_never_raises_when_dotenv_loading_fails(monkeypatch):
     """Any dotenv-loading exception should be swallowed."""
     import dotenv
+
     import nucleusiq
 
     def _boom(*_args, **_kwargs):
