@@ -97,7 +97,7 @@ def _inline_refs(obj: Any, defs: dict[str, Any]) -> Any:
             ref_path = obj["$ref"]
             for prefix in ("#/$defs/", "#/definitions/"):
                 if ref_path.startswith(prefix):
-                    def_name = ref_path[len(prefix):]
+                    def_name = ref_path[len(prefix) :]
                     if def_name in defs:
                         import copy
 

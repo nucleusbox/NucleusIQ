@@ -323,9 +323,7 @@ def _build_tool_result_parts(
                 all_messages, msg_index, str(tool_call_id)
             )
         if not name:
-            name = _infer_tool_name_single_call_prior_assistant(
-                all_messages, msg_index
-            )
+            name = _infer_tool_name_single_call_prior_assistant(all_messages, msg_index)
         if not name:
             name = _infer_first_tool_name_immediate_prior_assistant(
                 all_messages, msg_index

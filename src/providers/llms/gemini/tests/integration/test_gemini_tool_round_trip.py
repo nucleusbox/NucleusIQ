@@ -188,8 +188,7 @@ class TestFullToolRoundTrip:
             {
                 "role": "user",
                 "content": (
-                    "What's the weather in London AND calculate 15 * 7? "
-                    "Use both tools."
+                    "What's the weather in London AND calculate 15 * 7? Use both tools."
                 ),
             },
             msg1.to_dict(),

@@ -120,9 +120,9 @@ class TestBuildGeminiResponseFormat:
         schema = result["response_json_schema"]
         assert "$ref" not in str(schema)
 
-        inner_props = (
-            schema["properties"]["middle"]["properties"]["inner"]["properties"]
-        )
+        inner_props = schema["properties"]["middle"]["properties"]["inner"][
+            "properties"
+        ]
         assert "value" in inner_props
 
 
