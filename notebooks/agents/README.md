@@ -7,22 +7,27 @@ End-to-end notebooks demonstrating how to build autonomous agents with NucleusIQ
 | Notebook | Domain | What it shows |
 |----------|--------|--------------|
 | [PE Due Diligence](pe_due_diligence.ipynb) | Private Equity | 8 multi-step financial analyses — WACC, DCF, LBO IRR, merger math. Compares Standard vs Autonomous modes with external validation. |
+| [TCS Research Analyst](research_analyst_tcs.ipynb) | Equity research (India IT) | **Full framework showcase**: Gemini + custom `@tool` (PDF + web), Pydantic structured output, plugins (limits + retry), SlidingWindowMemory, CostTracker, streaming, pandas visualization, feature proof dashboard. |
 
 ## How to Run
 
 1. **Install dependencies**:
    ```bash
    pip install nucleusiq nucleusiq-openai
+   # For the TCS Gemini showcase notebook:
+   pip install nucleusiq nucleusiq-gemini pypdf requests python-dotenv
    ```
 
 2. **Set your API key**:
    ```bash
    export OPENAI_API_KEY=sk-...
+   export GEMINI_API_KEY=...   # TCS research notebook
    ```
 
 3. **Open the notebook**:
    ```bash
    jupyter notebook notebooks/agents/pe_due_diligence.ipynb
+   jupyter notebook notebooks/agents/research_analyst_tcs.ipynb
    ```
 
 ## Adding New Examples
@@ -44,7 +49,7 @@ Place new notebooks directly in this folder:
 notebooks/
   agents/
     pe_due_diligence.ipynb
-    research_analyst.ipynb      # future
-    customer_support.ipynb      # future
+    research_analyst_tcs.ipynb
+    data/tcs/                    # optional: drop TCS annual report PDFs here
     README.md
 ```

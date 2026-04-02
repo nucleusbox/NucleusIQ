@@ -295,7 +295,21 @@ class BaseGemini(BaseLLM):
         gen_config_extras: dict[str, Any] = {}
 
         if response_format is not None:
-            if isinstance(response_format, dict):
+            if tools:
+                logger.warning(
+                    "Gemini API does not support structured JSON output "
+                    "(response_mime_type='application/json') combined with "
+                    "function calling in the same request. Dropping "
+                    "response_format to avoid a 400 error. Use prompt-based "
+                    "JSON extraction instead when tools are enabled."
+                )
+            elif isinstance(response_format, tuple) and len(response_format) == 2:
+                provider_format, raw_schema = response_format
+                if isinstance(provider_format, dict):
+                    gen_config_extras.update(provider_format)
+                if isinstance(raw_schema, type):
+                    output_schema_type = raw_schema
+            elif isinstance(response_format, dict):
                 gen_config_extras.update(response_format)
             else:
                 fmt = build_gemini_response_format(response_format)

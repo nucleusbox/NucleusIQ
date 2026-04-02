@@ -67,19 +67,61 @@ def _clean_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Clean a Pydantic JSON schema for Gemini compatibility.
 
     Gemini doesn't support some JSON Schema keywords that Pydantic emits.
+    ``$ref`` pointers are inlined (similar to OpenAI's cleaner) so nested
+    Pydantic models work correctly.
     """
-    cleaned = dict(schema)
-    cleaned.pop("$defs", None)
-    cleaned.pop("definitions", None)
-    cleaned.pop("title", None)
-    cleaned.pop("additionalProperties", None)
+    import copy
 
-    if "properties" in cleaned:
-        cleaned["properties"] = {
-            k: _clean_property(v) for k, v in cleaned["properties"].items()
+    schema = copy.deepcopy(schema)
+    defs = schema.pop("$defs", {})
+    defs.update(schema.pop("definitions", {}))
+
+    if defs:
+        schema = _inline_refs(schema, defs)
+
+    schema.pop("title", None)
+    schema.pop("additionalProperties", None)
+
+    if "properties" in schema:
+        schema["properties"] = {
+            k: _clean_property(v) for k, v in schema["properties"].items()
         }
 
-    return cleaned
+    return schema
+
+
+def _inline_refs(obj: Any, defs: dict[str, Any]) -> Any:
+    """Recursively inline ``$ref`` references using the ``$defs`` mapping."""
+    if isinstance(obj, dict):
+        if "$ref" in obj:
+            ref_path = obj["$ref"]
+            for prefix in ("#/$defs/", "#/definitions/"):
+                if ref_path.startswith(prefix):
+                    def_name = ref_path[len(prefix):]
+                    if def_name in defs:
+                        import copy
+
+                        resolved = copy.deepcopy(defs[def_name])
+                        return _inline_refs(_clean_schema_inner(resolved), defs)
+            return obj
+        return {k: _inline_refs(v, defs) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_inline_refs(item, defs) for item in obj]
+    return obj
+
+
+def _clean_schema_inner(schema: dict[str, Any]) -> dict[str, Any]:
+    """Clean an inlined sub-schema (no $defs extraction needed)."""
+    schema.pop("title", None)
+    schema.pop("additionalProperties", None)
+    schema.pop("$defs", None)
+    schema.pop("definitions", None)
+
+    if "properties" in schema:
+        schema["properties"] = {
+            k: _clean_property(v) for k, v in schema["properties"].items()
+        }
+    return schema
 
 
 def _clean_property(prop: dict[str, Any]) -> dict[str, Any]:

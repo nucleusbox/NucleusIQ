@@ -6,6 +6,10 @@ Gemini supports several built-in tools that execute server-side:
 3. URL Context   — fetch and understand web page content
 4. Google Maps   — location-aware grounding with Google Maps
 
+**API constraint:** Google's API rejects requests that mix these **built-in** tools with
+**function-declaration** tools (e.g. ``@tool`` callables) in the same call. Use native tools
+in an agent that has **only** native tools, or use **only** custom tools — not both.
+
 Usage — create via the ``GeminiTool`` factory and pass to an Agent::
 
     search = GeminiTool.google_search()

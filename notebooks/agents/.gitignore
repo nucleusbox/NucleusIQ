@@ -1,5 +1,9 @@
 # Generated output notebooks
 *_out.ipynb
+*_output.ipynb
 
 # Evaluation result exports
 *_results.json
+
+# Local data (annual reports, PDFs) — not committed
+data/

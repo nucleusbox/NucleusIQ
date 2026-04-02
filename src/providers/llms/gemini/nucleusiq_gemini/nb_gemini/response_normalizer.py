@@ -153,7 +153,7 @@ def messages_to_gemini_contents(
     system_instruction: str | None = None
     contents: list[dict[str, Any]] = []
 
-    for msg in messages:
+    for msg_index, msg in enumerate(messages):
         role = msg.get("role", "user")
 
         if role == "system":
@@ -163,7 +163,9 @@ def messages_to_gemini_contents(
         gemini_role = _map_role(role)
 
         if role == "tool":
-            parts = _build_tool_result_parts(msg)
+            parts = _build_tool_result_parts(
+                msg, all_messages=messages, msg_index=msg_index
+            )
         else:
             parts = _build_content_parts(msg)
 
@@ -221,16 +223,127 @@ def _build_content_parts(msg: dict[str, Any]) -> list[dict[str, Any]]:
     return parts
 
 
-def _build_tool_result_parts(msg: dict[str, Any]) -> list[dict[str, Any]]:
+def _tool_call_entry_name(tc: Any) -> str:
+    """Best-effort function name from an OpenAI-style or SDK-style tool call entry."""
+    if isinstance(tc, dict):
+        fn = tc.get("function")
+        if isinstance(fn, dict):
+            return (fn.get("name") or "").strip()
+        return (tc.get("name") or "").strip()
+    fn = getattr(tc, "function", None)
+    if fn is not None:
+        nm = getattr(fn, "name", None)
+        if isinstance(nm, str) and nm.strip():
+            return nm.strip()
+    nm2 = getattr(tc, "name", None)
+    if isinstance(nm2, str):
+        return nm2.strip()
+    return ""
+
+
+def _tool_call_entry_id(tc: Any) -> str:
+    if isinstance(tc, dict):
+        return str(tc.get("id") or "")
+    v = getattr(tc, "id", None)
+    return str(v) if v is not None else ""
+
+
+def _infer_tool_name_from_prior_assistant(
+    messages: list[dict[str, Any]],
+    tool_msg_index: int,
+    tool_call_id: str,
+) -> str:
+    """Match ``tool_call_id`` to a prior assistant ``tool_calls[]`` entry (Gemini needs non-empty name)."""
+    want = str(tool_call_id)
+    for j in range(tool_msg_index - 1, -1, -1):
+        prev = messages[j]
+        if prev.get("role") not in ("assistant", "model"):
+            continue
+        for tc in prev.get("tool_calls") or []:
+            if _tool_call_entry_id(tc) != want:
+                continue
+            n = _tool_call_entry_name(tc)
+            if n:
+                return n
+    return ""
+
+
+def _infer_tool_name_single_call_prior_assistant(
+    messages: list[dict[str, Any]],
+    tool_msg_index: int,
+) -> str:
+    """If the prior assistant message has exactly one tool call, use its function name."""
+    for j in range(tool_msg_index - 1, -1, -1):
+        prev = messages[j]
+        if prev.get("role") not in ("assistant", "model"):
+            continue
+        tcs = list(prev.get("tool_calls") or [])
+        if len(tcs) != 1:
+            return ""
+        n = _tool_call_entry_name(tcs[0])
+        return n
+    return ""
+
+
+def _infer_first_tool_name_immediate_prior_assistant(
+    messages: list[dict[str, Any]],
+    tool_msg_index: int,
+) -> str:
+    """Last resort: first tool name on the message immediately before this tool result."""
+    if tool_msg_index < 1:
+        return ""
+    prev = messages[tool_msg_index - 1]
+    if prev.get("role") not in ("assistant", "model"):
+        return ""
+    tcs = list(prev.get("tool_calls") or [])
+    if not tcs:
+        return ""
+    if len(tcs) > 1:
+        logger.warning(
+            "Using first of %d tool_calls to fill function_response.name "
+            "(tool message had no name; call ids may not have matched).",
+            len(tcs),
+        )
+    return _tool_call_entry_name(tcs[0])
+
+
+def _build_tool_result_parts(
+    msg: dict[str, Any],
+    *,
+    all_messages: list[dict[str, Any]] | None = None,
+    msg_index: int | None = None,
+) -> list[dict[str, Any]]:
     """Build Gemini function response parts from a tool result message."""
     content = msg.get("content", "")
     tool_call_id = msg.get("tool_call_id", "")
-    name = msg.get("name", "")
+    name = (msg.get("name") or "").strip()
+    if not name and all_messages is not None and msg_index is not None:
+        if tool_call_id:
+            name = _infer_tool_name_from_prior_assistant(
+                all_messages, msg_index, str(tool_call_id)
+            )
+        if not name:
+            name = _infer_tool_name_single_call_prior_assistant(
+                all_messages, msg_index
+            )
+        if not name:
+            name = _infer_first_tool_name_immediate_prior_assistant(
+                all_messages, msg_index
+            )
 
     try:
         response_data = json.loads(content) if content else {}
     except json.JSONDecodeError:
         response_data = {"result": content}
+    # google-genai requires function_response.response to be a mapping, not a bare str/list.
+    if not isinstance(response_data, dict):
+        response_data = {"result": response_data}
+
+    if not name:
+        logger.warning(
+            "Gemini function_response requires a non-empty function name; "
+            "tool message had no name and none could be inferred from prior assistant tool_calls."
+        )
 
     part: dict[str, Any] = {
         "function_response": {

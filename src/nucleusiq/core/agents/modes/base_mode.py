@@ -532,6 +532,7 @@ class BaseExecutionMode(ABC):
                         messages.append(
                             ChatMessage(
                                 role="tool",
+                                name=tc.name,
                                 tool_call_id=tc.id,
                                 content=result_str,
                             )

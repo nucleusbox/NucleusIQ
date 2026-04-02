@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nucleusiq-gemini"
-version = "0.2.0"
+version = "0.2.1"
 description = "Google Gemini provider for the NucleusIQ AI agent framework."
 requires-python = ">=3.10,<4.0"
 license = { text = "MIT" }
@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "nucleusiq>=0.7.0",
+    "nucleusiq>=0.7.3",
     "google-genai>=1.0.0",
 ]
 
@@ -38,7 +38,7 @@ test = [
     "pytest>=8.0,<10.0",
     "pytest-asyncio>=0.23,<2.0",
     "python-dotenv>=1.0",
-    "pydantic>=2.0",
+    "pydantic>=2.11.0,<3.0",
 ]
 dev = [{ include-group = "test" }]
 

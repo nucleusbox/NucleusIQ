@@ -82,6 +82,49 @@ class TestBuildGeminiResponseFormat:
         result = build_gemini_response_format(42)
         assert result is None
 
+    def test_nested_pydantic_model_refs_inlined(self):
+        """Nested Pydantic models use $ref/$defs; these must be inlined."""
+
+        class Address(BaseModel):
+            street: str
+            city: str
+
+        class Person(BaseModel):
+            name: str
+            address: Address
+
+        result = build_gemini_response_format(Person)
+        schema = result["response_json_schema"]
+
+        assert "$defs" not in schema
+        assert "$ref" not in str(schema)
+
+        addr_prop = schema["properties"]["address"]
+        assert "properties" in addr_prop
+        assert "street" in addr_prop["properties"]
+        assert "city" in addr_prop["properties"]
+
+    def test_deeply_nested_refs_inlined(self):
+        """Multiple levels of nesting should all be inlined."""
+
+        class Inner(BaseModel):
+            value: int
+
+        class Middle(BaseModel):
+            inner: Inner
+
+        class Outer(BaseModel):
+            middle: Middle
+
+        result = build_gemini_response_format(Outer)
+        schema = result["response_json_schema"]
+        assert "$ref" not in str(schema)
+
+        inner_props = (
+            schema["properties"]["middle"]["properties"]["inner"]["properties"]
+        )
+        assert "value" in inner_props
+
 
 # ====================================================================== #
 # Parser tests                                                             #

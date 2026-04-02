@@ -156,6 +156,73 @@ class TestMessagesToGeminiContents:
             "result": "The weather is sunny"
         }
 
+    def test_tool_result_json_string_payload_is_wrapped_for_gemini_sdk(self):
+        """json.dumps(str) parses back to str; google-genai requires response: dict."""
+        import json
+
+        messages = [
+            {
+                "role": "tool",
+                "content": json.dumps("line1\nline2"),
+                "tool_call_id": "c1",
+                "name": "list_files",
+            }
+        ]
+        _, contents = messages_to_gemini_contents(messages)
+        part = contents[0]["parts"][0]
+        assert part["function_response"]["response"] == {"result": "line1\nline2"}
+
+    def test_tool_result_infers_name_from_prior_assistant_when_name_omitted(self):
+        """Older agents omitted tool ``name``; Gemini rejects empty function_response.name."""
+        import json
+
+        messages = [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call-abc",
+                        "type": "function",
+                        "function": {
+                            "name": "list_tcs_pdf_inventory",
+                            "arguments": "{}",
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-abc",
+                "content": json.dumps("PDFs: a.pdf"),
+            },
+        ]
+        _, contents = messages_to_gemini_contents(messages)
+        fr = contents[2]["parts"][0]["function_response"]
+        assert fr["name"] == "list_tcs_pdf_inventory"
+
+    def test_tool_result_infers_name_single_prior_call_without_matching_id(self):
+        import json
+
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {"name": "only_tool", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "content": json.dumps("ok")},
+        ]
+        _, contents = messages_to_gemini_contents(messages)
+        assert len(contents) == 2
+        fr = contents[1]["parts"][0]["function_response"]
+        assert fr["name"] == "only_tool"
+
     def test_assistant_with_tool_calls(self):
         messages = [
             {

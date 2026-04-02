@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.3](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.3) — 2026-04-02
+
+### Fixed
+
+- **Gemini `function_response.name` cannot be empty** — tool result messages (`role="tool"`) now carry `name=tc.name` in `ChatMessage` across all execution modes (standard, direct, base streaming). Previously, `name` was `None`, causing Gemini API 400 errors on the second turn of any tool-calling conversation.
+- **Gemini `function_response.response` must be dict** — `response_normalizer.py` now wraps non-dict payloads (e.g. `json.dumps("string")`) in `{"result": ...}` to satisfy the `google-genai` SDK's Pydantic validation.
+- **Defense-in-depth name inference** — if `name` is still missing from an incoming tool message dict, the Gemini response normalizer infers it from the prior assistant message's `tool_calls` by matching `tool_call_id`.
+- **Gemini `$ref`/`$defs` inlining** — `_clean_schema` in structured output builder now inlines `$ref` references (matching OpenAI's cleaner quality). Previously, `$defs` were silently dropped, producing broken schemas for nested Pydantic models.
+
+### Added
+
+- **Tools + structured output guard** — `BaseGemini.call()` detects when both `tools` and `response_format` are set, logs a warning, and drops JSON schema mode. Gemini API rejects `response_mime_type: application/json` combined with function calling; this guard prevents the 400 error.
+- **`OutputSchema` tuple handling** — `BaseGemini.call()` now unpacks the `(provider_format, schema)` tuple from core's `StructuredOutputHandler`, matching the OpenAI provider's behavior.
+- **Gemini integration tests: `test_gemini_tool_round_trip.py`** — full multi-turn tool loop with tools resent on second call, JSON string content round-trip, multiple tool calls, structured output + tools guard test.
+- **OpenAI integration test scaffold** — `tests/integration/` directory created with `conftest.py` + `test_openai_tool_round_trip.py` mirroring Gemini's integration test structure. Uses `@pytest.mark.integration` (previously defined but never applied in OpenAI tests).
+- **Nested Pydantic model unit tests** — `test_nested_pydantic_model_refs_inlined` and `test_deeply_nested_refs_inlined` verify `$ref` inlining works for 2+ levels of model nesting.
+
+### Changed
+
+- **Notebook: `research_analyst_tcs.ipynb`** — rewritten as a complete framework showcase demonstrating all core features (tools, memory, plugins, streaming, structured output, cost tracking) with pandas DataFrames, matplotlib visualizations, and a feature proof dashboard.
+
+### Packages
+
+| Package | Version | Note |
+|---------|---------|------|
+| `nucleusiq` | **0.7.3** | Tool message `name` field fix |
+| `nucleusiq-openai` | 0.6.0 | No change |
+| `nucleusiq-gemini` | **0.2.1** | All Gemini fixes above (requires `nucleusiq>=0.7.3`) |
+
+---
+
 ## [0.7.2](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.2) — 2026-03-31
 
 ### Added
