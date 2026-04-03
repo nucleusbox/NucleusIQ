@@ -117,7 +117,7 @@ def _clean_property(prop: dict[str, Any]) -> dict[str, Any]:
     if "items" in cleaned and isinstance(cleaned["items"], dict):
         cleaned["items"] = _clean_property(cleaned["items"])
 
-    if "properties" in cleaned:
+    if "properties" in cleaned and isinstance(cleaned["properties"], dict):
         cleaned["properties"] = {
             k: _clean_property(v) for k, v in cleaned["properties"].items()
         }

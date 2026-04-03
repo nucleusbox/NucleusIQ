@@ -45,7 +45,7 @@ class MetaPrompt(BasePrompt):
     metadata: Dict[str, Any] | None = Field(
         default=None, description="Additional metadata for the prompt."
     )
-    tags: List[str] = Field(
+    tags: List[str] | None = Field(
         default_factory=list,
         description="Tags for categorizing and retrieving prompts.",
     )

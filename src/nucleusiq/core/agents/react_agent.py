@@ -49,7 +49,7 @@ class ReActAgent(Agent):
     )
     _react_history: List[Dict[str, Any]] = PrivateAttr(default_factory=list)
 
-    async def execute(self, task: Dict[str, Any] | Any) -> Any:
+    async def execute(self, task: Dict[str, Any] | Any) -> Any:  # pyrefly: ignore[bad-override]
         """
         Execute task using ReAct pattern.
 

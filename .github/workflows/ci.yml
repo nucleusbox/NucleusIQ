@@ -207,6 +207,39 @@ jobs:
       - name: Ruff format check
         run: ruff format --check src/ --config ruff.toml
 
+  # ── Type check (Pyrefly) ──────────────────────────────────────────
+  type-check:
+    name: Type check (Pyrefly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pyrefly
+        run: pip install pyrefly
+
+      - name: Install all packages (strict editable for import resolution)
+        run: |
+          pip install -e src/nucleusiq --config-settings editable_mode=strict
+          pip install -e src/providers/llms/openai --config-settings editable_mode=strict
+          pip install -e src/providers/llms/gemini --config-settings editable_mode=strict
+
+      - name: "Pyrefly: Core"
+        working-directory: src/nucleusiq
+        run: pyrefly check --output-format=github
+
+      - name: "Pyrefly: OpenAI provider"
+        working-directory: src/providers/llms/openai
+        run: pyrefly check --output-format=github
+
+      - name: "Pyrefly: Gemini provider"
+        working-directory: src/providers/llms/gemini
+        run: pyrefly check --output-format=github
+
   # ── Import check — verify all public exports work ──────────────────
   import-check:
     name: Import check
@@ -291,7 +324,7 @@ jobs:
   build:
     name: "Build ${{ matrix.package }}"
     runs-on: ubuntu-latest
-    needs: [test-core, test-openai, test-gemini, lint, import-check]
+    needs: [test-core, test-openai, test-gemini, lint, type-check, import-check]
     strategy:
       matrix:
         include:

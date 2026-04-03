@@ -48,6 +48,15 @@ nucleusiq = { path = "../../../nucleusiq", editable = true }
 [tool.hatch.build.targets.wheel]
 packages = ["nucleusiq_gemini"]
 
+# ---------------------------------------------------------------------------
+# Pyrefly — static type checking
+# ---------------------------------------------------------------------------
+[tool.pyrefly]
+python-version = "3.10"
+project-includes = ["nucleusiq_gemini/"]
+project-excludes = ["tests/", "examples/", "build/"]
+ignore-missing-imports = ["nucleusiq.*", "google.*"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

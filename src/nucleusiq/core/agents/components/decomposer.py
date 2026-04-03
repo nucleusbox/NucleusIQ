@@ -95,6 +95,7 @@ class Decomposer:
             '"complexity": "complex", "sub_tasks": ['
             '{"id": "sub1", "objective": "..."}, ...]}\n'
         )
+        assert agent.llm is not None, "agent.llm must be set for Decomposer"
         try:
             response = await agent.llm.call(
                 model=getattr(agent.llm, "model_name", "default"),

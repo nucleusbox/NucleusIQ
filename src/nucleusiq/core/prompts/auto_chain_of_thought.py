@@ -152,7 +152,7 @@ class AutoChainOfThoughtPrompt(BasePrompt):
         system_prompt = kwargs.get("system", "") or self.system or ""
         context_str = kwargs.get("context", "") or self.context or ""
         user_prompt = kwargs.get("user", "") or self.user or ""
-        cot_text = kwargs.get("cot_instruction", "") or self.cot_instruction
+        cot_text = kwargs.get("cot_instruction", "") or self.cot_instruction or ""
         if not cot_text.strip() and self.instruction.strip():
             cot_text = self.instruction
 
@@ -194,7 +194,7 @@ class AutoChainOfThoughtPrompt(BasePrompt):
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": f"{question}\n{self.instruction}"},
         ]
-        return self.llm.create_completion(
+        return self.llm.create_completion(  # pyrefly: ignore[missing-attribute]
             messages=messages,
             max_output_tokens=150,
             temperature=0.5,

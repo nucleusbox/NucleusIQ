@@ -37,7 +37,7 @@ class RetrievalAugmentedGenerationPrompt(BasePrompt):
         description="No truly optional fields for RAG—context must be non-empty.",
     )
 
-    def configure(
+    def configure(  # pyrefly: ignore[bad-override]
         self,
         system: str | None = None,
         context: str | None = None,

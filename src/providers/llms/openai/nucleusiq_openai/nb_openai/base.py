@@ -452,6 +452,7 @@ class BaseOpenAI(BaseLLM):
 
             raise AuthenticationError("OPENAI_API_KEY is required")
 
+        self._client: openai.AsyncOpenAI | openai.OpenAI
         if self.async_mode:
             self._client = openai.AsyncOpenAI(
                 api_key=self.api_key,
@@ -892,6 +893,7 @@ class BaseOpenAI(BaseLLM):
             )
 
         result, new_response_id = resp_tuple
+        assert result is not None
         self._last_response_id = new_response_id
         return result
 

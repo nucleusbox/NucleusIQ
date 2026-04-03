@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
-from nucleusiq.agents.errors import AgentConfigError, AgentExecutionError, AgentTimeoutError
+from nucleusiq.agents.errors import (
+    AgentConfigError,
+    AgentExecutionError,
+    AgentTimeoutError,
+)
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 from nucleusiq.agents.modes.standard_mode import StandardMode

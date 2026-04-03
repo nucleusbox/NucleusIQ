@@ -127,8 +127,8 @@ class GeminiClient:
         """
         from google.genai import types
 
-        config = dict(config)
-        raw_tools = config.pop("tools", None)
+        config: dict[str, Any] = dict(config)
+        raw_tools: list[Any] | None = config.pop("tools", None)
 
         if raw_tools:
             sdk_tools = []

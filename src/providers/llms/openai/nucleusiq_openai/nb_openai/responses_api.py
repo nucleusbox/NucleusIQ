@@ -28,7 +28,7 @@ from nucleusiq_openai.nb_openai.response_normalizer import (
 )
 
 
-def _accumulate_responses_stream(events: Any) -> tuple[Any, _LLMResponse]:
+def _accumulate_responses_stream(events: Any) -> tuple[Any, _LLMResponse, str | None]:
     """Accumulate Responses API streaming events into a normalised result.
 
     The Responses API streams events such as ``response.output_text.delta``,
@@ -216,7 +216,7 @@ async def call_responses_api(
     async_mode: bool = True,
     logger: logging.Logger | None = None,
     **extra: Any,
-) -> tuple[_LLMResponse, str | None]:
+) -> tuple[_LLMResponse | None, str | None]:
     """Call OpenAI **Responses API** (``responses.create``).
 
     Returns:

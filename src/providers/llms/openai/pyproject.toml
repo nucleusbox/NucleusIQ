@@ -72,6 +72,15 @@ constraint-dependencies = [
 packages = ["nucleusiq_openai"]
 
 # ---------------------------------------------------------------------------
+# Pyrefly — static type checking
+# ---------------------------------------------------------------------------
+[tool.pyrefly]
+python-version = "3.10"
+project-includes = ["nucleusiq_openai/"]
+project-excludes = ["tests/", "examples/", "build/"]
+ignore-missing-imports = ["nucleusiq.*"]
+
+# ---------------------------------------------------------------------------
 # Ruff
 # ---------------------------------------------------------------------------
 [tool.ruff]

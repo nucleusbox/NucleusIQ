@@ -80,7 +80,7 @@ class FewShotPrompt(BasePrompt):
     # -----------------------------
     # Configure method
     # -----------------------------
-    def configure(
+    def configure(  # pyrefly: ignore[bad-override]
         self,
         system: str | None = None,
         context: str | None = None,

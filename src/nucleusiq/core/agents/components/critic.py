@@ -429,6 +429,7 @@ class Critic:
                 messages,
             )
         else:
+            assert plan is not None, "plan must be provided when messages is not given"
             prompt = self._build_final_review_prompt(
                 task_objective,
                 plan,
@@ -659,6 +660,7 @@ class Critic:
         For the full Verifier subagent path, AutonomousMode runs
         ``build_verification_messages`` through ``StandardMode._tool_call_loop``.
         """
+        assert agent.llm is not None, "agent.llm must be set for Critic"
         try:
             call_kwargs = {
                 "model": getattr(agent.llm, "model_name", "default"),

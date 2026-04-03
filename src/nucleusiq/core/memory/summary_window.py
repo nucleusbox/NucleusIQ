@@ -148,6 +148,7 @@ class SummaryWindowMemory(BaseMemory):
             prev_summary=self._summary or "(none)",
             messages=self._format_messages(messages),
         )
+        assert self.llm is not None, "llm must be set for SummaryWindowMemory"
         response = await self.llm.call(
             model=self.llm_model,
             messages=[{"role": "user", "content": prompt}],

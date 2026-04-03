@@ -147,7 +147,7 @@ def _dataclass_to_json(
         ):
             required.append(f.name)
 
-    result = {
+    result: Dict[str, Any] = {
         "type": "object",
         "properties": properties,
     }
@@ -176,7 +176,7 @@ def _typeddict_to_json(
         if name in required_keys:
             required.append(name)
 
-    result = {
+    result: Dict[str, Any] = {
         "type": "object",
         "properties": properties,
     }
@@ -448,10 +448,10 @@ def validate_output(
     )
 
     try:
-        if is_pydantic(schema):
-            return schema.model_validate(data)
+        if isinstance(schema, type) and is_pydantic(schema):
+            return schema.model_validate(data)  # pyrefly: ignore[missing-attribute]
 
-        if is_dataclass(schema):
+        if isinstance(schema, type) and is_dataclass(schema):
             return schema(**data)
 
         # TypedDict and JSON Schema return dict

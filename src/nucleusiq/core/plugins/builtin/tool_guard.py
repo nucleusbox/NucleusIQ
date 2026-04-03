@@ -70,10 +70,11 @@ class ToolGuardPlugin(BasePlugin):
         self._blocked = set(blocked) if blocked else None
         self._allowed = set(allowed) if allowed else None
 
+        self._deny_fn: DenyHandler
         if on_deny is None:
             self._deny_fn = _default_deny_message
         elif isinstance(on_deny, str):
-            self._deny_fn = lambda name, args: on_deny
+            self._deny_fn = lambda tool_name, tool_args: on_deny
         else:
             self._deny_fn = on_deny
 

@@ -117,7 +117,7 @@ class PromptComposer(BasePrompt):
     #
     # Optional extra checks (like conflict checking)
     #
-    def _pre_format_validation(self, merged_vars: Dict[str, Any]) -> None:
+    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
         # If you wanted to detect duplicates in variable_mappings, do it here.
         pass
 
@@ -125,6 +125,8 @@ class PromptComposer(BasePrompt):
     # The actual final step: apply function mappings -> variable mappings -> template
     #
     def _construct_prompt(self, **kwargs) -> str:
+        from nucleusiq.prompts.errors import PromptTemplateError
+
         # 1) Apply function mappings
         for key, func in self.function_mappings.items():
             if key in kwargs and callable(func):

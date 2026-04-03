@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tests** — `tests/unit/test_execution_tracer.py`, `tests/agents/unit/test_agent_tracer_integration.py`, `tests/agents/unit/test_autonomous_tracer_integration.py`.
 - **`integration_test/run_integration.py`** — version check for `0.7.4` plus tracer smoke assertions.
 - **`AgentConfig.enable_tracing`** — `bool = False`. When off (default), `AgentResult` trace fields are empty tuples with zero overhead. When on, `DefaultExecutionTracer` captures all LLM/tool calls, durations, and warnings.
+- **Pyrefly static type checking (Meta, MIT)** — integrated across all packages as Python's "compile-time" safety layer:
+  - `[tool.pyrefly]` config in `pyproject.toml` for core, OpenAI, and Gemini.
+  - All **121 type errors** fixed across core (71), OpenAI (33), Gemini (17) — null safety guards, undeclared dynamic attributes, type annotation corrections, override signature fixes.
+  - Declared `_last_messages` and `_execution_progress` as `PrivateAttr` on `Agent`.
+  - Fixed `_plugin_manager` type to `PluginManager | None`.
+  - Fixed `build_call_kwargs` return type, `responses_api` tuple types, `ChatCompletionsPayload` construction.
+  - Pyrefly added to `dependency-groups.lint` (dev-only, not shipped in wheel).
+  - CI `type-check` job gates the build: installs with `editable_mode=strict` then runs `pyrefly check` for all 3 packages.
 - **`core/errors/` package** — converted from single `errors.py` to a proper package: `base.py` defines `NucleusIQError` (cycle-free), `__init__.py` provides lazy `__getattr__` re-exports of all 40+ error types. All 9 subsystem error modules updated to import from `nucleusiq.errors.base`. Backward-compatible: `from nucleusiq.errors import NucleusIQError` still works.
 - **`core/agents/usage/` package** — extracted `usage_tracker.py` and `pricing.py` from `components/` into a dedicated `usage/` package with public `__init__.py` re-exports. Old shim files deleted (no backward-compatibility wrappers — clean break).
 - **Exhaustive error wiring** — every `raise ValueError` / `raise RuntimeError` in production code audited and replaced with proper custom error types:
@@ -46,6 +54,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `base_agent.py` retry loop raises `AgentExecutionError`/`AgentTimeoutError` instead of `RuntimeError`/`TimeoutError`.
 - OpenAI provider: `AuthenticationError` instead of `ValueError` for missing API key; `AttachmentUnsupportedError` for unknown attachment types; `ToolValidationError` for MCP config; `StructuredOutputError`/`SchemaParseError` for structured output parsing; `ContentFilterError`/`ContextLengthError` in retry.
 - Gemini provider: `AuthenticationError` instead of `ValueError` for missing API key; `StructuredOutputError`/`SchemaParseError` for structured output parsing; `ContentFilterError`/`ContextLengthError` in retry.
+
+### Developer Support
+
+- **Pyrefly type checking** — CI pipeline now includes a `type-check` job using [Pyrefly](https://pyrefly.org/) (Meta, MIT license, Rust-based, 1.85M lines/sec). Catches undefined names, null safety violations, type mismatches, and override signature inconsistencies at "compile time" — before tests or deployment.
+  - CI flow: `ruff check` → `ruff format` → **`pyrefly check`** → `pytest` → `import-check` → `security` → `build`
+  - Added to `dependency-groups.lint` alongside `ruff` (dev-only, not in wheel).
+  - Requires `editable_mode=strict` install for `setuptools` `package-dir` mapping resolution.
+  - Provider configs use `ignore-missing-imports` for cross-package deps (`nucleusiq.*`, `google.*`) — these resolve at CI time when all packages are installed; locally they gracefully fall back to `Any`.
 
 ### Packages
 

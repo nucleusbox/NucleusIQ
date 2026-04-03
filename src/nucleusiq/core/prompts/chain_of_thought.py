@@ -43,7 +43,7 @@ class ChainOfThoughtPrompt(BasePrompt):
     #
     # Overriding configure to keep 'use_cot' always True
     #
-    def configure(
+    def configure(  # pyrefly: ignore[bad-override]
         self,
         system: str | None = None,
         user: str | None = None,

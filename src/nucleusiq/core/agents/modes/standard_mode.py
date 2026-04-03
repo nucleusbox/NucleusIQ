@@ -22,10 +22,10 @@ if TYPE_CHECKING:
 
 from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.executor import Executor
-from nucleusiq.agents.usage.usage_tracker import CallPurpose
 from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.task import Task
+from nucleusiq.agents.usage.usage_tracker import CallPurpose
 from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 

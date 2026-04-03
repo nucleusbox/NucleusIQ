@@ -229,6 +229,8 @@ class Refiner:
         context: Dict[str, Any],
     ) -> Any:
         """Re-infer tool arguments based on critique, then re-execute."""
+        assert agent.llm is not None, "agent.llm must be set for Refiner"
+        assert agent._executor is not None, "agent._executor must be set for Refiner"
         self._logger.info(
             "Refiner: re-inferring args for tool '%s' (step %d)",
             step.action,
@@ -344,7 +346,11 @@ class Refiner:
             else "{}"
         )
 
-        tool_specs = agent.llm.convert_tool_specs(agent.tools) if agent.tools else []
+        tool_specs = (
+            agent.llm.convert_tool_specs(agent.tools)
+            if agent.llm and agent.tools
+            else []
+        )
         target_spec = ""
         for spec in tool_specs:
             fn = spec.get("function", {}) if isinstance(spec, dict) else {}
@@ -470,6 +476,7 @@ class Refiner:
 
     @staticmethod
     async def _call_llm(agent: Agent, prompt: str) -> Any:
+        assert agent.llm is not None, "agent.llm must be set for Refiner._call_llm"
         call_kwargs: Dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": prompt}],

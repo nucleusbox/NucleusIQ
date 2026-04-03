@@ -1,6 +1,6 @@
 # src/nucleusiq/prompts/zero_shot.py
 
-from typing import List
+from typing import Any, List
 
 from nucleusiq.prompts.base import BasePrompt
 from pydantic import Field
@@ -64,7 +64,7 @@ class ZeroShotPrompt(BasePrompt):
 
         return "\n\n".join(parts)
 
-    def configure(
+    def configure(  # pyrefly: ignore[bad-override]
         self,
         system: str | None = None,
         context: str | None = None,
@@ -77,7 +77,7 @@ class ZeroShotPrompt(BasePrompt):
         """
         # If user sets use_cot to True but doesn't provide cot_instruction,
         # we'll handle that fallback in `_construct_prompt`.
-        config_args = {}
+        config_args: dict[str, Any] = {}
         if system is not None:
             config_args["system"] = system
         if context is not None:

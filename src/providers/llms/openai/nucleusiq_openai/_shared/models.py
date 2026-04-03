@@ -171,23 +171,26 @@ class ChatCompletionsPayload(BaseModel):
             else "max_tokens"
         )
 
-        return cls(
-            model=model,
-            messages=messages,
-            stream=stream,
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": stream,
             **sampling,
-            **{token_key: max_tokens},
-            logit_bias=logit_bias,
-            tools=tools,
-            tool_choice=tool_choice,
-            stop=stop,
-            response_format=response_format,
-            **{
+            token_key: max_tokens,
+            "logit_bias": logit_bias,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "stop": stop,
+            "response_format": response_format,
+        }
+        kwargs.update(
+            {
                 k: v
                 for k, v in extra.items()
                 if v is not None and k in cls.model_fields
-            },
+            }
         )
+        return cls.model_validate(kwargs)
 
     def to_api_kwargs(self) -> dict[str, Any]:
         """Serialize to kwargs for ``chat.completions.create()``, dropping ``None`` values."""

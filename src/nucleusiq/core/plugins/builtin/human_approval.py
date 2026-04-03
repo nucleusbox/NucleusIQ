@@ -255,10 +255,11 @@ class HumanApprovalPlugin(BasePlugin):
         if self._handler:
             return await self._handler.decide(tool_name, tool_args)
 
+        assert self._callback is not None, "_callback must be set when _handler is not set"
         result = self._callback(tool_name, tool_args)
         if asyncio.iscoroutine(result) or asyncio.isfuture(result):
             return await result
-        return result
+        return bool(result)
 
     async def wrap_tool_call(self, request: ToolRequest, handler: ToolHandler) -> Any:
         if not self._needs_approval(request.tool_name):

@@ -44,9 +44,8 @@ class TestBaseGeminiConstruction:
         assert llm.top_k == 40
 
     def test_missing_api_key_raises(self):
-        from nucleusiq_gemini.nb_gemini.base import BaseGemini
-
         from nucleusiq.llms.errors import AuthenticationError
+        from nucleusiq_gemini.nb_gemini.base import BaseGemini
 
         with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(AuthenticationError, match="GEMINI_API_KEY"):

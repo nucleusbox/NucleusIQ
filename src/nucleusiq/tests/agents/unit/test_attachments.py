@@ -12,7 +12,10 @@ from nucleusiq.agents.attachments import (
     ContentPart,
 )
 from nucleusiq.agents.chat_models import ChatMessage
-from nucleusiq.agents.errors import AttachmentUnsupportedError, AttachmentValidationError
+from nucleusiq.agents.errors import (
+    AttachmentUnsupportedError,
+    AttachmentValidationError,
+)
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.task import Task
 

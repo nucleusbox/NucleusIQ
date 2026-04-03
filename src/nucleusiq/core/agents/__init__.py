@@ -29,8 +29,8 @@ from nucleusiq.agents.agent_result import (
 from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.chat_models import ChatMessage, LLMCallKwargs, ToolCallRequest
-from nucleusiq.agents.observability import ExecutionTracerProtocol
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
+from nucleusiq.agents.observability import ExecutionTracerProtocol
 from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.react_agent import ReActAgent
 from nucleusiq.agents.task import Task

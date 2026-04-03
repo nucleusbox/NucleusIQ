@@ -7,8 +7,8 @@ from nucleusiq.plugins.base import ModelRequest, ToolRequest
 from nucleusiq.plugins.builtin.model_call_limit import ModelCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
-from nucleusiq.tools.errors import ToolExecutionError
 from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.tools.errors import ToolExecutionError
 
 # ------------------------------------------------------------------ #
 # ModelCallLimitPlugin                                                 #

@@ -86,7 +86,7 @@ class OutputSchema:
     def schema_name(self) -> str:
         """Get human-readable name of the schema."""
         if isinstance(self.schema, dict):
-            return self.schema.get("title", self.schema.get("name", "Schema"))
+            return str(self.schema.get("title", self.schema.get("name", "Schema")))
         if hasattr(self.schema, "__name__"):
             return self.schema.__name__
         return "Schema"

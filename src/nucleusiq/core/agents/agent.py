@@ -19,19 +19,19 @@ from typing import Any, ClassVar, Dict, List, Type
 from nucleusiq.agents.agent_result import AgentResult, AutonomousDetail, ResultStatus
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.components.executor import Executor
-from nucleusiq.agents.errors import AgentConfigError
-from nucleusiq.agents.observability import DefaultExecutionTracer
-from nucleusiq.agents.usage.usage_tracker import UsageSummary, UsageTracker
 from nucleusiq.agents.config.agent_config import AgentMetrics, AgentState
+from nucleusiq.agents.errors import AgentConfigError
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
 # Mode imports
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.modes.direct_mode import DirectMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
+from nucleusiq.agents.observability import DefaultExecutionTracer
 from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.structured_output.handler import StructuredOutputHandler
 from nucleusiq.agents.task import Task
+from nucleusiq.agents.usage.usage_tracker import UsageSummary, UsageTracker
 from nucleusiq.llms.llm_params import LLMParams
 from nucleusiq.plugins.base import AgentContext, BasePlugin
 from nucleusiq.plugins.errors import PluginHalt
@@ -118,12 +118,14 @@ class Agent(BaseAgent):
     # ------------------------------------------------------------------ #
 
     _executor: Executor | None = PrivateAttr(default=None)
-    _plugin_manager: PluginManager = PrivateAttr(default=None)
+    _plugin_manager: PluginManager | None = PrivateAttr(default=None)
     _structured_output: StructuredOutputHandler = PrivateAttr(
         default_factory=StructuredOutputHandler
     )
     _usage_tracker: UsageTracker = PrivateAttr(default_factory=UsageTracker)
     _tracer: DefaultExecutionTracer | None = PrivateAttr(default=None)
+    _last_messages: list | None = PrivateAttr(default=None)
+    _execution_progress: Any = PrivateAttr(default=None)
 
     # ------------------------------------------------------------------ #
     # LIFECYCLE                                                           #
@@ -229,6 +231,7 @@ class Agent(BaseAgent):
             return config_params.merge(per_execute).to_call_kwargs()
         if config_params is not None:
             return config_params.to_call_kwargs()
+        assert per_execute is not None
         return per_execute.to_call_kwargs()
 
     # ------------------------------------------------------------------ #
@@ -370,7 +373,8 @@ class Agent(BaseAgent):
                 status = ResultStatus.HALTED
                 output = halt.result
 
-            output = await self._plugin_manager.run_after_agent(agent_ctx, output)
+            if self._plugin_manager is not None:
+                output = await self._plugin_manager.run_after_agent(agent_ctx, output)
             return self._build_result(task_obj, status, output, None, None, t0)
 
         except Exception as exc:

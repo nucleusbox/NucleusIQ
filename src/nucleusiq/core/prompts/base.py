@@ -189,7 +189,7 @@ class BasePrompt(BaseModel, ABC):
                 technique=prompt_type,
             )
 
-        return subcls(**data)
+        return subcls(**data)  # pyrefly: ignore[bad-return]
 
     #
     # Additional convenience methods
@@ -199,7 +199,10 @@ class BasePrompt(BaseModel, ABC):
         return self
 
     def add_tags(self, tags: List[str]) -> Self:
-        self.tags.extend(tags)
+        if self.tags is not None:
+            self.tags.extend(tags)
+        else:
+            self.tags = list(tags)
         return self
 
     def set_output_parser(self, parser: Callable[[str], Any]) -> Self:

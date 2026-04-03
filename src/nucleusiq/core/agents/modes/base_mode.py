@@ -26,15 +26,15 @@ from nucleusiq.agents.chat_models import (
     ToolCallRequest,
     messages_to_dicts,
 )
+from nucleusiq.agents.config.agent_config import AgentState
+from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.observability import (
     build_llm_call_record,
     build_llm_call_record_from_stream,
     build_tool_call_record,
 )
-from nucleusiq.agents.usage.usage_tracker import CallPurpose
-from nucleusiq.agents.config.agent_config import AgentState
-from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.task import Task
+from nucleusiq.agents.usage.usage_tracker import CallPurpose
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
@@ -237,7 +237,7 @@ class BaseExecutionMode(ABC):
         messages: List[ChatMessage],
         tool_specs: List[Dict[str, Any]] | None = None,
         max_output_tokens: int | None = None,
-    ) -> LLMCallKwargs:
+    ) -> Dict[str, Any]:
         """Build the kwargs dict for ``agent.llm.call()``.
 
         Merges model name, messages, tool specs, max_output_tokens,
@@ -358,6 +358,7 @@ class BaseExecutionMode(ABC):
 
         After the call, usage is recorded in ``agent._usage_tracker``.
         """
+        assert agent.llm is not None, "agent.llm must be set before calling call_llm"
         pm = getattr(agent, "_plugin_manager", None)
 
         t0 = time.perf_counter()
@@ -414,6 +415,7 @@ class BaseExecutionMode(ABC):
         Constructs a ``ToolRequest`` and runs the wrap_tool_call chain.
         Falls back to a direct call when no plugins are registered.
         """
+        assert agent._executor is not None, "agent._executor must be set before calling call_tool"
         pm = getattr(agent, "_plugin_manager", None)
 
         tool_args: Dict[str, Any] = {}
@@ -483,6 +485,7 @@ class BaseExecutionMode(ABC):
         Analogous to ``call_llm()`` but for the streaming path.
         Plugin-aware streaming is deferred to a future release.
         """
+        assert agent.llm is not None, "agent.llm must be set before calling call_llm_stream"
         async for event in agent.llm.call_stream(**call_kwargs):
             yield event
 

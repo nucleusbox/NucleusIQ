@@ -85,7 +85,7 @@ def before_agent(fn: Callable) -> BasePlugin:
             return await async_fn(ctx)
 
     instance = _Plugin()
-    functools.update_wrapper(instance, fn)
+    functools.update_wrapper(instance, fn)  # pyrefly: ignore[bad-argument-type]
     return instance
 
 
@@ -114,7 +114,7 @@ def after_agent(fn: Callable) -> BasePlugin:
             return await async_fn(ctx, result)
 
     instance = _Plugin()
-    functools.update_wrapper(instance, fn)
+    functools.update_wrapper(instance, fn)  # pyrefly: ignore[bad-argument-type]
     return instance
 
 
@@ -154,7 +154,7 @@ def before_model(fn: Callable) -> BasePlugin:
             return await async_fn(request)
 
     instance = _Plugin()
-    functools.update_wrapper(instance, fn)
+    functools.update_wrapper(instance, fn)  # pyrefly: ignore[bad-argument-type]
     return instance
 
 
@@ -183,7 +183,7 @@ def after_model(fn: Callable) -> BasePlugin:
             return await async_fn(request, response)
 
     instance = _Plugin()
-    functools.update_wrapper(instance, fn)
+    functools.update_wrapper(instance, fn)  # pyrefly: ignore[bad-argument-type]
     return instance
 
 
@@ -222,7 +222,7 @@ def wrap_model_call(fn: Callable) -> BasePlugin:
             return await async_fn(request, handler)
 
     instance = _Plugin()
-    functools.update_wrapper(instance, fn)
+    functools.update_wrapper(instance, fn)  # pyrefly: ignore[bad-argument-type]
     return instance
 
 
@@ -255,5 +255,5 @@ def wrap_tool_call(fn: Callable) -> BasePlugin:
             return await async_fn(request, handler)
 
     instance = _Plugin()
-    functools.update_wrapper(instance, fn)
+    functools.update_wrapper(instance, fn)  # pyrefly: ignore[bad-argument-type]
     return instance
