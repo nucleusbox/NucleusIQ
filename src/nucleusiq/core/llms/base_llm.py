@@ -229,6 +229,25 @@ class BaseLLM(BaseLanguageModel, ABC):
             yield StreamEvent.complete_event(content)
 
     # ------------------------------------------------------------------ #
+    # Token estimation                                                     #
+    # ------------------------------------------------------------------ #
+
+    def estimate_tokens(self, text: str) -> int:
+        """Estimate the number of tokens in *text*.
+
+        The default uses a ~4 chars/token heuristic that works across
+        providers with zero dependencies.  Provider subclasses should
+        override with a precise tokenizer (e.g. ``tiktoken`` for OpenAI,
+        Gemini ``count_tokens`` API).
+
+        This method is designed to be passed as a callback::
+
+            ContextWindowPlugin(max_tokens=8000, token_counter=llm.estimate_tokens)
+            TokenBudgetMemory(max_tokens=4096, token_counter=llm.estimate_tokens)
+        """
+        return max(1, len(text) // 4)
+
+    # ------------------------------------------------------------------ #
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
 

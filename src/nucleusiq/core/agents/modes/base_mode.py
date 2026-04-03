@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 from nucleusiq.agents.attachments import Attachment
 from nucleusiq.agents.chat_models import (
     ChatMessage,
-    LLMCallKwargs,
     ToolCallRequest,
     messages_to_dicts,
 )

@@ -119,7 +119,7 @@ packages = [
 python-version = "3.10"
 project-includes = ["core/"]
 project-excludes = ["tests/", "build/"]
-ignore-missing-imports = ["tokenizers"]
+ignore-missing-imports = ["sklearn.*"]
 
 # ---------------------------------------------------------------------------
 # Ruff

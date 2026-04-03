@@ -55,6 +55,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI provider: `AuthenticationError` instead of `ValueError` for missing API key; `AttachmentUnsupportedError` for unknown attachment types; `ToolValidationError` for MCP config; `StructuredOutputError`/`SchemaParseError` for structured output parsing; `ContentFilterError`/`ContextLengthError` in retry.
 - Gemini provider: `AuthenticationError` instead of `ValueError` for missing API key; `StructuredOutputError`/`SchemaParseError` for structured output parsing; `ContentFilterError`/`ContextLengthError` in retry.
 
+### Removed
+
+- **Dead GPT-2 tokenizer code** — removed `get_tokenizer()`, `_get_token_ids_default_method()`, `get_token_ids()`, `get_num_tokens()`, and `custom_get_token_ids` from `BaseLanguageModel`. The GPT-2 tokenizer was never called by the framework and is inaccurate for modern models (GPT-4 uses `cl100k_base`/`o200k_base`; Gemini has its own tokenizer). The `tokenizers` library dependency is no longer needed.
+- **`BaseLanguageModel` no longer extends `ABC`** — it is now a plain mixin providing the `metadata` field. `BaseLLM` remains the abstract base class with `@abstractmethod call()`.
+
+### Token Estimation (new contract)
+
+- **`BaseLLM.estimate_tokens(text)`** — new base method using `len(text) // 4` heuristic as a zero-dependency, cross-provider default. Providers override with precise implementations:
+  - **OpenAI**: uses `tiktoken.encoding_for_model()` (already shipped)
+  - **Gemini**: uses `len(text) // 4` (Gemini `count_tokens` API available for precise counts)
+- **`ContextWindowPlugin`** and **`TokenBudgetMemory`** accept `token_counter` callbacks — users can wire `llm.estimate_tokens` for provider-accurate counting:
+  ```python
+  ContextWindowPlugin(max_tokens=8000, token_counter=llm.estimate_tokens)
+  ```
+- **UsageTracker** is unaffected — it reads `prompt_tokens`/`completion_tokens` directly from provider API responses (always accurate).
+
 ### Developer Support
 
 - **Pyrefly type checking** — CI pipeline now includes a `type-check` job using [Pyrefly](https://pyrefly.org/) (Meta, MIT license, Rust-based, 1.85M lines/sec). Catches undefined names, null safety violations, type mismatches, and override signature inconsistencies at "compile time" — before tests or deployment.
