@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nucleusiq-openai"
-version = "0.6.0"
+version = "0.6.1"
 description = "OpenAI provider for the NucleusIQ AI agent framework – ChatGPT, GPT-4, embeddings, structured output, and tool integration."
 requires-python = ">=3.10,<4.0"
 license = "MIT"
@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "nucleusiq>=0.7.0",
+    "nucleusiq>=0.7.4",
     "openai>=1.0",
     "tiktoken>=0.5",
 ]

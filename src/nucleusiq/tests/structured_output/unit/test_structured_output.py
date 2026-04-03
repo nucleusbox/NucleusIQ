@@ -167,7 +167,9 @@ class TestOutputSchema:
         assert cfg.schema_name == "Schema"
 
     def test_max_retries_negative(self):
-        with pytest.raises(ValueError, match="max_retries"):
+        from nucleusiq.agents.structured_output.errors import StructuredOutputError
+
+        with pytest.raises(StructuredOutputError, match="max_retries"):
             OutputSchema(schema=PersonModel, max_retries=-1)
 
     def test_validate_unimplemented_mode(self):
@@ -273,7 +275,9 @@ class TestResolveOutputConfig:
         assert isinstance(result, OutputSchema)
 
     def test_invalid_type(self):
-        with pytest.raises(ValueError, match="Invalid response_format"):
+        from nucleusiq.agents.structured_output.errors import StructuredOutputError
+
+        with pytest.raises(StructuredOutputError, match="Invalid response_format"):
             resolve_output_config(42)
 
     def test_explicit_mode_not_auto(self):
@@ -366,7 +370,9 @@ class TestSchemaToJson:
         assert result["type"] == "object"
 
     def test_unsupported_type(self):
-        with pytest.raises(ValueError, match="Cannot convert"):
+        from nucleusiq.agents.structured_output.errors import SchemaValidationError
+
+        with pytest.raises(SchemaValidationError, match="Cannot convert"):
             schema_to_json(42)
 
     def test_strict_mode(self):

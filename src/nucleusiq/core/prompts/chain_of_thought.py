@@ -60,13 +60,16 @@ class ChainOfThoughtPrompt(BasePrompt):
             cot_instruction: The CoT instruction appended if use_cot is True.
 
         Raises:
-            ValueError: If use_cot is explicitly set to False.
+            PromptConfigError: If use_cot is explicitly set to False.
         """
         # Validate use_cot
         if use_cot is not None:
             if use_cot is False:
-                raise ValueError(
-                    "use_cot cannot be set to False for ChainOfThoughtPrompt."
+                from nucleusiq.prompts.errors import PromptConfigError
+
+                raise PromptConfigError(
+                    "use_cot cannot be set to False for ChainOfThoughtPrompt.",
+                    technique=self.technique_name,
                 )
             self.use_cot = True  # Force True if user tries to pass True
 
@@ -92,8 +95,11 @@ class ChainOfThoughtPrompt(BasePrompt):
         """
         # If the user tries to set it false or we got None, forcibly ensure it's True
         if not self.use_cot:
-            raise ValueError(
-                "ChainOfThoughtPrompt requires use_cot=True (cannot be False)."
+            from nucleusiq.prompts.errors import PromptConfigError
+
+            raise PromptConfigError(
+                "ChainOfThoughtPrompt requires use_cot=True (cannot be False).",
+                technique=self.technique_name,
             )
 
         # If CoT is true but cot_instruction is empty, default it

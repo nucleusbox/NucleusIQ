@@ -105,7 +105,10 @@ def schema_to_json(
     elif hasattr(schema, "__annotations__"):
         result = _annotations_to_json(schema, strict=strict, for_provider=for_provider)
     else:
-        raise ValueError(f"Cannot convert {type(schema)} to JSON Schema")
+        raise SchemaValidationError(
+            f"Cannot convert {type(schema)} to JSON Schema",
+            retryable=False,
+        )
 
     return result
 

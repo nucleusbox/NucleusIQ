@@ -3,7 +3,7 @@ Tests for ValidationPipeline — layered validation for autonomous mode.
 
 Covers:
 - Layer 1: Tool output checks (empty, error, tool errors in messages)
-- Layer 2: Plugin validators (PluginHalt → invalid, exception → skip)
+- Layer 2: Plugin validators (PluginHalt → invalid, exception → PluginExecutionError)
 - Layer 3: LLM review (opt-in, PASS/FAIL parsing)
 - Pipeline short-circuiting (stops on first failure)
 - All layers passing
@@ -11,6 +11,7 @@ Covers:
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from nucleusiq.agents.components.validation import (
     ValidationPipeline,
 )
@@ -113,16 +114,19 @@ class TestLayer2PluginValidators:
         assert vr.layer == "plugin"
         assert "Result is wrong" in vr.reason
 
-    async def test_validator_exception_skipped(self):
+    async def test_validator_exception_raises_plugin_execution_error(self):
         from nucleusiq.plugins.builtin.result_validator import ResultValidatorPlugin
+        from nucleusiq.plugins.errors import PluginExecutionError
 
         class BrokenValidator(ResultValidatorPlugin):
             async def validate_result(self, result, context):
                 raise RuntimeError("unexpected")
 
         agent = _make_agent(validators=[BrokenValidator()])
-        vr = await ValidationPipeline._run_plugin_validators(agent, "result")
-        assert vr.valid
+        with pytest.raises(PluginExecutionError) as exc_info:
+            await ValidationPipeline._run_plugin_validators(agent, "result")
+        assert exc_info.value.plugin_name == "BrokenValidator"
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
 
     async def test_non_validator_plugins_ignored(self):
         """Regular plugins (not ResultValidatorPlugin) are skipped by Layer 2."""

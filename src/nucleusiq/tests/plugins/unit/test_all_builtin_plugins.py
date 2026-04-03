@@ -23,7 +23,8 @@ from nucleusiq.plugins.builtin.pii_guard import PIIGuardPlugin, _luhn_check
 from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_guard import ToolGuardPlugin
 from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
-from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.plugins.errors import PluginError, PluginHalt
+from nucleusiq.tools.errors import ToolExecutionError
 from nucleusiq.plugins.manager import PluginManager
 
 # ====================================================================
@@ -186,16 +187,20 @@ class TestToolRetryPluginDetailed:
     async def test_exhausted_retries_raises_original(self):
         p = ToolRetryPlugin(max_retries=2, base_delay=0.001)
         handler = AsyncMock(side_effect=RuntimeError("always fails"))
-        with pytest.raises(RuntimeError, match="always fails"):
+        with pytest.raises(ToolExecutionError) as exc_info:
             await p.wrap_tool_call(ToolRequest(tool_name="t"), handler)
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+        assert "always fails" in str(exc_info.value.__cause__)
+        assert exc_info.value.tool_name == "t"
         assert handler.call_count == 3  # 1 initial + 2 retries
 
     @pytest.mark.asyncio
     async def test_zero_retries(self):
         p = ToolRetryPlugin(max_retries=0, base_delay=0.001)
         handler = AsyncMock(side_effect=ValueError("fail"))
-        with pytest.raises(ValueError):
+        with pytest.raises(ToolExecutionError) as exc_info:
             await p.wrap_tool_call(ToolRequest(tool_name="t"), handler)
+        assert isinstance(exc_info.value.__cause__, ValueError)
         assert handler.call_count == 1
 
     @pytest.mark.asyncio
@@ -236,7 +241,7 @@ class TestModelFallbackPluginDetailed:
         assert ModelFallbackPlugin(fallbacks=["m"]).name == "model_fallback"
 
     def test_empty_fallbacks_raises(self):
-        with pytest.raises(ValueError, match="At least one"):
+        with pytest.raises(PluginError, match="At least one"):
             ModelFallbackPlugin(fallbacks=[])
 
     def test_single_exception_type_normalized(self):
@@ -347,15 +352,15 @@ class TestPIIGuardPluginDetailed:
     # -- construction validation --
 
     def test_invalid_strategy_raises(self):
-        with pytest.raises(ValueError, match="Invalid strategy"):
+        with pytest.raises(PluginError, match="Invalid strategy"):
             PIIGuardPlugin(pii_types=["email"], strategy="encrypt")
 
     def test_unknown_pii_type_raises(self):
-        with pytest.raises(ValueError, match="Unknown PII type"):
+        with pytest.raises(PluginError, match="Unknown PII type"):
             PIIGuardPlugin(pii_types=["dna"])
 
     def test_no_patterns_raises(self):
-        with pytest.raises(ValueError, match="At least one"):
+        with pytest.raises(PluginError, match="At least one"):
             PIIGuardPlugin()
 
     def test_accepts_custom_pattern_only(self):
@@ -715,7 +720,7 @@ class TestApprovalHandlerConstruction:
             async def decide(self, n, a):
                 return True
 
-        with pytest.raises(ValueError, match="not both"):
+        with pytest.raises(PluginError, match="not both"):
             HumanApprovalPlugin(
                 approval_handler=DummyHandler(),
                 approval_callback=lambda n, a: True,
@@ -983,15 +988,15 @@ class TestContextWindowPluginDetailed:
     # -- construction validation --
 
     def test_no_limits_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(PluginError):
             ContextWindowPlugin()
 
     def test_max_messages_1_raises(self):
-        with pytest.raises(ValueError, match="at least 2"):
+        with pytest.raises(PluginError, match="at least 2"):
             ContextWindowPlugin(max_messages=1)
 
     def test_keep_recent_0_raises(self):
-        with pytest.raises(ValueError, match="at least 1"):
+        with pytest.raises(PluginError, match="at least 1"):
             ContextWindowPlugin(max_messages=10, keep_recent=0)
 
     def test_max_messages_2_ok(self):
@@ -1128,11 +1133,11 @@ class TestToolGuardPluginDetailed:
     # -- construction validation --
 
     def test_both_modes_raises(self):
-        with pytest.raises(ValueError, match="Cannot specify both"):
+        with pytest.raises(PluginError, match="Cannot specify both"):
             ToolGuardPlugin(blocked=["a"], allowed=["b"])
 
     def test_neither_mode_raises(self):
-        with pytest.raises(ValueError, match="Must specify"):
+        with pytest.raises(PluginError, match="Must specify"):
             ToolGuardPlugin()
 
     # -- blocklist mode --
@@ -1180,7 +1185,7 @@ class TestToolGuardPluginDetailed:
     @pytest.mark.asyncio
     async def test_empty_blocklist_allows_all(self):
         # blocked=[] is falsy, should raise
-        with pytest.raises(ValueError):
+        with pytest.raises(PluginError):
             ToolGuardPlugin(blocked=[])
 
     # -- custom deny handlers --

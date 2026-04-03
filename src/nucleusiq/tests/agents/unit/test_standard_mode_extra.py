@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from nucleusiq.agents.agent import Agent
+from nucleusiq.agents.errors import AgentExecutionError
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
@@ -103,8 +104,8 @@ class TestToolCallProcessing:
         await agent.initialize()
 
         mode = StandardMode()
-        result = await mode.run(agent, {"id": "1", "objective": "test"})
-        assert "Error" in result
+        with pytest.raises(AgentExecutionError, match="Standard mode execution failed"):
+            await mode.run(agent, {"id": "1", "objective": "test"})
 
     @pytest.mark.asyncio
     async def test_max_tool_calls_reached(self):
@@ -140,8 +141,8 @@ class TestToolCallProcessing:
         await agent.initialize()
 
         mode = StandardMode()
-        result = await mode.run(agent, {"id": "1", "objective": "x"})
-        assert result is not None
+        with pytest.raises(AgentExecutionError, match="Standard mode execution failed"):
+            await mode.run(agent, {"id": "1", "objective": "x"})
 
 
 class TestParseToolCall:

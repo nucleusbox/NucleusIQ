@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from nucleusiq.errors import NucleusIQError
+from nucleusiq.errors.base import NucleusIQError
 
 
 class StructuredOutputError(NucleusIQError):
@@ -69,12 +69,13 @@ class SchemaValidationError(StructuredOutputError):
         schema_name: str | None = None,
         raw_output: Any = None,
         field_errors: List[Dict[str, Any]] | None = None,
+        retryable: bool = True,
     ):
         super().__init__(
             message,
             schema_name=schema_name,
             raw_output=raw_output,
-            retryable=True,
+            retryable=retryable,
         )
         self.field_errors = field_errors or []
 

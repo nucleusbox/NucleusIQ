@@ -262,14 +262,18 @@ class OpenAITool:
                 require_approval="never",
             )
         """
+        from nucleusiq.tools.errors import ToolValidationError
+
         if not server_url and not connector_id:
-            raise ValueError(
+            raise ToolValidationError(
                 "Either server_url (for remote MCP) or connector_id "
-                "(for connector) must be provided"
+                "(for connector) must be provided",
+                tool_name="mcp",
             )
         if server_url and connector_id:
-            raise ValueError(
-                "Cannot specify both server_url and connector_id. Use one or the other."
+            raise ToolValidationError(
+                "Cannot specify both server_url and connector_id. Use one or the other.",
+                tool_name="mcp",
             )
 
         tool_spec: dict[str, Any] = {

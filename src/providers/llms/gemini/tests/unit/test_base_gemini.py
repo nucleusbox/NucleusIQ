@@ -46,8 +46,10 @@ class TestBaseGeminiConstruction:
     def test_missing_api_key_raises(self):
         from nucleusiq_gemini.nb_gemini.base import BaseGemini
 
+        from nucleusiq.llms.errors import AuthenticationError
+
         with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+            with pytest.raises(AuthenticationError, match="GEMINI_API_KEY"):
                 BaseGemini(api_key=None)
 
     @patch.dict("os.environ", {"GEMINI_API_KEY": "env-key"})

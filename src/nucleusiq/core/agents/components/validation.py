@@ -17,6 +17,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List
 
+from nucleusiq.plugins.errors import PluginExecutionError
+
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
     from nucleusiq.agents.chat_models import ChatMessage
@@ -173,11 +175,11 @@ class ValidationPipeline:
                         reason=f"[{validator.name}] {reason}",
                     )
             except Exception as e:
-                logger.warning(
-                    "Validator %s error (non-fatal): %s",
-                    validator.name,
-                    e,
-                )
+                raise PluginExecutionError(
+                    f"Validator {validator.name!r} raised: {e}",
+                    plugin_name=validator.name,
+                    hook="validate_result",
+                ) from e
 
         return ValidationResult(valid=True, layer="plugin", reason="Validators passed")
 

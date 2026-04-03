@@ -342,5 +342,7 @@ class TestMockedOpenAICallPayload:
             data=big_data,
             name="huge.pdf",
         )
-        with pytest.raises(ValueError, match="exceeding the 50 MB limit"):
+        from nucleusiq.agents.errors import AttachmentValidationError
+
+        with pytest.raises(AttachmentValidationError, match="exceeding the 50 MB limit"):
             llm.process_attachments([att])

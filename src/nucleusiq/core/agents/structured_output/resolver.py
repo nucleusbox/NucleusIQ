@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config import OutputSchema
+from .errors import StructuredOutputError
 from .types import OutputMode
 
 # Models known to support native structured output
@@ -90,9 +91,10 @@ def resolve_output_config(
         config = OutputSchema(schema=response_format)
 
     else:
-        raise ValueError(
+        raise StructuredOutputError(
             f"Invalid response_format type: {type(response_format)}. "
-            "Expected OutputSchema, Pydantic model, dataclass, TypedDict, or dict."
+            "Expected OutputSchema, Pydantic model, dataclass, TypedDict, or dict.",
+            retryable=False,
         )
 
     # Resolve AUTO mode to concrete mode

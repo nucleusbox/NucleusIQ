@@ -9,7 +9,7 @@ from nucleusiq.plugins.builtin.human_approval import HumanApprovalPlugin
 from nucleusiq.plugins.builtin.model_fallback import ModelFallbackPlugin
 from nucleusiq.plugins.builtin.pii_guard import PIIGuardPlugin, _luhn_check
 from nucleusiq.plugins.builtin.tool_guard import ToolGuardPlugin
-from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.plugins.errors import PluginError, PluginHalt
 
 # ==================================================================== #
 # ModelFallbackPlugin                                                    #
@@ -22,7 +22,7 @@ class TestModelFallbackPlugin:
         assert p.name == "model_fallback"
 
     def test_no_fallbacks_raises(self):
-        with pytest.raises(ValueError, match="At least one"):
+        with pytest.raises(PluginError, match="At least one"):
             ModelFallbackPlugin(fallbacks=[])
 
     @pytest.mark.asyncio
@@ -116,15 +116,15 @@ class TestPIIGuardPlugin:
         assert p.name == "pii_guard"
 
     def test_invalid_strategy(self):
-        with pytest.raises(ValueError, match="Invalid strategy"):
+        with pytest.raises(PluginError, match="Invalid strategy"):
             PIIGuardPlugin(pii_types=["email"], strategy="encrypt")
 
     def test_unknown_pii_type(self):
-        with pytest.raises(ValueError, match="Unknown PII type"):
+        with pytest.raises(PluginError, match="Unknown PII type"):
             PIIGuardPlugin(pii_types=["fingerprint"])
 
     def test_no_patterns_raises(self):
-        with pytest.raises(ValueError, match="At least one"):
+        with pytest.raises(PluginError, match="At least one"):
             PIIGuardPlugin()
 
     def test_luhn_valid(self):
@@ -390,15 +390,15 @@ class TestContextWindowPlugin:
         assert p.name == "context_window"
 
     def test_no_limits_raises(self):
-        with pytest.raises(ValueError, match="At least one"):
+        with pytest.raises(PluginError, match="At least one"):
             ContextWindowPlugin()
 
     def test_small_max_messages_raises(self):
-        with pytest.raises(ValueError, match="max_messages must be at least 2"):
+        with pytest.raises(PluginError, match="max_messages must be at least 2"):
             ContextWindowPlugin(max_messages=1)
 
     def test_zero_keep_recent_raises(self):
-        with pytest.raises(ValueError, match="keep_recent must be at least 1"):
+        with pytest.raises(PluginError, match="keep_recent must be at least 1"):
             ContextWindowPlugin(max_messages=10, keep_recent=0)
 
     @pytest.mark.asyncio
@@ -491,11 +491,11 @@ class TestToolGuardPlugin:
         assert p.name == "tool_guard"
 
     def test_both_raises(self):
-        with pytest.raises(ValueError, match="Cannot specify both"):
+        with pytest.raises(PluginError, match="Cannot specify both"):
             ToolGuardPlugin(blocked=["x"], allowed=["y"])
 
     def test_neither_raises(self):
-        with pytest.raises(ValueError, match="Must specify"):
+        with pytest.raises(PluginError, match="Must specify"):
             ToolGuardPlugin()
 
     @pytest.mark.asyncio

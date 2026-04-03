@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from nucleusiq.agents.config import AgentState
 from nucleusiq.agents.react_agent import ReActAgent
+from nucleusiq.llms.errors import LLMError
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 
@@ -127,7 +128,7 @@ class TestReActAgentWithMockLLM:
                 return []
 
         agent = _make_agent(llm=EmptyLLM())
-        with pytest.raises(ValueError, match="empty response"):
+        with pytest.raises(LLMError, match="empty response"):
             await agent.execute({"id": "t1", "objective": "x"})
 
     @pytest.mark.asyncio

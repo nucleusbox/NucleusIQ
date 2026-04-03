@@ -12,6 +12,7 @@ from nucleusiq.agents.attachments import (
     ContentPart,
 )
 from nucleusiq.agents.chat_models import ChatMessage
+from nucleusiq.agents.errors import AttachmentUnsupportedError, AttachmentValidationError
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.task import Task
 
@@ -580,14 +581,14 @@ class TestFileSizeValidation:
 
         big_data = b"x" * (MAX_FILE_SIZE_BYTES + 1)
         att = Attachment(type=AttachmentType.FILE_BYTES, data=big_data, name="big.bin")
-        with pytest.raises(ValueError, match="exceeding the 50 MB limit"):
+        with pytest.raises(AttachmentValidationError, match="exceeding the 50 MB limit"):
             AttachmentProcessor.validate_size(att)
 
     def test_validate_size_custom_limit(self):
         import pytest
 
         att = Attachment(type=AttachmentType.TEXT, data="hello world", name="f.txt")
-        with pytest.raises(ValueError, match="exceeding the 0 MB limit"):
+        with pytest.raises(AttachmentValidationError, match="exceeding the 0 MB limit"):
             AttachmentProcessor.validate_size(att, limit=5)
 
     def test_validate_size_exactly_at_limit(self):
@@ -843,12 +844,12 @@ class TestAttachmentExhaustiveness:
             assert len(parts) >= 1, f"{atype.value} produced no content parts"
 
     def test_unknown_type_raises_value_error(self):
-        """Passing an unrecognised type string must raise ValueError."""
+        """Passing an unrecognised type string must raise AttachmentUnsupportedError."""
         import pytest
 
         att = Attachment(type=AttachmentType.TEXT, data="test")
         att.__dict__["type"] = "nonexistent_type"
-        with pytest.raises(ValueError, match="Unsupported attachment type"):
+        with pytest.raises(AttachmentUnsupportedError, match="Unsupported attachment type"):
             AttachmentProcessor._process_one(att)
 
 
@@ -929,7 +930,7 @@ class TestProcessValidation:
         import pytest
 
         big = Attachment(type=AttachmentType.TEXT, data="x" * (MAX_FILE_SIZE_BYTES + 1))
-        with pytest.raises(ValueError, match="exceeding"):
+        with pytest.raises(AttachmentValidationError, match="exceeding"):
             AttachmentProcessor.process([big])
 
     def test_process_passes_under_limit(self):

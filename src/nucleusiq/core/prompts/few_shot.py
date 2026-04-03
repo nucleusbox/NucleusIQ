@@ -144,8 +144,11 @@ class FewShotPrompt(BasePrompt):
         Hook to enforce that 'examples' is non-empty before final prompt creation.
         """
         if not self.examples:  # or combined_vars.get('examples', []) is empty
-            raise ValueError(
-                "FewShotPrompt requires at least one example (examples list is empty)."
+            from nucleusiq.prompts.errors import PromptTemplateError
+
+            raise PromptTemplateError(
+                "FewShotPrompt requires at least one example (examples list is empty).",
+                technique=self.technique_name,
             )
 
     # -----------------------------

@@ -147,6 +147,12 @@ async def test_retry_error_branches(monkeypatch):
         AuthenticationError as FrameworkAuthError,
     )
     from nucleusiq.llms.errors import (
+        ContentFilterError as FrameworkContentFilterError,
+    )
+    from nucleusiq.llms.errors import (
+        ContextLengthError as FrameworkContextLengthError,
+    )
+    from nucleusiq.llms.errors import (
         InvalidRequestError as FrameworkInvalidReqError,
     )
     from nucleusiq.llms.errors import (
@@ -223,6 +229,30 @@ async def test_retry_error_branches(monkeypatch):
         await call_with_retry(
             unprocessable,
             max_retries=1,
+            async_mode=True,
+            logger=logger,
+        )
+
+    with pytest.raises(FrameworkContentFilterError):
+
+        async def content_filter():
+            raise _DummyBadRequestError("content_policy_violation")
+
+        await call_with_retry(
+            content_filter,
+            max_retries=0,
+            async_mode=True,
+            logger=logger,
+        )
+
+    with pytest.raises(FrameworkContextLengthError):
+
+        async def context_too_long():
+            raise _DummyBadRequestError("maximum context length exceeded")
+
+        await call_with_retry(
+            context_too_long,
+            max_retries=0,
             async_mode=True,
             logger=logger,
         )
@@ -380,9 +410,14 @@ def test_structured_output_build_clean_parse():
     parsed_fallback = parse_response({"content": '{"x":1}'}, 123)
     assert parsed_fallback["x"] == 1
 
-    with pytest.raises(ValueError, match="empty content"):
+    from nucleusiq.agents.structured_output.errors import (
+        SchemaParseError,
+        StructuredOutputError,
+    )
+
+    with pytest.raises(StructuredOutputError, match="empty content"):
         parse_response({"content": ""}, _Person)
-    with pytest.raises(ValueError, match="not valid JSON"):
+    with pytest.raises(SchemaParseError, match="not valid JSON"):
         parse_response({"content": "{bad json"}, _Person)
 
 
@@ -632,7 +667,9 @@ async def test_responses_api_additional_branches(monkeypatch):
 async def test_base_branches_and_helpers(monkeypatch):
     # __init__ missing API key
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="OPENAI_API_KEY is required"):
+    from nucleusiq.llms.errors import AuthenticationError
+
+    with pytest.raises(AuthenticationError, match="OPENAI_API_KEY is required"):
         BaseOpenAI(model_name="gpt-4o", api_key=None)
 
     # sync client construction branch

@@ -29,6 +29,7 @@ import logging
 from typing import Any, Callable, Dict, Sequence
 
 from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
+from nucleusiq.plugins.errors import PluginError
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,9 @@ class ToolGuardPlugin(BasePlugin):
         on_deny: str | DenyHandler | None = None,
     ) -> None:
         if blocked and allowed:
-            raise ValueError("Cannot specify both 'blocked' and 'allowed'")
+            raise PluginError("Cannot specify both 'blocked' and 'allowed'")
         if not blocked and not allowed:
-            raise ValueError("Must specify either 'blocked' or 'allowed'")
+            raise PluginError("Must specify either 'blocked' or 'allowed'")
 
         self._blocked = set(blocked) if blocked else None
         self._allowed = set(allowed) if allowed else None

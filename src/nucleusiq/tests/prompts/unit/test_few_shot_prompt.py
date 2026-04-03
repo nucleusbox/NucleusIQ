@@ -9,6 +9,7 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 import pytest
+from nucleusiq.prompts.errors import PromptTemplateError
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 
 
@@ -45,7 +46,7 @@ class TestFewShotPrompt:
         'examples' is in input_variables, so it's required to be non-empty at format time.
         We provide system and user but skip examples => expect a ValueError.
         """
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             few_shot = PromptFactory.create_prompt(
                 technique=PromptTechnique.FEW_SHOT
             ).configure(
@@ -89,7 +90,7 @@ class TestFewShotPrompt:
             user="Translate 'Good night' to Italian.",
             # examples=[]
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             few_shot.format_prompt()
         assert "FewShotPrompt requires at least one example" in str(exc_info.value)
 
@@ -151,7 +152,7 @@ class TestFewShotPrompt:
             examples=examples,
             # user not set
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             few_shot.format_prompt()
         assert "Missing required field 'user' or it's empty." in str(exc_info.value)
 
@@ -226,7 +227,7 @@ class TestFewShotPromptWithCoT:
             use_cot=True,
             # no examples => empty
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             few_shot_cot.format_prompt()
         assert "FewShotPrompt requires at least one example" in str(exc_info.value)
 
@@ -242,7 +243,7 @@ class TestFewShotPromptWithCoT:
             examples=examples,
             use_cot=True,
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             few_shot_cot.format_prompt()
         assert "Missing required field 'user' or it's empty." in str(exc_info.value)
 

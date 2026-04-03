@@ -17,6 +17,11 @@ from nucleusiq.agents.chat_models import ToolCallRequest
 from nucleusiq.agents.plan import PlanStep
 from nucleusiq.llms.base_llm import BaseLLM
 from nucleusiq.tools.base_tool import BaseTool
+from nucleusiq.tools.errors import (
+    ToolExecutionError,
+    ToolNotFoundError,
+    ToolValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,41 +70,55 @@ class Executor:
         else:
             tool_name = fn_call.get("name")
             if not tool_name:
-                raise ValueError("Function call missing 'name' field")
+                raise ToolValidationError(
+                    "Function call missing 'name' field",
+                    tool_name="(missing)",
+                )
             fn_args_str = fn_call.get("arguments", "{}")
         try:
             fn_args = (
                 json.loads(fn_args_str) if isinstance(fn_args_str, str) else fn_args_str
             )
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in function arguments: {e}")
+            raise ToolValidationError(
+                f"Invalid JSON in function arguments: {e}",
+                tool_name=tool_name or "unknown",
+                original_error=e,
+            ) from e
 
         logger.debug(f"Executing tool '{tool_name}' with args: {fn_args}")
 
-        # Find tool
         if tool_name not in self.tools:
-            raise ValueError(
-                f"Tool '{tool_name}' not found. Available tools: {list(self.tools.keys())}"
+            raise ToolNotFoundError(
+                f"Tool '{tool_name}' not found. "
+                f"Available tools: {list(self.tools.keys())}",
+                tool_name=tool_name,
             )
 
         tool = self.tools[tool_name]
 
-        # Check if it's a native tool (handled by LLM, not executed here)
         is_native = getattr(tool, "is_native", False)
         if is_native:
-            raise ValueError(
-                f"Tool '{tool_name}' is a native tool and is handled directly by the LLM. "
-                f"Native tools should not be executed via Executor."
+            raise ToolExecutionError(
+                f"Tool '{tool_name}' is a native tool and is handled directly "
+                f"by the LLM. Native tools should not be executed via Executor.",
+                tool_name=tool_name,
             )
 
-        # Execute tool
         try:
             result = await tool.execute(**fn_args)
             logger.debug(f"Tool '{tool_name}' executed successfully")
             return result
+        except ToolExecutionError:
+            raise
         except Exception as e:
             logger.error(f"Error executing tool '{tool_name}': {e}")
-            raise
+            raise ToolExecutionError(
+                f"Tool '{tool_name}' failed: {e}",
+                tool_name=tool_name,
+                original_error=e,
+                args_snapshot=fn_args,
+            ) from e
 
     async def execute_step(self, step: PlanStep, context: Dict[str, Any]) -> Any:
         """

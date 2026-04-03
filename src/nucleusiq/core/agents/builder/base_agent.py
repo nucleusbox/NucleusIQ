@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from nucleusiq.agents.config.agent_config import AgentConfig, AgentMetrics, AgentState
+from nucleusiq.agents.errors import AgentExecutionError, AgentTimeoutError
 from nucleusiq.agents.plan import Plan
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.base_llm import BaseLLM
@@ -181,23 +182,26 @@ class BaseAgent(ABC, BaseModel):
             except Exception as e:
                 self._logger.error(f"Execution failed: {str(e)}")
                 if self._retry_count >= self.config.max_retries:
-                    raise RuntimeError(
-                        f"Max retry limit ({self.config.max_retries}) reached"
-                    )
+                    raise AgentExecutionError(
+                        f"Max retry limit ({self.config.max_retries}) reached",
+                        original_error=e,
+                    ) from e
 
                 self._retry_count += 1
                 self.state = AgentState.RETRYING
                 self._logger.info(f"Retrying task (attempt {self._retry_count})")
                 await asyncio.sleep(1)  # Basic backoff
 
-        raise RuntimeError(
-            f"Task execution failed after {self._execution_count} attempts"
+        raise AgentExecutionError(
+            f"Task execution failed after {self._execution_count} attempts",
         )
 
     async def _execute_step(self, task: Task | Dict[str, Any]) -> Any:
         """Execute a single step of the task."""
         if self._check_execution_timeout():
-            raise TimeoutError("Maximum execution time exceeded")
+            raise AgentTimeoutError(
+                f"Execution exceeded {self.config.max_execution_time}s timeout",
+            )
 
         self.state = AgentState.EXECUTING
         start_time = datetime.now().timestamp()

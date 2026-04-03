@@ -7,6 +7,7 @@ from nucleusiq.plugins.base import ModelRequest, ToolRequest
 from nucleusiq.plugins.builtin.model_call_limit import ModelCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_call_limit import ToolCallLimitPlugin
 from nucleusiq.plugins.builtin.tool_retry import ToolRetryPlugin
+from nucleusiq.tools.errors import ToolExecutionError
 from nucleusiq.plugins.errors import PluginHalt
 
 # ------------------------------------------------------------------ #
@@ -116,8 +117,9 @@ class TestToolRetryPlugin:
         p = ToolRetryPlugin(max_retries=1, base_delay=0.01)
         req = ToolRequest(agent_name="a", tool_name="t")
         handler = AsyncMock(side_effect=RuntimeError("permanent"))
-        with pytest.raises(RuntimeError, match="permanent"):
+        with pytest.raises(ToolExecutionError) as exc_info:
             await p.wrap_tool_call(req, handler)
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
         assert handler.call_count == 2
 
     @pytest.mark.asyncio
@@ -125,6 +127,7 @@ class TestToolRetryPlugin:
         p = ToolRetryPlugin(max_retries=0, base_delay=0.01)
         req = ToolRequest(agent_name="a", tool_name="t")
         handler = AsyncMock(side_effect=RuntimeError("fail"))
-        with pytest.raises(RuntimeError, match="fail"):
+        with pytest.raises(ToolExecutionError) as exc_info:
             await p.wrap_tool_call(req, handler)
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
         assert handler.call_count == 1

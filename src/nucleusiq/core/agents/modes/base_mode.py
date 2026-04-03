@@ -11,6 +11,7 @@ modifying the Agent class (Open/Closed Principle).
 """
 
 import json
+import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Dict, List
@@ -25,7 +26,12 @@ from nucleusiq.agents.chat_models import (
     ToolCallRequest,
     messages_to_dicts,
 )
-from nucleusiq.agents.components.usage_tracker import CallPurpose
+from nucleusiq.agents.observability import (
+    build_llm_call_record,
+    build_llm_call_record_from_stream,
+    build_tool_call_record,
+)
+from nucleusiq.agents.usage.usage_tracker import CallPurpose
 from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.task import Task
@@ -251,9 +257,11 @@ class BaseExecutionMode(ABC):
 
     @staticmethod
     def validate_response(response: Any) -> None:
-        """Raise ``ValueError`` if the LLM response is empty/malformed."""
+        """Raise ``LLMError`` if the LLM response is empty/malformed."""
         if not response or not hasattr(response, "choices") or not response.choices:
-            raise ValueError("LLM returned empty response")
+            from nucleusiq.llms.errors import LLMError
+
+            raise LLMError("LLM returned empty response")
 
     @staticmethod
     def extract_content(msg: Any) -> str | None:
@@ -325,6 +333,9 @@ class BaseExecutionMode(ABC):
             await agent.memory.aadd_message("user", content, **kwargs)
         except Exception as e:
             agent._logger.warning("Failed to store task in memory: %s", e)
+            tracer = getattr(agent, "_tracer", None)
+            if tracer is not None:
+                tracer.record_warning(f"Failed to store task in memory: {e}")
 
     # ------------------------------------------------------------------ #
     # Plugin-aware LLM and Tool invocation                               #
@@ -349,6 +360,7 @@ class BaseExecutionMode(ABC):
         """
         pm = getattr(agent, "_plugin_manager", None)
 
+        t0 = time.perf_counter()
         if pm is None or not pm.has_plugins():
             response = await agent.llm.call(**call_kwargs)
         else:
@@ -369,9 +381,24 @@ class BaseExecutionMode(ABC):
             response = await pm.execute_model_call(request, agent.llm.call)
             response = await pm.run_after_model(request, response)
 
+        duration_ms = (time.perf_counter() - t0) * 1000
+
         tracker = getattr(agent, "_usage_tracker", None)
         if tracker is not None:
             tracker.record_from_response(purpose, response)
+
+        tracer = getattr(agent, "_tracer", None)
+        if tracer is not None:
+            model = call_kwargs.get("model") or getattr(response, "model", None)
+            tracer.record_llm_call(
+                build_llm_call_record(
+                    response,
+                    call_round=len(tracer.llm_calls) + 1,
+                    purpose=purpose.value,
+                    duration_ms=duration_ms,
+                    model=model,
+                )
+            )
 
         return response
 
@@ -379,6 +406,8 @@ class BaseExecutionMode(ABC):
         self,
         agent: "Agent",
         tc: ToolCallRequest,
+        *,
+        tool_round: int = 1,
     ) -> Any:
         """Invoke tool execution with the full plugin pipeline.
 
@@ -387,25 +416,58 @@ class BaseExecutionMode(ABC):
         """
         pm = getattr(agent, "_plugin_manager", None)
 
-        if pm is None or not pm.has_plugins():
-            return await agent._executor.execute(tc)
-
         tool_args: Dict[str, Any] = {}
         try:
             tool_args = json.loads(tc.arguments) if tc.arguments else {}
         except (json.JSONDecodeError, TypeError):
             pass
 
-        request = ToolRequest(
-            tool_name=tc.name or "",
-            tool_args=tool_args,
-            tool_call_id=tc.id,
-            call_count=pm.increment_tool_calls(),
-            agent_name=agent.name,
-        )
-        request._tool_call_request = tc
+        t0 = time.perf_counter()
+        try:
+            if pm is None or not pm.has_plugins():
+                result = await agent._executor.execute(tc)
+            else:
+                request = ToolRequest(
+                    tool_name=tc.name or "",
+                    tool_args=tool_args,
+                    tool_call_id=tc.id,
+                    call_count=pm.increment_tool_calls(),
+                    agent_name=agent.name,
+                )
+                request._tool_call_request = tc
+                result = await pm.execute_tool_call(request, agent._executor.execute)
 
-        return await pm.execute_tool_call(request, agent._executor.execute)
+            duration_ms = (time.perf_counter() - t0) * 1000
+            tracer = getattr(agent, "_tracer", None)
+            if tracer is not None:
+                tracer.record_tool_call(
+                    build_tool_call_record(
+                        tc,
+                        result=result,
+                        success=True,
+                        duration_ms=duration_ms,
+                        round=tool_round,
+                        args=tool_args,
+                    )
+                )
+            return result
+        except Exception as e:
+            duration_ms = (time.perf_counter() - t0) * 1000
+            tracer = getattr(agent, "_tracer", None)
+            if tracer is not None:
+                tracer.record_tool_call(
+                    build_tool_call_record(
+                        tc,
+                        result=None,
+                        success=False,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        duration_ms=duration_ms,
+                        round=tool_round,
+                        args=tool_args,
+                    )
+                )
+            raise
 
     # ------------------------------------------------------------------ #
     # Streaming helpers (shared by all modes)                             #
@@ -465,6 +527,7 @@ class BaseExecutionMode(ABC):
             complete_event: StreamEvent | None = None
             errored = False
 
+            stream_t0 = time.perf_counter()
             async for event in self.call_llm_stream(agent, call_kwargs):
                 if event.type == StreamEventType.TOKEN:
                     yield event
@@ -479,6 +542,8 @@ class BaseExecutionMode(ABC):
             if errored:
                 return
 
+            stream_duration_ms = (time.perf_counter() - stream_t0) * 1000
+
             yield StreamEvent.llm_end_event(call_round)
 
             if complete_event is None:
@@ -490,6 +555,18 @@ class BaseExecutionMode(ABC):
                     current_purpose,
                     complete_event.metadata,
                     call_round=call_round,
+                )
+
+            tracer = getattr(agent, "_tracer", None)
+            if tracer is not None:
+                tracer.record_llm_call(
+                    build_llm_call_record_from_stream(
+                        complete_event.metadata,
+                        call_round=call_round,
+                        purpose=current_purpose.value,
+                        duration_ms=stream_duration_ms,
+                        model=call_kwargs.get("model"),
+                    )
                 )
 
             full_content = complete_event.content or ""
@@ -523,7 +600,9 @@ class BaseExecutionMode(ABC):
                     yield StreamEvent.tool_start_event(tc.name, args)
 
                     try:
-                        result = await self.call_tool(agent, tc)
+                        result = await self.call_tool(
+                            agent, tc, tool_round=call_round
+                        )
                         result_str = (
                             json.dumps(result)
                             if not isinstance(result, str)

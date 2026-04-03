@@ -10,6 +10,7 @@ if str(src_dir) not in sys.path:
 
 import pytest
 from nucleusiq.prompts.base import BasePrompt
+from nucleusiq.prompts.errors import PromptTemplateError
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 
@@ -30,7 +31,7 @@ class TestZeroShotPrompt:
         assert prompt_text.strip() == expected_prompt.strip()
 
     def test_zero_shot_missing_required_fields(self):
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             zero_shot = PromptFactory.create_prompt(
                 technique=PromptTechnique.ZERO_SHOT
             ).configure(
@@ -44,7 +45,7 @@ class TestZeroShotPrompt:
         zero_shot = PromptFactory.create_prompt(
             technique=PromptTechnique.ZERO_SHOT
         ).configure(system="", user="")
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             prompt_text = zero_shot.format_prompt()
         assert "Missing required field 'system' or it's empty." in str(exc_info.value)
 
@@ -141,7 +142,7 @@ class TestZeroShotPrompt:
             user="User prompt."
             # 'system' is omitted
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             zero_shot.format_prompt()
         assert "Missing required field 'system' or it's empty." in str(exc_info.value)
 

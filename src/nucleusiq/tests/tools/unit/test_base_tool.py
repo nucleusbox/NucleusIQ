@@ -8,6 +8,7 @@ from nucleusiq.tools.base_tool import (
     _parse_annotation,
     _pydantic_model_to_json_schema,
 )
+from nucleusiq.tools.errors import ToolValidationError
 from pydantic import BaseModel, Field
 
 # ── Fixture models ───────────────────────────────────────────────────────────
@@ -63,7 +64,7 @@ class TestPydanticModelToJsonSchema:
         assert "a" in schema["required"]
 
     def test_not_a_model_raises(self):
-        with pytest.raises(TypeError, match="Expected Pydantic BaseModel"):
+        with pytest.raises(ToolValidationError, match="Expected Pydantic BaseModel"):
             _pydantic_model_to_json_schema(dict)
 
 

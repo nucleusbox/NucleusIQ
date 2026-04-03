@@ -96,22 +96,31 @@ class AutoChainOfThoughtPrompt(BasePrompt):
         Ensures 'llm' is set, 'task' is non-empty, 'questions' is a non-empty list, etc.
         """
         if self.llm is None:
-            raise ValueError(
-                "AutoChainOfThoughtPrompt requires 'llm' to be set (non-None)."
+            from nucleusiq.prompts.errors import PromptConfigError
+
+            raise PromptConfigError(
+                "AutoChainOfThoughtPrompt requires 'llm' to be set (non-None).",
+                technique=self.technique_name,
             )
 
         # Check 'task' is a non-empty string
         task_val = combined_vars.get("task", "")
         if not isinstance(task_val, str) or not task_val.strip():
-            raise ValueError(
-                "AutoChainOfThoughtPrompt requires 'task' be a non-empty string."
+            from nucleusiq.prompts.errors import PromptConfigError
+
+            raise PromptConfigError(
+                "AutoChainOfThoughtPrompt requires 'task' be a non-empty string.",
+                technique=self.technique_name,
             )
 
         # Check 'questions' is a non-empty list
         questions_val = combined_vars.get("questions", [])
         if not isinstance(questions_val, list) or len(questions_val) == 0:
-            raise ValueError(
-                "AutoChainOfThoughtPrompt requires a non-empty list of 'questions'."
+            from nucleusiq.prompts.errors import PromptConfigError
+
+            raise PromptConfigError(
+                "AutoChainOfThoughtPrompt requires a non-empty list of 'questions'.",
+                technique=self.technique_name,
             )
 
     def _construct_prompt(self, **kwargs) -> str:
@@ -173,7 +182,12 @@ class AutoChainOfThoughtPrompt(BasePrompt):
         Calls self.llm to produce a reasoning chain for the question.
         """
         if not self.llm:
-            raise ValueError("llm not set. Please assign an LLM instance before usage.")
+            from nucleusiq.prompts.errors import PromptConfigError
+
+            raise PromptConfigError(
+                "llm not set. Please assign an LLM instance before usage.",
+                technique=self.technique_name,
+            )
 
         sys_prompt = self.system or "You are a helpful assistant."
         messages = [

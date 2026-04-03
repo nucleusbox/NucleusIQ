@@ -9,13 +9,14 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 import pytest
+from nucleusiq.prompts.errors import PromptConfigError
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 
 
 class TestUnrecognizedFields:
     def test_configure_with_unrecognized_field(self):
         """
-        Test that configuring with an unrecognized field raises a ValueError.
+        Test that configuring with an unrecognized field raises PromptConfigError.
         """
         custom_template = "Hello {name}"
         var_mappings = {
@@ -28,7 +29,7 @@ class TestUnrecognizedFields:
         ).configure(template=custom_template, variable_mappings=var_mappings)
 
         # Attempt to configure with an unrecognized field
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptConfigError) as exc:
             composer.configure(unrecognized_field="some_value")
 
         assert "Field 'unrecognized_field' is not recognized" in str(exc.value)

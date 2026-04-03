@@ -23,6 +23,7 @@ import logging
 from typing import Any, Sequence, Tuple, Type
 
 from nucleusiq.plugins.base import BasePlugin, ModelHandler, ModelRequest
+from nucleusiq.plugins.errors import PluginError
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class ModelFallbackPlugin(BasePlugin):
         retry_on: Tuple[Type[Exception], ...] | Type[Exception] = (Exception,),
     ) -> None:
         if not fallbacks:
-            raise ValueError("At least one fallback model is required")
+            raise PluginError("At least one fallback model is required")
         self._fallbacks = list(fallbacks)
         self._retry_on = retry_on if isinstance(retry_on, tuple) else (retry_on,)
 

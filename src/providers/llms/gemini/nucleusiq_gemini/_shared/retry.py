@@ -11,7 +11,8 @@ Error classification:
 - **Server error (5xx)**: retry with backoff → ``ProviderServerError``
 - **Auth error (401)**: no retry → ``AuthenticationError``
 - **Permission (403)**: no retry → ``PermissionDeniedError``
-- **Bad request (400)**: no retry → ``InvalidRequestError``
+- **Bad request (400)**: no retry → ``InvalidRequestError`` (or
+  ``ContentFilterError`` / ``ContextLengthError`` when the message matches)
 - **Not found (404)**: no retry → ``ModelNotFoundError``
 - **Connection error**: retry with backoff → ``ProviderConnectionError``
 - **Unexpected**: log and raise as ``ProviderError``
@@ -26,6 +27,8 @@ from typing import Any
 
 from nucleusiq.llms.errors import (
     AuthenticationError,
+    ContentFilterError,
+    ContextLengthError,
     InvalidRequestError,
     ModelNotFoundError,
     PermissionDeniedError,
@@ -36,6 +39,57 @@ from nucleusiq.llms.errors import (
 )
 
 _PROVIDER = "gemini"
+
+
+def _gemini_client_error_text(exc: BaseException) -> str:
+    """Collect searchable text from a ``google.genai.errors.ClientError``."""
+    parts: list[str] = [str(exc)]
+    msg = getattr(exc, "message", None)
+    if isinstance(msg, str):
+        parts.append(msg)
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        err = details.get("error")
+        if isinstance(err, dict):
+            m = err.get("message")
+            if isinstance(m, str):
+                parts.append(m)
+            c = err.get("code")
+            if isinstance(c, str):
+                parts.append(c)
+    return " ".join(parts).lower()
+
+
+def _is_gemini_content_filter(text: str) -> bool:
+    markers = (
+        "safety",
+        "harm_category",
+        "harmful",
+        "content policy",
+        "policy violation",
+        "blocked the",
+        "response was blocked",
+        "blocked candidate",
+        "blocked by",
+        "prohibited",
+        "recitation",
+        "unsafe",
+    )
+    return any(m in text for m in markers)
+
+
+def _is_gemini_context_length(text: str) -> bool:
+    if "context length" in text or "maximum context" in text:
+        return True
+    if "token" in text and (
+        "limit" in text
+        or "exceed" in text
+        or "maximum" in text
+        or "too many" in text
+        or "long" in text
+    ):
+        return True
+    return "input is too long" in text or "prompt is too long" in text
 
 
 async def call_with_retry(
@@ -61,6 +115,8 @@ async def call_with_retry(
         AuthenticationError: Invalid API key (401).
         PermissionDeniedError: Access denied (403).
         InvalidRequestError: Bad request (400).
+        ContentFilterError: Content blocked by Gemini safety settings.
+        ContextLengthError: Input exceeds token / context limits.
         ModelNotFoundError: Model not found (404).
         RateLimitError: Rate limit exceeded (429) after max retries.
         ProviderServerError: Server error (5xx) after max retries.
@@ -122,6 +178,23 @@ async def call_with_retry(
             if code == 400:
                 if on_bad_request is not None and on_bad_request():
                     continue
+                detail = _gemini_client_error_text(e)
+                if _is_gemini_content_filter(detail):
+                    logger.error("Content blocked by Gemini safety filter: %s", e)
+                    raise ContentFilterError.from_provider_error(
+                        provider=_PROVIDER,
+                        message=f"Content blocked by Gemini safety or content policy: {e}",
+                        status_code=400,
+                        original_error=e,
+                    ) from e
+                if _is_gemini_context_length(detail):
+                    logger.error("Context length exceeded: %s", e)
+                    raise ContextLengthError.from_provider_error(
+                        provider=_PROVIDER,
+                        message=f"Input exceeds model context or token limits: {e}",
+                        status_code=400,
+                        original_error=e,
+                    ) from e
                 logger.error("Invalid request: %s", e)
                 raise InvalidRequestError.from_provider_error(
                     provider=_PROVIDER,

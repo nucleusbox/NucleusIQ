@@ -18,6 +18,7 @@ Supported types (v0.4.0):
 from __future__ import annotations
 
 import base64
+import binascii
 import logging
 from enum import Enum
 from typing import Any
@@ -138,13 +139,17 @@ class AttachmentProcessor:
 
     @staticmethod
     def validate_size(att: Attachment, *, limit: int = MAX_FILE_SIZE_BYTES) -> None:
-        """Raise ``ValueError`` if *att* exceeds the file-size limit."""
+        """Raise ``AttachmentValidationError`` if *att* exceeds the file-size limit."""
+        from nucleusiq.agents.errors import AttachmentValidationError
+
         size = len(att.data) if isinstance(att.data, (bytes, str)) else 0
         if size > limit:
             mb = limit / (1024 * 1024)
-            raise ValueError(
+            raise AttachmentValidationError(
                 f"Attachment '{att.name or '(unnamed)'}' is {size:,} bytes, "
-                f"exceeding the {mb:.0f} MB limit"
+                f"exceeding the {mb:.0f} MB limit",
+                attachment_type=att.type.value,
+                file_name=att.name,
             )
 
     @staticmethod
@@ -177,11 +182,15 @@ class AttachmentProcessor:
 
     @staticmethod
     def _process_one(att: Attachment) -> list[ContentPart]:
+        from nucleusiq.agents.errors import AttachmentUnsupportedError
+
         handler = AttachmentProcessor._HANDLERS.get(att.type)
         if handler is None:
-            raise ValueError(
+            raise AttachmentUnsupportedError(
                 f"Unsupported attachment type '{att.type}'. "
-                f"Supported types: {sorted(t.value for t in AttachmentProcessor._HANDLERS)}"
+                f"Supported types: {sorted(t.value for t in AttachmentProcessor._HANDLERS)}",
+                attachment_type=str(att.type),
+                file_name=att.name,
             )
         return handler(att)
 
@@ -286,8 +295,16 @@ class AttachmentProcessor:
         b64_str = att.data if isinstance(att.data, str) else att.data.decode()
         try:
             raw = base64.b64decode(b64_str)
-        except Exception:
+        except (binascii.Error, ValueError) as exc:
+            from nucleusiq.agents.errors import AttachmentProcessingError
+
             label = att.name or "attachment"
+            proc_err = AttachmentProcessingError(
+                f"Invalid base64 data for attachment {label!r}: {exc}",
+                file_name=att.name,
+                attachment_type=AttachmentType.FILE_BASE64.value,
+            )
+            logger.warning("%s: %s", proc_err.__class__.__name__, proc_err)
             return [
                 ContentPart(
                     type="text",

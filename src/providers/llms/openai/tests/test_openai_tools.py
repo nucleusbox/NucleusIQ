@@ -258,7 +258,9 @@ class TestMCPTool:
 
     def test_mcp_tool_missing_server_url_and_connector_id(self):
         """Test MCP tool validation - missing both server_url and connector_id."""
-        with pytest.raises(ValueError, match="Either server_url.*or connector_id"):
+        from nucleusiq.tools.errors import ToolValidationError
+
+        with pytest.raises(ToolValidationError, match="Either server_url.*or connector_id"):
             OpenAITool.mcp(
                 server_label="test",
                 server_description="Test",
@@ -266,7 +268,9 @@ class TestMCPTool:
 
     def test_mcp_tool_both_server_url_and_connector_id(self):
         """Test MCP tool validation - both server_url and connector_id provided."""
-        with pytest.raises(ValueError, match="Cannot specify both"):
+        from nucleusiq.tools.errors import ToolValidationError
+
+        with pytest.raises(ToolValidationError, match="Cannot specify both"):
             OpenAITool.mcp(
                 server_label="test",
                 server_description="Test",

@@ -395,8 +395,10 @@ class TestBaseToolContract:
 class TestEdgeCases:
     """Unusual inputs handled gracefully."""
 
-    def test_non_callable_raises_type_error(self):
-        with pytest.raises(TypeError, match="callable"):
+    def test_non_callable_raises_tool_validation_error(self):
+        from nucleusiq.tools.errors import ToolValidationError
+
+        with pytest.raises(ToolValidationError, match="callable"):
             tool("bad")(42)
 
     def test_lambda_function(self):

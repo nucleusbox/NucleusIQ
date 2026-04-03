@@ -154,7 +154,9 @@ class BaseGemini(BaseLLM):
         self._logger = logging.getLogger("BaseGemini")
 
         if not self.api_key:
-            raise ValueError(
+            from nucleusiq.llms.errors import AuthenticationError
+
+            raise AuthenticationError(
                 "GEMINI_API_KEY is required. Set it as an environment variable "
                 "or pass it to the constructor."
             )

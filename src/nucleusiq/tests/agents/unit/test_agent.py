@@ -423,8 +423,9 @@ class TestAgentExecute:
         task = {"id": "task1", "objective": "Test task"}
         result = await agent.execute(task)
 
-        # Mode catches error internally and returns "Error: ..." string as output
-        assert "Error:" in str(result)
+        assert result.status.value == "error"
+        assert result.error_type == "AgentExecutionError"
+        assert "Standard mode execution failed" in (result.error or "")
         assert agent.state == AgentState.ERROR
 
 

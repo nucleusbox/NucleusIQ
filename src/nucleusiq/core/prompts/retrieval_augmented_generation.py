@@ -65,14 +65,20 @@ class RetrievalAugmentedGenerationPrompt(BasePrompt):
         We'll add a double-check to ensure the user didn't pass something invalid (like None).
         """
         if "context" not in combined_vars:
-            raise ValueError(
-                "Missing required field 'context' for RAG prompt. It must be provided and non-empty."
+            from nucleusiq.prompts.errors import PromptTemplateError
+
+            raise PromptTemplateError(
+                "Missing required field 'context' for RAG prompt. It must be provided and non-empty.",
+                technique=self.technique_name,
             )
         # If context is None or empty => the base class will actually catch it, but let's explicitly check
         val = combined_vars["context"]
         if val is None:
-            raise ValueError(
-                "RetrievalAugmentedGenerationPrompt requires 'context' not be None."
+            from nucleusiq.prompts.errors import PromptTemplateError
+
+            raise PromptTemplateError(
+                "RetrievalAugmentedGenerationPrompt requires 'context' not be None.",
+                technique=self.technique_name,
             )
 
         # If it's a string but empty or whitespace, the base class's final check will reject it,

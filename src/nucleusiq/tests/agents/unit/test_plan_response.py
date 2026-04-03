@@ -35,7 +35,9 @@ def test_plan_response_to_plan():
 
 
 def test_plan_response_from_dict_missing_steps_raises():
-    with pytest.raises(ValueError, match="must have 'steps'"):
+    from nucleusiq.agents.errors import AgentExecutionError
+
+    with pytest.raises(AgentExecutionError, match="must have 'steps'"):
         PlanResponse.from_dict({"foo": []})
 
 

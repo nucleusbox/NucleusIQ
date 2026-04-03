@@ -87,7 +87,13 @@ class DirectMode(BaseExecutionMode):
         except Exception as e:
             agent._logger.error("Error during direct execution: %s", str(e))
             agent.state = AgentState.ERROR
-            return f"Echo: {self.get_objective(task)}"
+            from nucleusiq.agents.errors import AgentExecutionError
+
+            raise AgentExecutionError(
+                f"Direct mode execution failed: {e}",
+                mode="direct",
+                original_error=e,
+            ) from e
 
     # ------------------------------------------------------------------ #
     # Streaming                                                           #
@@ -176,7 +182,7 @@ class DirectMode(BaseExecutionMode):
 
             agent._logger.info("Tool requested: %s", tc.name)
             try:
-                tool_result = await self.call_tool(agent, tc)
+                tool_result = await self.call_tool(agent, tc, tool_round=1)
                 messages.append(
                     ChatMessage(
                         role="tool",
@@ -228,4 +234,9 @@ class DirectMode(BaseExecutionMode):
             if agent.llm:
                 agent._executor = Executor(agent.llm, agent.tools)
             else:
-                raise RuntimeError("Cannot execute tools: LLM not available")
+                from nucleusiq.agents.errors import AgentConfigError
+
+                raise AgentConfigError(
+                    "Cannot execute tools: LLM not available",
+                    mode="direct",
+                )

@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Sequence
 
 from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
+from nucleusiq.plugins.errors import PluginError
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,7 @@ class HumanApprovalPlugin(BasePlugin):
         deny_message: str = "Tool execution denied by human reviewer.",
     ) -> None:
         if approval_handler and approval_callback:
-            raise ValueError(
+            raise PluginError(
                 "Pass either 'approval_handler' (class) or "
                 "'approval_callback' (function), not both."
             )

@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Any, Dict, Type, Union
 
 from nucleusiq.memory.base import BaseMemory
+from nucleusiq.memory.errors import NucleusMemoryError
 from nucleusiq.memory.full_history import FullHistoryMemory
 from nucleusiq.memory.sliding_window import SlidingWindowMemory
 from nucleusiq.memory.summary import SummaryMemory
@@ -65,7 +66,11 @@ class MemoryFactory:
         """
         key = _resolve_key(strategy)
         if key in cls._registry:
-            raise ValueError(f"Memory strategy '{key}' is already registered.")
+            raise NucleusMemoryError(
+                f"Memory strategy '{key}' is already registered.",
+                strategy=key,
+                operation="register",
+            )
         cls._registry[key] = memory_class
 
     @classmethod
@@ -92,8 +97,10 @@ class MemoryFactory:
         memory_class = cls._registry.get(key)
         if not memory_class:
             available = ", ".join(cls._registry.keys())
-            raise ValueError(
+            raise NucleusMemoryError(
                 f"Memory strategy '{key}' is not supported. "
-                f"Available strategies: {available}."
+                f"Available strategies: {available}.",
+                strategy=key,
+                operation="create",
             )
         return memory_class(**kwargs)

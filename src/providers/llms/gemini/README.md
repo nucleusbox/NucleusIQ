@@ -265,7 +265,7 @@ config = AgentConfig(llm_params=params)
 Track costs using the built-in `CostTracker`:
 
 ```python
-from nucleusiq.agents.components.pricing import CostTracker
+from nucleusiq.agents.usage.pricing import CostTracker
 
 # After agent execution
 usage = agent.last_usage

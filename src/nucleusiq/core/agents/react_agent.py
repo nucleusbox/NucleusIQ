@@ -16,6 +16,7 @@ from typing import Any, Dict, List
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.config import AgentState
+from nucleusiq.llms.errors import LLMError
 from pydantic import Field, PrivateAttr
 
 
@@ -95,7 +96,7 @@ class ReActAgent(Agent):
             )
 
             if not response or not hasattr(response, "choices") or not response.choices:
-                raise ValueError("LLM returned empty response")
+                raise LLMError("LLM returned empty response")
 
             message = response.choices[0].message
             content = self._extract_content(message)

@@ -160,13 +160,19 @@ class TestParseGeminiResponse:
         assert result["key"] == "value"
 
     def test_empty_content_raises(self):
-        with pytest.raises(ValueError, match="empty content"):
+        from nucleusiq.agents.structured_output.errors import StructuredOutputError
+
+        with pytest.raises(StructuredOutputError, match="empty content"):
             parse_gemini_response({"content": ""}, WeatherResponse)
 
     def test_invalid_json_raises(self):
-        with pytest.raises(ValueError, match="not valid JSON"):
+        from nucleusiq.agents.structured_output.errors import SchemaParseError
+
+        with pytest.raises(SchemaParseError, match="not valid JSON"):
             parse_gemini_response({"content": "not json"}, WeatherResponse)
 
     def test_no_content_key_raises(self):
-        with pytest.raises(ValueError, match="empty content"):
+        from nucleusiq.agents.structured_output.errors import StructuredOutputError
+
+        with pytest.raises(StructuredOutputError, match="empty content"):
             parse_gemini_response({}, WeatherResponse)

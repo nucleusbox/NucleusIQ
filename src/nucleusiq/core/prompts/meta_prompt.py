@@ -143,16 +143,22 @@ class MetaPrompt(BasePrompt):
         # Handle variable_mappings
         if vmaps is not None:
             if not isinstance(vmaps, dict):
-                raise ValueError(
-                    f"'variable_mappings' must be a dict, got {type(vmaps).__name__}."
+                from nucleusiq.prompts.errors import PromptConfigError
+
+                raise PromptConfigError(
+                    f"'variable_mappings' must be a dict, got {type(vmaps).__name__}.",
+                    technique=self.technique_name,
                 )
             self.variable_mappings.update(vmaps)
 
         # Handle function_mappings
         if fmaps is not None:
             if not isinstance(fmaps, dict):
-                raise ValueError(
-                    f"'function_mappings' must be a dict, got {type(fmaps).__name__}."
+                from nucleusiq.prompts.errors import PromptConfigError
+
+                raise PromptConfigError(
+                    f"'function_mappings' must be a dict, got {type(fmaps).__name__}.",
+                    technique=self.technique_name,
                 )
             self.function_mappings.update(fmaps)
 
@@ -181,16 +187,22 @@ class MetaPrompt(BasePrompt):
                 )
 
         # If template was cleared or empty, raise at runtime
+        from nucleusiq.prompts.errors import PromptTemplateError
+
         if not self.template.strip():
-            raise ValueError("Template cannot be empty at format time.")
+            raise PromptTemplateError(
+                "Template cannot be empty at format time.",
+                technique=self.technique_name,
+            )
 
         # Check required input vars
         for req in self.input_variables:
             val = combined_vars.get(req, None)
             if val is None or (isinstance(val, str) and not val.strip()):
-                raise ValueError(
+                raise PromptTemplateError(
                     f"Missing required field '{req}' or it's empty. "
-                    f"{self.__class__.__name__} requires that field to be set and non-empty."
+                    f"{self.__class__.__name__} requires that field to be set and non-empty.",
+                    technique=self.technique_name,
                 )
 
         # Run any subclass checks before building
@@ -212,8 +224,11 @@ class MetaPrompt(BasePrompt):
             placeholder_counts[placeholder] = placeholder_counts.get(placeholder, 0) + 1
         duplicates = [p for p, c in placeholder_counts.items() if c > 1]
         if duplicates:
-            raise ValueError(
-                f"Conflicting variable mappings, multiple fields map to {duplicates}"
+            from nucleusiq.prompts.errors import PromptTemplateError
+
+            raise PromptTemplateError(
+                f"Conflicting variable mappings, multiple fields map to {duplicates}",
+                technique=self.technique_name,
             )
 
     #
@@ -243,7 +258,12 @@ class MetaPrompt(BasePrompt):
         try:
             return self.template.format(**final_data)  # Use the copied dictionary
         except KeyError as ex:
-            raise ValueError(f"Missing variable in template: '{ex.args[0]}'")
+            from nucleusiq.prompts.errors import PromptTemplateError
+
+            raise PromptTemplateError(
+                f"Missing variable in template: '{ex.args[0]}'",
+                technique=self.technique_name,
+            ) from ex
 
     #
     # 7) refine_prompt method for iterative refinement
@@ -310,12 +330,18 @@ class MetaPrompt(BasePrompt):
                         }
                         kwargs[key] = func(**required_args)
                 except KeyError as e:
-                    raise ValueError(
-                        f"Error in function mapping for '{key}': Missing key '{e.args[0]}'"
+                    from nucleusiq.prompts.errors import PromptTemplateError
+
+                    raise PromptTemplateError(
+                        f"Error in function mapping for '{key}': Missing key '{e.args[0]}'",
+                        technique=self.technique_name,
                     ) from e
                 except Exception as e:
-                    raise ValueError(
-                        f"Error in function mapping for '{key}': {e}"
+                    from nucleusiq.prompts.errors import PromptTemplateError
+
+                    raise PromptTemplateError(
+                        f"Error in function mapping for '{key}': {e}",
+                        technique=self.technique_name,
                     ) from e
 
         return kwargs

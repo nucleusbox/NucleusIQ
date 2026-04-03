@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.executor import Executor
-from nucleusiq.agents.components.usage_tracker import CallPurpose
+from nucleusiq.agents.usage.usage_tracker import CallPurpose
 from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.task import Task
@@ -64,7 +64,13 @@ class StandardMode(BaseExecutionMode):
         except Exception as e:
             agent._logger.error("Error during standard execution: %s", str(e))
             agent.state = AgentState.ERROR
-            return f"Error: Standard execution failed: {str(e)}"
+            from nucleusiq.agents.errors import AgentExecutionError
+
+            raise AgentExecutionError(
+                f"Standard mode execution failed: {e}",
+                mode="standard",
+                original_error=e,
+            ) from e
 
     # ------------------------------------------------------------------ #
     # Streaming                                                           #
@@ -130,7 +136,12 @@ class StandardMode(BaseExecutionMode):
             if agent.llm:
                 agent._executor = Executor(agent.llm, agent.tools)
             else:
-                raise RuntimeError("Cannot execute in standard mode: LLM not available")
+                from nucleusiq.agents.errors import AgentConfigError
+
+                raise AgentConfigError(
+                    "Cannot execute in standard mode: LLM not available",
+                    mode="standard",
+                )
 
     def _get_tool_specs(self, agent: "Agent") -> List[Dict[str, Any]]:
         """Return LLM-formatted tool specifications."""
@@ -178,7 +189,7 @@ class StandardMode(BaseExecutionMode):
 
             if tool_calls:
                 result = await self._process_tool_calls(
-                    agent, msg, tool_calls, messages
+                    agent, msg, tool_calls, messages, tool_round=call_round
                 )
                 if result is not None:
                     return result
@@ -244,12 +255,16 @@ class StandardMode(BaseExecutionMode):
         msg: Any,
         tool_calls: list,
         messages: List[ChatMessage],
+        *,
+        tool_round: int = 1,
     ) -> str | None:
         """Execute tool calls and append results to the message list.
 
         Returns an error string if any tool fails (fire-and-forget),
         otherwise ``None`` (continue loop).
         """
+        from nucleusiq.tools.errors import ToolExecutionError
+
         raw_content = (
             msg.get("content")
             if isinstance(msg, dict)
@@ -272,7 +287,9 @@ class StandardMode(BaseExecutionMode):
             agent._logger.info("Tool requested: %s", tc.name)
 
             try:
-                tool_result = await self.call_tool(agent, tc)
+                tool_result = await self.call_tool(
+                    agent, tc, tool_round=tool_round
+                )
                 messages.append(
                     ChatMessage(
                         role="tool",
@@ -281,6 +298,8 @@ class StandardMode(BaseExecutionMode):
                         content=json.dumps(tool_result),
                     )
                 )
+            except ToolExecutionError:
+                raise
             except Exception as e:
                 agent._logger.error("Tool execution failed: %s", e)
                 agent.state = AgentState.ERROR

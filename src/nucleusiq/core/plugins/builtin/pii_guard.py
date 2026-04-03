@@ -35,7 +35,7 @@ import re
 from typing import Any, Dict, List, Sequence
 
 from nucleusiq.plugins.base import BasePlugin, ModelRequest
-from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.plugins.errors import PluginError, PluginHalt
 
 logger = logging.getLogger(__name__)
 
@@ -89,14 +89,14 @@ class PIIGuardPlugin(BasePlugin):
         apply_to_output: bool = False,
     ) -> None:
         if strategy not in ("redact", "mask", "block"):
-            raise ValueError(
+            raise PluginError(
                 f"Invalid strategy: {strategy!r}. Use 'redact', 'mask', or 'block'."
             )
 
         self._patterns: Dict[str, re.Pattern] = {}
         for pii_type in pii_types or []:
             if pii_type not in BUILTIN_PATTERNS:
-                raise ValueError(
+                raise PluginError(
                     f"Unknown PII type: {pii_type!r}. "
                     f"Available: {list(BUILTIN_PATTERNS.keys())}"
                 )
@@ -106,7 +106,7 @@ class PIIGuardPlugin(BasePlugin):
             self._patterns[name] = re.compile(pattern)
 
         if not self._patterns:
-            raise ValueError("At least one pii_type or custom_pattern is required")
+            raise PluginError("At least one pii_type or custom_pattern is required")
 
         self._strategy = strategy
         self._apply_to_input = apply_to_input

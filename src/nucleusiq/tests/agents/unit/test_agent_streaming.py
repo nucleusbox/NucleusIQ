@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
+from nucleusiq.agents.errors import AgentConfigError
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.llm_params import LLMParams
@@ -186,7 +187,7 @@ class TestExecuteStreamModeRouting:
         agent = _make_agent()
         agent.config.execution_mode = "nonexistent"
 
-        with pytest.raises(ValueError, match="Unknown execution mode"):
+        with pytest.raises(AgentConfigError, match="Unknown execution mode"):
             await _collect(agent.execute_stream(_make_task()))
 
 
@@ -362,7 +363,7 @@ class TestResolveMode:
     def test_unknown_raises(self):
         agent = _make_agent()
         agent.config.execution_mode = "nonexistent"
-        with pytest.raises(ValueError, match="Unknown execution mode"):
+        with pytest.raises(AgentConfigError, match="Unknown execution mode"):
             agent._resolve_mode()
 
 
@@ -488,7 +489,7 @@ class TestExecuteStreamLifecycleEdges:
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
 
-        with pytest.raises(ValueError, match="tools"):
+        with pytest.raises(AgentConfigError, match="tools"):
             await _collect(agent.execute_stream(_make_task()))
 
     @pytest.mark.asyncio

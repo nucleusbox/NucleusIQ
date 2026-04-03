@@ -10,6 +10,7 @@ if str(src_dir) not in sys.path:
 
 import pytest
 from nucleusiq.prompts.base import BasePrompt
+from nucleusiq.prompts.errors import PromptConfigError, PromptTemplateError
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 
 
@@ -45,7 +46,7 @@ class TestPromptComposer:
         # Suppose we define name/msg as required
         composer.input_variables = ["name", "msg"]
 
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptTemplateError) as exc:
             composer.format_prompt(name="Alice")
             # 'msg' is missing => error
         assert "Missing required field 'msg' or it's empty." in str(exc.value)
@@ -78,8 +79,8 @@ class TestPromptComposer:
         composer = PromptFactory.create_prompt(
             PromptTechnique.PROMPT_COMPOSER
         ).configure(template=custom_tmpl, variable_mappings=var_mappings)
-        with pytest.raises(ValueError) as exc:
-            # The template needs 'hello' => we never supply it => KeyError => ValueError
+        with pytest.raises(PromptTemplateError) as exc:
+            # The template needs 'hello' => we never supply it
             composer.format_prompt()
         err = str(exc.value)
         assert "Missing variable in template: 'hello'" in err
@@ -106,7 +107,7 @@ class TestPromptComposer:
     # 7) Empty template => base class refuses
     def test_empty_template(self):
         composer = PromptFactory.create_prompt(PromptTechnique.PROMPT_COMPOSER)
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptTemplateError) as exc:
             # Attempt to format without specifying a non-empty template
             composer.format_prompt()
         assert "Template cannot be empty" in str(exc.value)
@@ -127,7 +128,7 @@ class TestPromptComposer:
         composer = PromptFactory.create_prompt(
             PromptTechnique.PROMPT_COMPOSER
         ).configure(template=tmpl)
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptTemplateError) as exc:
             composer.format_prompt()  # 'who' not supplied
         assert "Missing variable in template: 'who'" in str(exc.value)
 
@@ -151,7 +152,7 @@ class TestPromptComposer:
         composer = PromptFactory.create_prompt(
             PromptTechnique.PROMPT_COMPOSER
         ).configure(template=tmpl, variable_mappings=var_mappings)
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptTemplateError) as exc:
             composer.format_prompt(fieldA="ValA", fieldB="ValB")
         assert "Missing variable in template: 'f2'" in str(exc.value)
 
@@ -172,7 +173,7 @@ class TestPromptComposer:
     # 13) Configure with an unrecognized field => error
     def test_configure_unrecognized_field(self):
         composer = PromptFactory.create_prompt(PromptTechnique.PROMPT_COMPOSER)
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptConfigError) as exc:
             composer.configure(template="My tmpl", non_existent="???")
         assert "Field 'non_existent' is not recognized" in str(exc.value)
 
@@ -187,7 +188,7 @@ class TestPromptComposer:
         composer = PromptFactory.create_prompt(
             PromptTechnique.PROMPT_COMPOSER
         ).configure(template="Hello {greet}", function_mappings={"greet": title_case})
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptTemplateError) as exc:
             composer.format_prompt()
         assert "Missing variable in template: 'greet'" in str(exc.value)
 

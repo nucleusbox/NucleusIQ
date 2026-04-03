@@ -9,6 +9,7 @@ from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.modes.direct_mode import DirectMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.agents.task import Task
+from nucleusiq.llms.errors import LLMError
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
 
@@ -54,13 +55,13 @@ class TestBaseExecutionModeHelpers:
         assert result is None
 
     def test_validate_response_raises_on_none(self):
-        with pytest.raises(ValueError, match="empty response"):
+        with pytest.raises(LLMError, match="empty response"):
             BaseExecutionMode.validate_response(None)
 
     def test_validate_response_raises_on_empty_choices(self):
         resp = MagicMock()
         resp.choices = []
-        with pytest.raises(ValueError, match="empty response"):
+        with pytest.raises(LLMError, match="empty response"):
             BaseExecutionMode.validate_response(resp)
 
     def test_validate_response_ok(self):

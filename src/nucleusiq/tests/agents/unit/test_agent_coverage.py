@@ -27,6 +27,7 @@ from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.tools import BaseTool
+from nucleusiq.tools.errors import ToolNotFoundError
 
 # --------------------------------------------------------------------------- #
 # Mock Tools                                                                  #
@@ -156,7 +157,9 @@ class TestDirectModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Hello"))
-        assert "Echo:" in str(result)
+        assert result.status.value == "error"
+        assert result.error_type == "AgentExecutionError"
+        assert "Direct mode execution failed" in (result.error or "")
         assert agent.state == AgentState.ERROR
 
     @pytest.mark.asyncio
@@ -225,7 +228,9 @@ class TestStandardModeCoverage:
         )
         await agent.initialize()
         result = await agent.execute(Task(id="t1", objective="Hi"))
-        assert "Error:" in str(result)
+        assert result.status.value == "error"
+        assert result.error_type == "AgentExecutionError"
+        assert "Standard mode execution failed" in (result.error or "")
         assert agent.state == AgentState.ERROR
 
 
@@ -550,7 +555,7 @@ class TestHelperMethodsCoverage:
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
-        with pytest.raises(ValueError, match="Tool not found"):
+        with pytest.raises(ToolNotFoundError, match="Tool not found"):
             await agent._execute_tool("nonexistent", {})
 
 

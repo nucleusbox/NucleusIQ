@@ -10,7 +10,7 @@ Hierarchy::
 
 from __future__ import annotations
 
-from nucleusiq.errors import NucleusIQError
+from nucleusiq.errors.base import NucleusIQError
 
 __all__ = [
     "StreamingError",

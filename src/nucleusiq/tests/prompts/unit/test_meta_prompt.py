@@ -11,6 +11,7 @@ if str(src_dir) not in sys.path:
 from typing import Any
 
 import pytest
+from nucleusiq.prompts.errors import PromptTemplateError
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 from nucleusiq.prompts.meta_prompt import MetaPrompt
 from pydantic import ValidationError
@@ -53,10 +54,10 @@ class TestMetaPrompt:
 
     def test_initialization_missing_required_fields(self):
         """
-        Test that initializing MetaPrompt without required fields raises a ValueError.
+        Test that initializing MetaPrompt without required fields raises PromptTemplateError.
         """
         meta_prompt = PromptFactory.create_prompt(PromptTechnique.META_PROMPTING)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             meta_prompt.format_prompt()
         assert "Missing required field 'primary_instruction' or it's empty." in str(
             exc_info.value
@@ -109,7 +110,7 @@ class TestMetaPrompt:
 
     def test_conflicting_variable_mappings(self):
         """
-        Test that conflicting variable mappings raise a ValueError.
+        Test that conflicting variable mappings raise PromptTemplateError.
         """
         custom_template = "Instruction: {instr}\nPrompt: {prompt}"
         var_mappings = {
@@ -120,7 +121,7 @@ class TestMetaPrompt:
         meta_prompt = PromptFactory.create_prompt(
             PromptTechnique.META_PROMPTING
         ).configure(template=custom_template, variable_mappings=var_mappings)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             meta_prompt.format_prompt(
                 primary_instruction="Initial instruction.",
                 feedback_instruction="Refinement feedback.",
@@ -216,7 +217,7 @@ class TestMetaPrompt:
             primary_instruction="Greet the user.",
             feedback_instruction="Handle platform name appropriately.",
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             meta_prompt.format_prompt(user_name="Dave", platform_name="ChatGPT")
         assert (
             "Error in function mapping for 'platform_name': Intentional Error in Function Mapping"
@@ -270,7 +271,7 @@ class TestMetaPrompt:
             variable_mappings=var_mappings,
             # Missing primary_instruction and feedback_instruction
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             meta_prompt.format_prompt(
                 generated_prompt="Generate a summary.",
             )
@@ -601,7 +602,7 @@ class TestMetaPrompt:
             primary_instruction="   ",  # Whitespace only
             feedback_instruction="\t",  # Whitespace only
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             meta_prompt.format_prompt(generated_prompt="Generate a summary.")
         assert "Missing required field 'primary_instruction' or it's empty." in str(
             exc_info.value
@@ -752,9 +753,9 @@ class TestMetaPrompt:
             primary_instruction="Create a prompt.",
         )
 
-        # Expecting ValueError due to empty feedback_instruction
+        # Expecting PromptTemplateError due to empty feedback_instruction
         with pytest.raises(
-            ValueError,
+            PromptTemplateError,
             match="Missing required field 'feedback_instruction' or it's empty.",
         ):
             meta_prompt.format_prompt(generated_prompt="Generate a summary.")
@@ -1615,7 +1616,7 @@ class TestMetaPrompt:
             PromptTechnique.META_PROMPTING
         ).configure(template=custom_template, function_mappings=func_mappings)
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             meta_prompt.format_prompt()
         assert "Missing required field 'primary_instruction'" in str(exc_info.value)
 

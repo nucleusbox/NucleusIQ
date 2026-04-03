@@ -31,6 +31,14 @@ class AgentConfig(BaseModel):
         default=True, description="Maintain context within model's window"
     )
     verbose: bool = Field(default=False, description="Enable detailed logging")
+    enable_tracing: bool = Field(
+        default=False,
+        description=(
+            "Populate AgentResult with execution trace data "
+            "(llm_calls, tool_calls, warnings). Off by default for zero overhead. "
+            "Enable for observability, debugging, or dashboard integration."
+        ),
+    )
     # Gearbox Strategy: Execution Modes
     execution_mode: ExecutionMode = Field(
         default=ExecutionMode.STANDARD,

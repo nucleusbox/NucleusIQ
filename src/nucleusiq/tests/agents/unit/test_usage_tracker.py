@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from nucleusiq.agents.components.usage_tracker import (
+from nucleusiq.agents.usage.usage_tracker import (
     PURPOSE_ORIGIN_MAP,
     BucketStats,
     CallPurpose,

@@ -9,6 +9,7 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 import pytest
+from nucleusiq.prompts.errors import PromptTemplateError
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 
 
@@ -65,7 +66,7 @@ class TestOutputParser:
             output_parser=parse_echo,
         )
 
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptTemplateError) as exc:
             formatted_prompt = composer.format_prompt()
             parsed_output = composer.output_parser(formatted_prompt)
 

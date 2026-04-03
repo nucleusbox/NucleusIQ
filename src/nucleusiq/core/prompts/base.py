@@ -96,13 +96,16 @@ class BasePrompt(BaseModel, ABC):
             if hasattr(self, var):
                 combined_vars[var] = getattr(self, var)
 
+        from nucleusiq.prompts.errors import PromptTemplateError
+
         # Base check: required input_variables must be present & non-empty
         for required_var in self.input_variables:
             val = combined_vars.get(required_var, None)
             if val is None or (isinstance(val, str) and not val.strip()):
-                raise ValueError(
+                raise PromptTemplateError(
                     f"Missing required field '{required_var}' or it's empty. "
-                    f"{self.__class__.__name__} requires that field to be set and non-empty."
+                    f"{self.__class__.__name__} requires that field to be set and non-empty.",
+                    technique=self.__class__.__name__,
                 )
 
         # Subclass can inject additional validations here
@@ -123,10 +126,13 @@ class BasePrompt(BaseModel, ABC):
         """
         A flexible method to set multiple fields after instantiation.
         """
+        from nucleusiq.prompts.errors import PromptConfigError
+
         for field_name, value in kwargs.items():
             if not hasattr(self, field_name):
-                raise ValueError(
-                    f"Field '{field_name}' is not recognized by {self.__class__.__name__}."
+                raise PromptConfigError(
+                    f"Field '{field_name}' is not recognized by {self.__class__.__name__}.",
+                    technique=self.__class__.__name__,
                 )
             setattr(self, field_name, value)
         return self
@@ -143,7 +149,11 @@ class BasePrompt(BaseModel, ABC):
             with open(p, "w", encoding="utf-8") as f:
                 yaml.dump(data, f, default_flow_style=False)
         else:
-            raise ValueError("Unsupported file format. Use .json or .yaml/.yml")
+            from nucleusiq.prompts.errors import PromptConfigError
+
+            raise PromptConfigError(
+                "Unsupported file format. Use .json or .yaml/.yml",
+            )
 
     @classmethod
     def load(cls: Type[Self], file_path: Path | str) -> Self:
@@ -155,19 +165,28 @@ class BasePrompt(BaseModel, ABC):
             with open(p, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
         else:
-            raise ValueError("Unsupported file format. Use .json or .yaml/.yml")
+            from nucleusiq.prompts.errors import PromptConfigError
+
+            raise PromptConfigError(
+                "Unsupported file format. Use .json or .yaml/.yml",
+            )
+
+        from nucleusiq.prompts.errors import PromptConfigError
 
         prompt_type = data.pop("_type", None)
         if not prompt_type:
-            raise ValueError("Prompt file missing '_type' field for class resolution.")
+            raise PromptConfigError(
+                "Prompt file missing '_type' field for class resolution.",
+            )
 
         from .factory import PromptFactory
 
         subcls = PromptFactory.prompt_classes.get(prompt_type.lower())
         if not subcls:
             available = ", ".join(PromptFactory.prompt_classes.keys())
-            raise ValueError(
-                f"Unsupported prompt type '{prompt_type}'. Available: {available}"
+            raise PromptConfigError(
+                f"Unsupported prompt type '{prompt_type}'. Available: {available}",
+                technique=prompt_type,
             )
 
         return subcls(**data)

@@ -260,9 +260,11 @@ class BaseOpenAI(BaseLLM):
         if att.type in (AttachmentType.IMAGE_URL, AttachmentType.IMAGE_BASE64):
             return self._framework_fallback([att])
 
-        raise ValueError(
-            f"Unhandled attachment type '{att.type}' in OpenAI provider. "
-            f"Add routing for this type in _process_attachment_openai()."
+        from nucleusiq.agents.errors import AttachmentUnsupportedError
+
+        raise AttachmentUnsupportedError(
+            f"Unhandled attachment type '{att.type}' in OpenAI provider.",
+            attachment_type=str(att.type),
         )
 
     # -- OpenAI-native helpers ----------------------------------------- #
@@ -446,7 +448,9 @@ class BaseOpenAI(BaseLLM):
         self._last_response_id: str | None = None
 
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY is required")
+            from nucleusiq.llms.errors import AuthenticationError
+
+            raise AuthenticationError("OPENAI_API_KEY is required")
 
         if self.async_mode:
             self._client = openai.AsyncOpenAI(

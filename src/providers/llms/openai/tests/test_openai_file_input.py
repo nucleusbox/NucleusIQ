@@ -298,7 +298,9 @@ class TestOpenAIFileSizeValidation:
         llm = _make_openai_llm()
         big = b"x" * (MAX_FILE_SIZE_BYTES + 1)
         att = Attachment(type=AttachmentType.PDF, data=big, name="huge.pdf")
-        with pytest.raises(ValueError, match="exceeding the 50 MB limit"):
+        from nucleusiq.agents.errors import AttachmentValidationError
+
+        with pytest.raises(AttachmentValidationError, match="exceeding the 50 MB limit"):
             llm.process_attachments([att])
 
 
@@ -767,7 +769,9 @@ class TestOpenAIAttachmentExhaustiveness:
         llm = _make_openai_llm()
         att = Attachment(type=AttachmentType.TEXT, data="test")
         att.__dict__["type"] = "nonexistent_type"
-        with pytest.raises(ValueError, match="Unhandled attachment type"):
+        from nucleusiq.agents.errors import AttachmentUnsupportedError
+
+        with pytest.raises(AttachmentUnsupportedError, match="Unhandled attachment type"):
             llm.process_attachments([att])
 
 

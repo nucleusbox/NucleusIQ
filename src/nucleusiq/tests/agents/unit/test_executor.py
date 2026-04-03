@@ -25,6 +25,11 @@ from nucleusiq.agents.components.executor import Executor
 from nucleusiq.agents.plan import PlanStep
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.tools import BaseTool
+from nucleusiq.tools.errors import (
+    ToolExecutionError,
+    ToolNotFoundError,
+    ToolValidationError,
+)
 
 
 class MockCalculatorTool(BaseTool):
@@ -203,7 +208,7 @@ class TestExecutorExecute:
 
         fn_call = {"name": "nonexistent", "arguments": json.dumps({})}
 
-        with pytest.raises(ValueError, match="Tool 'nonexistent' not found"):
+        with pytest.raises(ToolNotFoundError, match="Tool 'nonexistent' not found"):
             await executor.execute(fn_call)
 
     @pytest.mark.asyncio
@@ -214,7 +219,9 @@ class TestExecutorExecute:
 
         fn_call = {"arguments": json.dumps({})}
 
-        with pytest.raises(ValueError, match="Function call missing 'name' field"):
+        with pytest.raises(
+            ToolValidationError, match="Function call missing 'name' field"
+        ):
             await executor.execute(fn_call)
 
     @pytest.mark.asyncio
@@ -229,7 +236,7 @@ class TestExecutorExecute:
             "arguments": "{invalid json}",  # Invalid JSON
         }
 
-        with pytest.raises(ValueError, match="Invalid JSON"):
+        with pytest.raises(ToolValidationError, match="Invalid JSON"):
             await executor.execute(fn_call)
 
     @pytest.mark.asyncio
@@ -241,7 +248,7 @@ class TestExecutorExecute:
 
         fn_call = {"name": "failing_tool", "arguments": json.dumps({})}
 
-        with pytest.raises(ValueError, match="Tool execution failed"):
+        with pytest.raises(ToolExecutionError, match="Tool execution failed"):
             await executor.execute(fn_call)
 
     @pytest.mark.asyncio
@@ -253,7 +260,7 @@ class TestExecutorExecute:
 
         fn_call = {"name": "native_tool", "arguments": json.dumps({})}
 
-        with pytest.raises(ValueError, match="native tool"):
+        with pytest.raises(ToolExecutionError, match="native tool"):
             await executor.execute(fn_call)
 
 

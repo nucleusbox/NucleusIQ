@@ -7,7 +7,7 @@ from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.agents.task import Task
 from nucleusiq.plugins.base import AgentContext
 from nucleusiq.plugins.builtin.attachment_guard import AttachmentGuardPlugin
-from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.plugins.errors import PluginError, PluginHalt
 
 
 def _ctx(attachments: list[Attachment] | None = None) -> AgentContext:
@@ -47,7 +47,7 @@ class TestAttachmentGuardTypeFilter:
         assert result is None
 
     def test_both_allowed_and_blocked_raises(self) -> None:
-        with pytest.raises(ValueError, match="Cannot specify both"):
+        with pytest.raises(PluginError, match="Cannot specify both"):
             AttachmentGuardPlugin(
                 allowed_types=[AttachmentType.TEXT],
                 blocked_types=[AttachmentType.PDF],

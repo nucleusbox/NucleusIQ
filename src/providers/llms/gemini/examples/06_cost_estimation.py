@@ -11,7 +11,7 @@ Prerequisites:
 import asyncio
 
 from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.components.pricing import CostTracker
+from nucleusiq.agents.usage.pricing import CostTracker
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq_gemini import BaseGemini, GeminiLLMParams
 

@@ -26,7 +26,7 @@ from typing import Sequence
 
 from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.plugins.base import AgentContext, BasePlugin
-from nucleusiq.plugins.errors import PluginHalt
+from nucleusiq.plugins.errors import PluginError, PluginHalt
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class AttachmentGuardPlugin(BasePlugin):
         allowed_extensions: Sequence[str] | None = None,
     ) -> None:
         if allowed_types and blocked_types:
-            raise ValueError("Cannot specify both 'allowed_types' and 'blocked_types'")
+            raise PluginError("Cannot specify both 'allowed_types' and 'blocked_types'")
 
         self._allowed_types = set(allowed_types) if allowed_types else None
         self._blocked_types = set(blocked_types) if blocked_types else None

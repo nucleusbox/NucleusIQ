@@ -6,7 +6,7 @@ Users register model pricing and get cost estimates after ``agent.execute()``.
 
 Usage::
 
-    from nucleusiq.agents.components.pricing import CostTracker, ModelPricing
+    from nucleusiq.agents.usage.pricing import CostTracker, ModelPricing
 
     # Built-in pricing is auto-loaded for OpenAI and Gemini models
     tracker = CostTracker()
@@ -28,7 +28,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from nucleusiq.agents.components.usage_tracker import (
+from nucleusiq.agents.usage.usage_tracker import (
     UsageSummary,
 )
 from pydantic import BaseModel, Field

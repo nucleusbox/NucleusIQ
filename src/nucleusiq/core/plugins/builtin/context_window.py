@@ -28,6 +28,7 @@ import logging
 from typing import Any, Callable, List
 
 from nucleusiq.plugins.base import BasePlugin, ModelRequest
+from nucleusiq.plugins.errors import PluginError
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +83,11 @@ class ContextWindowPlugin(BasePlugin):
         placeholder: str | None = "[Earlier messages trimmed for context window]",
     ) -> None:
         if max_messages is None and max_tokens is None:
-            raise ValueError("At least one of max_messages or max_tokens is required")
+            raise PluginError("At least one of max_messages or max_tokens is required")
         if max_messages is not None and max_messages < 2:
-            raise ValueError("max_messages must be at least 2")
+            raise PluginError("max_messages must be at least 2")
         if keep_recent < 1:
-            raise ValueError("keep_recent must be at least 1")
+            raise PluginError("keep_recent must be at least 1")
 
         self._max_messages = max_messages
         self._max_tokens = max_tokens

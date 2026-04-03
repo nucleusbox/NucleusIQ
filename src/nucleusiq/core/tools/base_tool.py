@@ -22,6 +22,8 @@ except ImportError:
     PYDANTIC_AVAILABLE = False
     BaseModel = None
 
+from nucleusiq.tools.errors import ToolValidationError
+
 
 def _parse_annotation(annotation: Any) -> str:
     """
@@ -59,7 +61,7 @@ def _pydantic_model_to_json_schema(model: Type[Any]) -> Dict[str, Any]:
         )
 
     if not issubclass(model, BaseModel):
-        raise TypeError(f"Expected Pydantic BaseModel, got {type(model)}")
+        raise ToolValidationError(f"Expected Pydantic BaseModel, got {type(model)}")
 
     # Get JSON schema from Pydantic model
     json_schema = model.model_json_schema()

@@ -29,16 +29,22 @@ def parse_gemini_response(
         An instance of *schema_type* (Pydantic model, dataclass, or dict).
 
     Raises:
-        ValueError: If the content is empty or not valid JSON.
+        StructuredOutputError: If the content is empty.
+        SchemaParseError: If the content is not valid JSON.
     """
     content = message.get("content", "")
+    from nucleusiq.agents.structured_output.errors import (
+        SchemaParseError,
+        StructuredOutputError,
+    )
+
     if not content:
-        raise ValueError("Gemini returned empty content for structured output")
+        raise StructuredOutputError("Gemini returned empty content for structured output")
 
     try:
         data = json.loads(content)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Gemini response is not valid JSON: {e}") from e
+        raise SchemaParseError(f"Gemini response is not valid JSON: {e}") from e
 
     if isinstance(schema_type, type) and issubclass(schema_type, BaseModel):
         return schema_type.model_validate(data)

@@ -20,6 +20,8 @@ import httpx
 import openai
 from nucleusiq.llms.errors import (
     AuthenticationError,
+    ContentFilterError,
+    ContextLengthError,
     InvalidRequestError,
     PermissionDeniedError,
     ProviderConnectionError,
@@ -29,6 +31,67 @@ from nucleusiq.llms.errors import (
 )
 
 _PROVIDER = "openai"
+
+
+def _openai_request_error_text(exc: BaseException) -> str:
+    """Collect searchable text from an OpenAI ``APIStatusError`` / request error."""
+    parts: list[str] = [str(exc)]
+    msg = getattr(exc, "message", None)
+    if isinstance(msg, str):
+        parts.append(msg)
+    code = getattr(exc, "code", None)
+    if isinstance(code, str):
+        parts.append(code)
+    typ = getattr(exc, "type", None)
+    if isinstance(typ, str):
+        parts.append(typ)
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            for key in ("message", "code", "type", "param"):
+                v = err.get(key)
+                if isinstance(v, str):
+                    parts.append(v)
+        else:
+            for key in ("message", "code", "type"):
+                v = body.get(key)
+                if isinstance(v, str):
+                    parts.append(v)
+    return " ".join(parts).lower()
+
+
+def _is_openai_content_filter(text: str) -> bool:
+    markers = (
+        "content_filter",
+        "content_policy",
+        "content_policy_violation",
+        "safety system",
+        "safety_system",
+        "output filters",
+        "responsible_ai",
+        "responsibleaipolicy",
+    )
+    return any(m in text for m in markers)
+
+
+def _is_openai_context_length(text: str) -> bool:
+    if "maximum context length" in text or "context_length" in text:
+        return True
+    markers = (
+        "context window",
+        "reduce the length",
+        "reduce your prompt",
+        "prompt is too long",
+        "input is too long",
+        "max_tokens",
+        "token limit",
+        "too many tokens",
+        "exceeds the context",
+    )
+    if any(m in text for m in markers):
+        return True
+    return "token" in text
 
 
 async def call_with_retry(
@@ -58,6 +121,8 @@ async def call_with_retry(
         AuthenticationError: Invalid API key (maps from ``openai.AuthenticationError``).
         PermissionDeniedError: Access denied (maps from ``openai.PermissionDeniedError``).
         InvalidRequestError: Bad request (maps from ``openai.BadRequestError``).
+        ContentFilterError: Content blocked by provider safety / content policy.
+        ContextLengthError: Prompt exceeds model context or token limits.
         RateLimitError: Rate limit exceeded after max retries.
         ProviderServerError: API server error after max retries.
         ProviderConnectionError: Connection failure after max retries.
@@ -138,11 +203,29 @@ async def call_with_retry(
         except (openai.BadRequestError, openai.UnprocessableEntityError) as e:
             if on_bad_request is not None and on_bad_request():
                 continue
+            detail = _openai_request_error_text(e)
+            status = getattr(e, "status_code", None)
+            if _is_openai_content_filter(detail):
+                logger.error("Content blocked by provider filter: %s", e)
+                raise ContentFilterError.from_provider_error(
+                    provider=_PROVIDER,
+                    message=f"Content blocked by provider safety or content policy: {e}",
+                    status_code=status if isinstance(status, int) else 400,
+                    original_error=e,
+                ) from e
+            if _is_openai_context_length(detail):
+                logger.error("Context length exceeded: %s", e)
+                raise ContextLengthError.from_provider_error(
+                    provider=_PROVIDER,
+                    message=f"Input exceeds model context or token limits: {e}",
+                    status_code=status if isinstance(status, int) else 400,
+                    original_error=e,
+                ) from e
             logger.error("Invalid request: %s", e)
             raise InvalidRequestError.from_provider_error(
                 provider=_PROVIDER,
                 message=f"Invalid request parameters: {e}",
-                status_code=400,
+                status_code=status if isinstance(status, int) else 400,
                 original_error=e,
             ) from e
 

@@ -33,6 +33,7 @@ import inspect
 from typing import Any, Callable, Dict, Type, get_origin, overload
 
 from nucleusiq.tools.base_tool import BaseTool
+from nucleusiq.tools.errors import ToolValidationError
 
 __all__ = ["tool"]
 
@@ -315,7 +316,7 @@ def tool(
 
     Raises
     ------
-    TypeError
+    ToolValidationError
         If the decorated object is not callable.
     """
     # Case 1: @tool  (bare, no parentheses)
@@ -350,6 +351,6 @@ def tool(
 def _validate_function(fn: Any) -> None:
     """Fail fast if the decorated object is not a valid function."""
     if not callable(fn):
-        raise TypeError(
+        raise ToolValidationError(
             f"@tool can only decorate callable objects, got {type(fn).__name__}"
         )

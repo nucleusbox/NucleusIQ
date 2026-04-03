@@ -55,9 +55,12 @@ class PromptFactory:
             technique (PromptTechnique): The name of the prompting technique.
             prompt_class (Type[BasePrompt]): The class implementing the technique.
         """
+        from nucleusiq.prompts.errors import PromptConfigError
+
         if technique.value in cls.prompt_classes:
-            raise ValueError(
-                f"Prompting technique '{technique.value}' is already registered."
+            raise PromptConfigError(
+                f"Prompting technique '{technique.value}' is already registered.",
+                technique=technique.value,
             )
         cls.prompt_classes[technique.value] = prompt_class
 
@@ -77,9 +80,12 @@ class PromptFactory:
         """
         prompt_class = cls.prompt_classes.get(technique.value)
         if not prompt_class:
+            from nucleusiq.prompts.errors import PromptConfigError
+
             available = ", ".join(cls.prompt_classes.keys())
-            raise ValueError(
+            raise PromptConfigError(
                 f"Prompting technique '{technique.value}' is not supported. "
-                f"Available techniques: {available}."
+                f"Available techniques: {available}.",
+                technique=technique.value,
             )
         return cast(T, prompt_class())

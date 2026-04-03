@@ -16,6 +16,7 @@ import logging
 from typing import Any
 
 from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
+from nucleusiq.tools.errors import ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
@@ -58,4 +59,9 @@ class ToolRetryPlugin(BasePlugin):
                         exc,
                     )
                     await asyncio.sleep(delay)
-        raise last_error  # type: ignore[misc]
+        assert last_error is not None
+        raise ToolExecutionError(
+            f"Tool '{request.tool_name}' failed after {self._max_retries + 1} attempt(s): {last_error}",
+            tool_name=request.tool_name,
+            original_error=last_error,
+        ) from last_error

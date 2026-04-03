@@ -56,17 +56,21 @@ class PromptComposer(BasePrompt):
 
         super().configure(**kwargs)
 
+        from nucleusiq.prompts.errors import PromptConfigError
+
         if vmaps is not None:
             if not isinstance(vmaps, dict):
-                raise ValueError(
-                    f"variable_mappings must be a dict, not {type(vmaps).__name__}."
+                raise PromptConfigError(
+                    f"variable_mappings must be a dict, not {type(vmaps).__name__}.",
+                    technique=self.__class__.__name__,
                 )
             self.variable_mappings = vmaps
 
         if fmaps is not None:
             if not isinstance(fmaps, dict):
-                raise ValueError(
-                    f"function_mappings must be a dict, not {type(fmaps).__name__}."
+                raise PromptConfigError(
+                    f"function_mappings must be a dict, not {type(fmaps).__name__}.",
+                    technique=self.__class__.__name__,
                 )
             self.function_mappings = fmaps
 
@@ -85,8 +89,13 @@ class PromptComposer(BasePrompt):
                 merged_vars[var] = val
 
         # If user never sets template or if it was cleared => error
+        from nucleusiq.prompts.errors import PromptTemplateError
+
         if not self.template.strip():
-            raise ValueError("Template cannot be empty at format time.")
+            raise PromptTemplateError(
+                "Template cannot be empty at format time.",
+                technique=self.__class__.__name__,
+            )
 
         # Provide empty string if 'examples' was never set
         if "examples" not in merged_vars or merged_vars["examples"] is None:
@@ -96,9 +105,10 @@ class PromptComposer(BasePrompt):
         for req in self.input_variables:
             val = merged_vars.get(req, None)
             if val is None or (isinstance(val, str) and not val.strip()):
-                raise ValueError(
+                raise PromptTemplateError(
                     f"Missing required field '{req}' or it's empty. "
-                    f"{self.__class__.__name__} requires that field to be set and non-empty."
+                    f"{self.__class__.__name__} requires that field to be set and non-empty.",
+                    technique=self.__class__.__name__,
                 )
 
         self._pre_format_validation(merged_vars)
@@ -121,8 +131,10 @@ class PromptComposer(BasePrompt):
                 try:
                     kwargs[key] = func(**kwargs)
                 except KeyError:
-                    # The user wants "missing_key" if a function references an absent field
-                    raise ValueError("missing_key ", key)
+                    raise PromptTemplateError(
+                        f"Function mapping references missing key: '{key}'",
+                        technique=self.__class__.__name__,
+                    )
 
         # 2) Apply variable mappings
         final_data = {}
@@ -134,4 +146,9 @@ class PromptComposer(BasePrompt):
         try:
             return self.template.format(**final_data)
         except KeyError as ex:
-            raise ValueError(f"Missing variable in template: '{ex.args[0]}'")
+            from nucleusiq.prompts.errors import PromptTemplateError
+
+            raise PromptTemplateError(
+                f"Missing variable in template: '{ex.args[0]}'",
+                technique=self.__class__.__name__,
+            ) from ex

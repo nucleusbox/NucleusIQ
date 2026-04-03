@@ -9,6 +9,7 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 import pytest
+from nucleusiq.prompts.errors import PromptConfigError, PromptTemplateError
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 
 
@@ -56,9 +57,9 @@ class TestChainOfThoughtPrompt:
 
     def test_chain_of_thought_cannot_set_use_cot_false(self):
         """
-        If user tries to set use_cot=False => we raise a ValueError in configure().
+        If user tries to set use_cot=False => we raise PromptConfigError in configure().
         """
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(PromptConfigError) as exc:
             (
                 PromptFactory.create_prompt(PromptTechnique.CHAIN_OF_THOUGHT).configure(
                     system="System text.",
@@ -70,7 +71,7 @@ class TestChainOfThoughtPrompt:
 
     def test_chain_of_thought_missing_system(self):
         """
-        'system' is in input_variables => if missing or empty => raises ValueError at format_prompt time.
+        'system' is in input_variables => if missing or empty => raises PromptTemplateError at format_prompt time.
         """
         cot_prompt = PromptFactory.create_prompt(
             PromptTechnique.CHAIN_OF_THOUGHT
@@ -79,13 +80,13 @@ class TestChainOfThoughtPrompt:
             user="Should I invest in stocks?",
             cot_instruction="Analyze carefully.",
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             cot_prompt.format_prompt()
         assert "Missing required field 'system' or it's empty." in str(exc_info.value)
 
     def test_chain_of_thought_missing_user(self):
         """
-        'user' is also in input_variables => if missing or empty => ValueError at format.
+        'user' is also in input_variables => if missing or empty => PromptTemplateError at format.
         """
         cot_prompt = PromptFactory.create_prompt(
             PromptTechnique.CHAIN_OF_THOUGHT
@@ -94,7 +95,7 @@ class TestChainOfThoughtPrompt:
             user=None,  # or blank
             cot_instruction="Think step by step.",
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             cot_prompt.format_prompt()
         assert "Missing required field 'user' or it's empty." in str(exc_info.value)
 

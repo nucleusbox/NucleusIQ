@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.4](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.4) — 2026-04-03
+
+### Added
+
+- **`observability` package** — dedicated `nucleusiq.agents.observability` package with SRP file layout:
+  - `protocol.py` — `ExecutionTracerProtocol` (`@runtime_checkable`)
+  - `default_tracer.py` — `DefaultExecutionTracer` (in-memory, `__slots__` optimised)
+  - `noop_tracer.py` — `NoOpTracer` (Null Object, zero overhead)
+  - `record_builders.py` — `build_tool_call_record`, `build_llm_call_record`, `build_llm_call_record_from_stream`
+  - `_response_parser.py` — `extract_tool_calls` (OpenAI + Gemini), `safe_int`, `usage_dict_from_response`
+- **Agent wiring** — each `execute()` / `execute_stream()` run resets a fresh `DefaultExecutionTracer` on the agent; `BaseExecutionMode.call_llm` / `call_tool` / `_streaming_tool_call_loop` record timings and outcomes; `AgentResult` now receives `tool_calls`, `llm_calls`, `plugin_events`, `memory_snapshot`, `autonomous`, and `warnings` from the tracer where populated.
+- **All 3 execution modes traced** — Direct, Standard, and Autonomous (including Critic LLM calls with `purpose="critic"`). Known gap: `Decomposer.analyze()` bypasses the tracer (will be wired in v0.7.6).
+- **Tests** — `tests/unit/test_execution_tracer.py`, `tests/agents/unit/test_agent_tracer_integration.py`, `tests/agents/unit/test_autonomous_tracer_integration.py`.
+- **`integration_test/run_integration.py`** — version check for `0.7.4` plus tracer smoke assertions.
+- **`AgentConfig.enable_tracing`** — `bool = False`. When off (default), `AgentResult` trace fields are empty tuples with zero overhead. When on, `DefaultExecutionTracer` captures all LLM/tool calls, durations, and warnings.
+- **`core/errors/` package** — converted from single `errors.py` to a proper package: `base.py` defines `NucleusIQError` (cycle-free), `__init__.py` provides lazy `__getattr__` re-exports of all 40+ error types. All 9 subsystem error modules updated to import from `nucleusiq.errors.base`. Backward-compatible: `from nucleusiq.errors import NucleusIQError` still works.
+- **`core/agents/usage/` package** — extracted `usage_tracker.py` and `pricing.py` from `components/` into a dedicated `usage/` package with public `__init__.py` re-exports. Old shim files deleted (no backward-compatibility wrappers — clean break).
+- **Exhaustive error wiring** — every `raise ValueError` / `raise RuntimeError` in production code audited and replaced with proper custom error types:
+  - **Agent modes**: `AgentExecutionError` in `standard_mode.run()`, `direct_mode.run()` (replaces bare `except Exception` string returns)
+  - **Agent lifecycle**: `AgentExecutionError` and `AgentTimeoutError` in `base_agent.py` retry loop (replaces `RuntimeError`)
+  - **LLM validation**: `LLMError` in `base_mode.validate_response()` and `react_agent.py` (replaces `ValueError`)
+  - **Tools**: `ToolValidationError` in `decorators.py` and `base_tool.py` (replaces `TypeError`); `ToolExecutionError` in `tool_retry.py`
+  - **Plugins**: `PluginError` in all 6 built-in plugins (`context_window`, `tool_guard`, `pii_guard`, `attachment_guard`, `human_approval`, `model_fallback`); `PluginExecutionError` in `validation.py`
+  - **Prompts**: `PromptTemplateError` and `PromptConfigError` across `base.py`, `prompt_composer.py`, `meta_prompt.py`, `auto_chain_of_thought.py`, `few_shot.py`, `chain_of_thought.py`, `retrieval_augmented_generation.py` (all runtime methods; Pydantic validators correctly remain `ValueError`)
+  - **Structured output**: `StructuredOutputError` in `config.py`; `SchemaValidationError` in `parser.py`; `StructuredOutputError`/`SchemaParseError` in provider parsers
+  - **Attachments**: `AttachmentProcessingError` for base64 failures; `AttachmentUnsupportedError` in OpenAI provider
+  - **Provider auth**: `AuthenticationError` for missing API keys in both OpenAI and Gemini providers
+  - **Provider retry**: `ContentFilterError` and `ContextLengthError` mapped in both OpenAI and Gemini `retry.py` modules
+  - **Provider tools**: `ToolValidationError` for OpenAI MCP tool config validation
+
+### Changed
+
+- **`_setup_execution`** — usage tracker and execution tracer are reset immediately after plugin counter reset (before `BEFORE_AGENT`), so halted or failed setups do not leak prior-run tracer data. Tracer creation gated on `AgentConfig.enable_tracing`.
+- All internal imports updated to canonical paths (`nucleusiq.agents.usage.*`, `nucleusiq.errors.base`).
+- `components/usage_tracker.py` and `components/pricing.py` shim files **deleted** — all imports now use canonical `nucleusiq.agents.usage.*` paths.
+- `standard_mode.run()` and `direct_mode.run()` now raise `AgentExecutionError` with mode context instead of returning error strings.
+- `base_agent.py` retry loop raises `AgentExecutionError`/`AgentTimeoutError` instead of `RuntimeError`/`TimeoutError`.
+- OpenAI provider: `AuthenticationError` instead of `ValueError` for missing API key; `AttachmentUnsupportedError` for unknown attachment types; `ToolValidationError` for MCP config; `StructuredOutputError`/`SchemaParseError` for structured output parsing; `ContentFilterError`/`ContextLengthError` in retry.
+- Gemini provider: `AuthenticationError` instead of `ValueError` for missing API key; `StructuredOutputError`/`SchemaParseError` for structured output parsing; `ContentFilterError`/`ContextLengthError` in retry.
+
+### Packages
+
+| Package | Version | Note |
+|---------|---------|------|
+| `nucleusiq` | **0.7.4** | ExecutionTracer, configurable tracing, error/usage package restructure, exhaustive error wiring |
+| `nucleusiq-openai` | **0.6.1** | Custom error types wired, ContentFilter/ContextLength mapped (requires `nucleusiq>=0.7.4`) |
+| `nucleusiq-gemini` | **0.2.2** | Custom error types wired, ContentFilter/ContextLength mapped (requires `nucleusiq>=0.7.4`) |
+
+---
+
 ## [0.7.3](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.3) — 2026-04-02
 
 ### Fixed
@@ -434,12 +484,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.1...HEAD)
+## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.4...HEAD)
 
-### Planned for v0.8.0+
+### Planned for v0.7.5+
 
-- Comprehensive Exception Handling Framework (agent-level, tool errors, structured error results, error observability)
+- Native + Custom tool mixing (ToolStrategy Protocol — Gemini native/custom split)
+- Full observability wiring (PluginEvent, MemorySnapshot, AutonomousDetail, prompt tracing)
 - Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
+- Context Window Management (budget tracker, tool result compression)
 - New LLM Providers: Anthropic, Ollama
 - Gemini advanced features: Batch API, Deep Research Agent, File Search
 - CostTracker Agent integration (`agent.last_cost`)

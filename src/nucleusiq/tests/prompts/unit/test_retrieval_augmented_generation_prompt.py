@@ -9,6 +9,7 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 import pytest
+from nucleusiq.prompts.errors import PromptTemplateError
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
 
 
@@ -43,7 +44,7 @@ class TestRetrievalAugmentedGenerationPrompt:
             # context is omitted
             user="Ask about France.",
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             rag_prompt.format_prompt()
         assert "Missing required field 'context'" in str(exc_info.value)
 
@@ -54,7 +55,7 @@ class TestRetrievalAugmentedGenerationPrompt:
         rag_prompt = PromptFactory.create_prompt(
             PromptTechnique.RETRIEVAL_AUGMENTED_GENERATION
         ).configure(system="KB assistant.", context=None, user="What about capital?")
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             rag_prompt.format_prompt()
         assert "Missing required field 'context' or it's empty." in str(exc_info.value)
 
@@ -68,7 +69,7 @@ class TestRetrievalAugmentedGenerationPrompt:
         ).configure(
             system="System info.", context="", user="What is the capital of France?"
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             rag_prompt.format_prompt()
         # The base class error or our custom message could appear
         assert "Missing required field 'context' or it's empty." in str(exc_info.value)
@@ -100,7 +101,7 @@ class TestRetrievalAugmentedGenerationPrompt:
             context="Some context.",
             user="",
         )
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PromptTemplateError) as exc_info:
             rag_prompt.format_prompt()
         err_msg = str(exc_info.value)
         assert (

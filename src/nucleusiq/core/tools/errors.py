@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nucleusiq.errors import NucleusIQError
+from nucleusiq.errors.base import NucleusIQError
 
 __all__ = [
     "ToolError",

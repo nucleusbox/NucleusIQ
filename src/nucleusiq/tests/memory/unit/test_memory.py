@@ -22,6 +22,7 @@ from nucleusiq.memory import (
     SummaryWindowMemory,
     TokenBudgetMemory,
 )
+from nucleusiq.memory.errors import NucleusMemoryError
 
 # ===================================================================
 # BaseMemory — abstract contract
@@ -322,13 +323,13 @@ class TestMemoryFactory:
         del MemoryFactory._registry["custom"]
 
     def test_register_duplicate_raises(self):
-        with pytest.raises(ValueError, match="already registered"):
+        with pytest.raises(NucleusMemoryError, match="already registered"):
             MemoryFactory.register_memory(
                 MemoryStrategy.FULL_HISTORY, FullHistoryMemory
             )
 
     def test_invalid_strategy_raises(self):
-        with pytest.raises(ValueError, match="not supported"):
+        with pytest.raises(NucleusMemoryError, match="not supported"):
             MemoryFactory.create_memory("nonexistent")
 
 

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.agents.errors import AgentConfigError, AgentExecutionError, AgentTimeoutError
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
@@ -234,7 +235,7 @@ class TestExecuteWithRetry:
         with patch.object(
             Agent, "execute", new_callable=AsyncMock, side_effect=RuntimeError("fail")
         ):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(AgentExecutionError, match="Task execution failed after"):
                 await agent._execute_with_retry({"id": "1", "objective": "x"})
 
     @pytest.mark.asyncio
@@ -255,7 +256,7 @@ class TestExecuteWithRetry:
         await agent.initialize()
         agent._start_time = 1.0  # epoch second 1 — elapsed >> 1 s
 
-        with pytest.raises(TimeoutError, match="execution time"):
+        with pytest.raises(AgentTimeoutError, match="timeout"):
             await agent._execute_step({"id": "1", "objective": "x"})
 
     @pytest.mark.asyncio
@@ -337,7 +338,7 @@ class TestStandardModeToolPaths:
     @pytest.mark.asyncio
     async def test_ensure_executor_no_llm(self):
         agent = _make_agent(llm=None)
-        with pytest.raises(RuntimeError, match="LLM not available"):
+        with pytest.raises(AgentConfigError, match="LLM not available"):
             StandardMode()._ensure_executor(agent)
 
     @pytest.mark.asyncio

@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from nucleusiq.llms.errors import (
     AuthenticationError,
+    ContentFilterError,
+    ContextLengthError,
     InvalidRequestError,
     ModelNotFoundError,
     PermissionDeniedError,
@@ -194,6 +196,32 @@ class TestBadRequestErrors:
                 logger=MagicMock(),
                 on_bad_request=lambda: False,
             )
+
+    @pytest.mark.asyncio
+    async def test_400_safety_message_raises_content_filter_error(self):
+        err = _make_client_error(400, "blocked by safety settings")
+
+        with pytest.raises(ContentFilterError) as exc_info:
+            await call_with_retry(
+                lambda: (_ for _ in ()).throw(err),
+                max_retries=3,
+                logger=MagicMock(),
+            )
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.original_error is err
+
+    @pytest.mark.asyncio
+    async def test_400_token_limit_raises_context_length_error(self):
+        err = _make_client_error(400, "token limit exceeded for this model")
+
+        with pytest.raises(ContextLengthError) as exc_info:
+            await call_with_retry(
+                lambda: (_ for _ in ()).throw(err),
+                max_retries=3,
+                logger=MagicMock(),
+            )
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.original_error is err
 
 
 class TestModelNotFoundError:

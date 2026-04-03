@@ -615,7 +615,7 @@ class AutonomousMode(BaseExecutionMode):
         Routes through ``self.call_llm()`` so the call is recorded
         in the UsageTracker under ``CallPurpose.CRITIC``.
         """
-        from nucleusiq.agents.components.usage_tracker import CallPurpose
+        from nucleusiq.agents.usage.usage_tracker import CallPurpose
 
         try:
             verification_prompt = critic.build_verification_prompt(

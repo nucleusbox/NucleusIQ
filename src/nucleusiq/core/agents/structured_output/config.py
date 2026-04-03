@@ -74,7 +74,9 @@ class OutputSchema:
     def __post_init__(self):
         """Validate configuration."""
         if self.max_retries < 0:
-            raise ValueError("max_retries must be >= 0")
+            from nucleusiq.agents.structured_output.errors import StructuredOutputError
+
+            raise StructuredOutputError("max_retries must be >= 0")
 
         # Validate mode is implemented (fail fast with helpful message)
         if self.mode != OutputMode.AUTO:

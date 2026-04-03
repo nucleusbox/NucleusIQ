@@ -7,6 +7,7 @@ Plan = HOW to break down a task into steps
 
 from typing import Any, Dict, List
 
+from nucleusiq.agents.errors import AgentExecutionError
 from nucleusiq.agents.task import Task
 from pydantic import BaseModel, Field
 
@@ -100,7 +101,7 @@ class PlanResponse(BaseModel):
             PlanResponse instance
         """
         if "steps" not in data:
-            raise ValueError("PlanResponse must have 'steps' key")
+            raise AgentExecutionError("PlanResponse must have 'steps' key")
 
         steps = [
             PlanStepResponse(**step) if isinstance(step, dict) else step

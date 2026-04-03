@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nucleusiq.errors import NucleusIQError
+from nucleusiq.errors.base import NucleusIQError
 
 
 class WorkspaceSecurityError(NucleusIQError):

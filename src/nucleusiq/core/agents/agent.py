@@ -16,10 +16,12 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Type
 
-from nucleusiq.agents.agent_result import AgentResult, ResultStatus
+from nucleusiq.agents.agent_result import AgentResult, AutonomousDetail, ResultStatus
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.components.executor import Executor
-from nucleusiq.agents.components.usage_tracker import UsageSummary, UsageTracker
+from nucleusiq.agents.errors import AgentConfigError
+from nucleusiq.agents.observability import DefaultExecutionTracer
+from nucleusiq.agents.usage.usage_tracker import UsageSummary, UsageTracker
 from nucleusiq.agents.config.agent_config import AgentMetrics, AgentState
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
@@ -121,6 +123,7 @@ class Agent(BaseAgent):
         default_factory=StructuredOutputHandler
     )
     _usage_tracker: UsageTracker = PrivateAttr(default_factory=UsageTracker)
+    _tracer: DefaultExecutionTracer | None = PrivateAttr(default=None)
 
     # ------------------------------------------------------------------ #
     # LIFECYCLE                                                           #
@@ -247,7 +250,10 @@ class Agent(BaseAgent):
         )
         mode_class = self._mode_registry.get(mode_value)
         if not mode_class:
-            raise ValueError(f"Unknown execution mode: {execution_mode}")
+            raise AgentConfigError(
+                f"Unknown execution mode: {execution_mode}",
+                mode=mode_value,
+            )
         return mode_class()
 
     async def _setup_execution(
@@ -262,8 +268,8 @@ class Agent(BaseAgent):
             2. Resolve merged LLM params
             3. Set current task
             4. Ensure plugin manager + reset counters
-            5. Run BEFORE_AGENT hook (may raise ``PluginHalt``)
-            6. Store user input in memory
+            5. Reset usage tracker and execution tracer for this run
+            6. Run BEFORE_AGENT hook (may raise ``PluginHalt``)
             7. Validate tool count against mode limit
             8. Resolve execution mode
 
@@ -285,6 +291,9 @@ class Agent(BaseAgent):
             self._plugin_manager = PluginManager(self.plugins)
         self._plugin_manager.reset_counters()
 
+        self._usage_tracker.reset()
+        self._tracer = DefaultExecutionTracer() if self.config.enable_tracing else None
+
         agent_ctx = AgentContext(
             agent_name=self.name,
             task=task,
@@ -301,13 +310,12 @@ class Agent(BaseAgent):
                 if hasattr(self.config.execution_mode, "value")
                 else str(self.config.execution_mode)
             )
-            raise ValueError(
+            raise AgentConfigError(
                 f"Agent '{self.name}' has {len(self.tools)} tools but "
                 f"{mode_value.upper()} mode allows max {max_tools}. "
-                f"Reduce tools or switch to a higher execution mode."
+                f"Reduce tools or switch to a higher execution mode.",
+                mode=mode_value,
             )
-
-        self._usage_tracker.reset()
 
         mode = self._resolve_mode()
         return task, mode, agent_ctx
@@ -406,6 +414,27 @@ class Agent(BaseAgent):
         except Exception:
             pass
 
+        tool_calls_t: tuple = ()
+        llm_calls_t: tuple = ()
+        plugin_events_t: tuple = ()
+        warnings_t: tuple = ()
+        memory_snap = None
+        autonomous_out: AutonomousDetail | None = None
+
+        tracer = getattr(self, "_tracer", None)
+        if tracer is not None:
+            tool_calls_t = tuple(tracer.tool_calls)
+            llm_calls_t = tuple(tracer.llm_calls)
+            plugin_events_t = tuple(tracer.plugin_events)
+            warnings_t = tuple(tracer.warnings)
+            memory_snap = tracer.memory_snapshot
+            ad = tracer.autonomous_detail
+            if ad:
+                try:
+                    autonomous_out = AutonomousDetail.model_validate(ad)
+                except Exception:
+                    autonomous_out = None
+
         return AgentResult(
             agent_id=str(self.id),
             agent_name=self.name,
@@ -418,6 +447,12 @@ class Agent(BaseAgent):
             error_type=error_type,
             duration_ms=(time.perf_counter() - t0) * 1000,
             usage=usage_dict,
+            tool_calls=tool_calls_t,
+            llm_calls=llm_calls_t,
+            plugin_events=plugin_events_t,
+            memory_snapshot=memory_snap,
+            autonomous=autonomous_out,
+            warnings=warnings_t,
         )
 
     # ------------------------------------------------------------------ #
@@ -567,9 +602,14 @@ class Agent(BaseAgent):
 
     async def _execute_tool(self, tool_name: str, params: Dict[str, Any]) -> Any:
         """Execute a specific tool with parameters."""
+        from nucleusiq.tools.errors import ToolNotFoundError
+
         tool = next((t for t in self.tools if t.name == tool_name), None)
         if not tool:
-            raise ValueError(f"Tool not found: {tool_name}")
+            raise ToolNotFoundError(
+                f"Tool not found: {tool_name}",
+                tool_name=tool_name,
+            )
 
         self.state = AgentState.WAITING_FOR_TOOLS
         try:

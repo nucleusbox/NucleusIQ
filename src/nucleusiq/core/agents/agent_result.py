@@ -25,9 +25,11 @@ Usage::
     else:
         print(f"Failed: {result.error} ({result.error_type})")
 
-    # Observability (populated progressively in 0.7.3–0.7.5)
+    # Observability (tool_calls, llm_calls, warnings populated since 0.7.4)
     for tc in result.tool_calls:
         print(f"  {tc.tool_name}: {tc.duration_ms}ms")
+    for lc in result.llm_calls:
+        print(f"  LLM round {lc.round}: {lc.total_tokens} tokens, {lc.duration_ms}ms")
 
     # Serialization
     result.model_dump_json()  # JSON string
@@ -174,10 +176,10 @@ class AgentResult(BaseModel):
     error_type: str | None = None
     duration_ms: float = 0.0
 
-    # --- Tool observability (populated in 0.7.3) ---
+    # --- Tool observability (populated since 0.7.4) ---
     tool_calls: tuple[ToolCallRecord, ...] = ()
 
-    # --- LLM observability (populated in 0.7.4) ---
+    # --- LLM observability (populated since 0.7.4) ---
     llm_calls: tuple[LLMCallRecord, ...] = ()
 
     # --- Conversation history ---
@@ -186,16 +188,16 @@ class AgentResult(BaseModel):
     # --- Usage (reuses existing UsageSummary via dict for now) ---
     usage: dict[str, Any] | None = None
 
-    # --- Memory state (populated in 0.7.5) ---
+    # --- Memory state (wired in future 0.7.x) ---
     memory_snapshot: MemorySnapshot | None = None
 
-    # --- Plugin audit trail (populated in 0.7.5) ---
+    # --- Plugin audit trail (wired in future 0.7.x) ---
     plugin_events: tuple[PluginEvent, ...] = ()
 
-    # --- Autonomous-mode detail (populated in 0.7.5) ---
+    # --- Autonomous-mode detail (wired in future 0.7.x) ---
     autonomous: AutonomousDetail | None = None
 
-    # --- Non-fatal issues ---
+    # --- Non-fatal issues (populated since 0.7.4) ---
     warnings: tuple[str, ...] = ()
 
     # --- Extension point (Open/Closed) ---
