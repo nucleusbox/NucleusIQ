@@ -287,9 +287,7 @@ class StandardMode(BaseExecutionMode):
             agent._logger.info("Tool requested: %s", tc.name)
 
             try:
-                tool_result = await self.call_tool(
-                    agent, tc, tool_round=tool_round
-                )
+                tool_result = await self.call_tool(agent, tc, tool_round=tool_round)
                 messages.append(
                     ChatMessage(
                         role="tool",

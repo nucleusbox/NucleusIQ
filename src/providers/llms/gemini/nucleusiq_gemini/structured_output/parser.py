@@ -39,7 +39,9 @@ def parse_gemini_response(
     )
 
     if not content:
-        raise StructuredOutputError("Gemini returned empty content for structured output")
+        raise StructuredOutputError(
+            "Gemini returned empty content for structured output"
+        )
 
     try:
         data = json.loads(content)

@@ -584,7 +584,9 @@ class TestFileSizeValidation:
 
         big_data = b"x" * (MAX_FILE_SIZE_BYTES + 1)
         att = Attachment(type=AttachmentType.FILE_BYTES, data=big_data, name="big.bin")
-        with pytest.raises(AttachmentValidationError, match="exceeding the 50 MB limit"):
+        with pytest.raises(
+            AttachmentValidationError, match="exceeding the 50 MB limit"
+        ):
             AttachmentProcessor.validate_size(att)
 
     def test_validate_size_custom_limit(self):
@@ -852,7 +854,9 @@ class TestAttachmentExhaustiveness:
 
         att = Attachment(type=AttachmentType.TEXT, data="test")
         att.__dict__["type"] = "nonexistent_type"
-        with pytest.raises(AttachmentUnsupportedError, match="Unsupported attachment type"):
+        with pytest.raises(
+            AttachmentUnsupportedError, match="Unsupported attachment type"
+        ):
             AttachmentProcessor._process_one(att)
 
 

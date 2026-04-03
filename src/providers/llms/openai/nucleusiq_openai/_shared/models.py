@@ -184,11 +184,7 @@ class ChatCompletionsPayload(BaseModel):
             "response_format": response_format,
         }
         kwargs.update(
-            {
-                k: v
-                for k, v in extra.items()
-                if v is not None and k in cls.model_fields
-            }
+            {k: v for k, v in extra.items() if v is not None and k in cls.model_fields}
         )
         return cls.model_validate(kwargs)
 

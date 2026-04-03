@@ -246,7 +246,9 @@ class DecoratedTool(BaseTool):
     ) -> dict[str, Any]:
         from nucleusiq.tools.base_tool import _pydantic_model_to_json_schema
 
-        assert self._args_schema is not None, "_args_schema must be set for Pydantic spec"
+        assert self._args_schema is not None, (
+            "_args_schema must be set for Pydantic spec"
+        )
         parameters = _pydantic_model_to_json_schema(self._args_schema)
         return {
             "name": tool_name,

@@ -35,7 +35,9 @@ async def test_autonomous_simple_path_traces_llm_and_critic():
         objective="o",
         narrative="n",
         llm=MockLLM(),
-        config=AgentConfig(execution_mode="autonomous", verbose=False, enable_tracing=True),
+        config=AgentConfig(
+            execution_mode="autonomous", verbose=False, enable_tracing=True
+        ),
     )
     await agent.initialize()
     result = await agent.execute(Task(id="auto-1", objective="explain gravity"))
@@ -67,7 +69,9 @@ async def test_autonomous_tracer_resets_between_executions():
         objective="o",
         narrative="n",
         llm=MockLLM(),
-        config=AgentConfig(execution_mode="autonomous", verbose=False, enable_tracing=True),
+        config=AgentConfig(
+            execution_mode="autonomous", verbose=False, enable_tracing=True
+        ),
     )
     await agent.initialize()
 
@@ -77,9 +81,7 @@ async def test_autonomous_tracer_resets_between_executions():
     r2 = await agent.execute(Task(id="a2", objective="question two"))
     n_llm_2 = len(r2.llm_calls)
 
-    assert n_llm_1 == n_llm_2, (
-        f"Tracer should reset: run1={n_llm_1}, run2={n_llm_2}"
-    )
+    assert n_llm_1 == n_llm_2, f"Tracer should reset: run1={n_llm_1}, run2={n_llm_2}"
 
 
 @pytest.mark.asyncio
@@ -91,7 +93,9 @@ async def test_autonomous_critic_call_has_correct_purpose():
         objective="o",
         narrative="n",
         llm=MockLLM(),
-        config=AgentConfig(execution_mode="autonomous", verbose=False, enable_tracing=True),
+        config=AgentConfig(
+            execution_mode="autonomous", verbose=False, enable_tracing=True
+        ),
     )
     await agent.initialize()
     result = await agent.execute(Task(id="cc-1", objective="test critic purpose"))

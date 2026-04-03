@@ -414,7 +414,9 @@ class BaseExecutionMode(ABC):
         Constructs a ``ToolRequest`` and runs the wrap_tool_call chain.
         Falls back to a direct call when no plugins are registered.
         """
-        assert agent._executor is not None, "agent._executor must be set before calling call_tool"
+        assert agent._executor is not None, (
+            "agent._executor must be set before calling call_tool"
+        )
         pm = getattr(agent, "_plugin_manager", None)
 
         tool_args: Dict[str, Any] = {}
@@ -484,7 +486,9 @@ class BaseExecutionMode(ABC):
         Analogous to ``call_llm()`` but for the streaming path.
         Plugin-aware streaming is deferred to a future release.
         """
-        assert agent.llm is not None, "agent.llm must be set before calling call_llm_stream"
+        assert agent.llm is not None, (
+            "agent.llm must be set before calling call_llm_stream"
+        )
         async for event in agent.llm.call_stream(**call_kwargs):
             yield event
 
@@ -602,9 +606,7 @@ class BaseExecutionMode(ABC):
                     yield StreamEvent.tool_start_event(tc.name, args)
 
                     try:
-                        result = await self.call_tool(
-                            agent, tc, tool_round=call_round
-                        )
+                        result = await self.call_tool(agent, tc, tool_round=call_round)
                         result_str = (
                             json.dumps(result)
                             if not isinstance(result, str)

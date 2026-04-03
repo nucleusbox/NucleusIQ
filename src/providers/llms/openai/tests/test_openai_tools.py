@@ -260,7 +260,9 @@ class TestMCPTool:
         """Test MCP tool validation - missing both server_url and connector_id."""
         from nucleusiq.tools.errors import ToolValidationError
 
-        with pytest.raises(ToolValidationError, match="Either server_url.*or connector_id"):
+        with pytest.raises(
+            ToolValidationError, match="Either server_url.*or connector_id"
+        ):
             OpenAITool.mcp(
                 server_label="test",
                 server_description="Test",

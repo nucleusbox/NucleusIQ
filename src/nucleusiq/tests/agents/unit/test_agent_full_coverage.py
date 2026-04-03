@@ -239,7 +239,9 @@ class TestExecuteWithRetry:
         with patch.object(
             Agent, "execute", new_callable=AsyncMock, side_effect=RuntimeError("fail")
         ):
-            with pytest.raises(AgentExecutionError, match="Task execution failed after"):
+            with pytest.raises(
+                AgentExecutionError, match="Task execution failed after"
+            ):
                 await agent._execute_with_retry({"id": "1", "objective": "x"})
 
     @pytest.mark.asyncio

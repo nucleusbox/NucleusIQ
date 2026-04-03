@@ -53,7 +53,9 @@ async def test_standard_mode_populates_llm_and_tool_traces():
         narrative="n",
         llm=MockLLM(),
         tools=[_CalcTool()],
-        config=AgentConfig(execution_mode="standard", verbose=False, enable_tracing=True),
+        config=AgentConfig(
+            execution_mode="standard", verbose=False, enable_tracing=True
+        ),
     )
     await agent.initialize()
     result = await agent.execute(Task(id="1", objective="add 2 and 3"))
