@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, List
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
+from nucleusiq.agents.agent_result import ValidationRecord
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.components.critic import Critic, CritiqueResult, Verdict
 from nucleusiq.agents.components.decomposer import Decomposer, TaskAnalysis
@@ -396,6 +397,7 @@ class AutonomousMode(BaseExecutionMode):
 
             # Layer 1+2: Deterministic + plugin validation
             vr = await validation.validate(agent, result, messages)
+            self._record_validation(agent, attempt + 1, vr.valid, vr.layer, vr.reason)
             agent._logger.info(
                 "Attempt %d/%d [VALIDATE]: valid=%s layer=%s",
                 attempt + 1,
@@ -414,6 +416,13 @@ class AutonomousMode(BaseExecutionMode):
             critique = await self._run_critic(
                 agent, critic, task.objective, result, messages
             )
+            self._record_validation(
+                agent,
+                attempt + 1,
+                critique.verdict in (Verdict.PASS, Verdict.UNCERTAIN),
+                "critic",
+                f"{critique.verdict.value} (score={critique.score:.2f})",
+            )
 
             if critique.verdict == Verdict.PASS:
                 agent._logger.info(
@@ -425,6 +434,12 @@ class AutonomousMode(BaseExecutionMode):
                 step.mark_completed(str(result))
                 agent.state = AgentState.COMPLETED
                 agent._execution_progress = progress
+                self._set_autonomous_detail(
+                    agent,
+                    attempts=attempt + 1,
+                    max_attempts=max_retries,
+                    complexity="simple",
+                )
                 return result
 
             if (
@@ -441,6 +456,12 @@ class AutonomousMode(BaseExecutionMode):
                 step.mark_completed(str(result))
                 agent.state = AgentState.COMPLETED
                 agent._execution_progress = progress
+                self._set_autonomous_detail(
+                    agent,
+                    attempts=attempt + 1,
+                    max_attempts=max_retries,
+                    complexity="simple",
+                )
                 return result
 
             agent._logger.info(
@@ -460,6 +481,13 @@ class AutonomousMode(BaseExecutionMode):
         step.mark_completed(str(result))
         agent.state = AgentState.COMPLETED
         agent._execution_progress = progress
+        self._set_autonomous_detail(
+            agent,
+            attempts=max_retries,
+            max_attempts=max_retries,
+            complexity="simple",
+            refined=max_retries > 1,
+        )
         return result
 
     # ------------------------------------------------------------------ #
@@ -511,6 +539,11 @@ class AutonomousMode(BaseExecutionMode):
             Task(id=f"{task.id}-synth", objective=synth_prompt),
         )
 
+        sub_task_names = tuple(
+            s.get("objective", s.get("id", "")) if isinstance(s, dict) else str(s)
+            for s in analysis.sub_tasks
+        )
+
         result = None
         for attempt in range(max_retries):
             label = "SYNTHESIZE" if attempt == 0 else "RETRY"
@@ -543,6 +576,7 @@ class AutonomousMode(BaseExecutionMode):
 
             # Layer 1+2 validation
             vr = await validation.validate(agent, result, messages)
+            self._record_validation(agent, attempt + 1, vr.valid, vr.layer, vr.reason)
             agent._logger.info(
                 "Synthesis attempt %d/%d [VALIDATE]: valid=%s layer=%s",
                 attempt + 1,
@@ -561,11 +595,25 @@ class AutonomousMode(BaseExecutionMode):
             critique = await self._run_critic(
                 agent, critic, task.objective, result, messages
             )
+            self._record_validation(
+                agent,
+                attempt + 1,
+                critique.verdict in (Verdict.PASS, Verdict.UNCERTAIN),
+                "critic",
+                f"{critique.verdict.value} (score={critique.score:.2f})",
+            )
 
             if critique.verdict == Verdict.PASS:
                 synth_step.mark_completed(str(result))
                 agent.state = AgentState.COMPLETED
                 agent._execution_progress = progress
+                self._set_autonomous_detail(
+                    agent,
+                    attempts=attempt + 1,
+                    max_attempts=max_retries,
+                    sub_tasks=sub_task_names,
+                    complexity="complex",
+                )
                 return result
 
             if (
@@ -575,6 +623,13 @@ class AutonomousMode(BaseExecutionMode):
                 synth_step.mark_completed(str(result))
                 agent.state = AgentState.COMPLETED
                 agent._execution_progress = progress
+                self._set_autonomous_detail(
+                    agent,
+                    attempts=attempt + 1,
+                    max_attempts=max_retries,
+                    sub_tasks=sub_task_names,
+                    complexity="complex",
+                )
                 return result
 
             agent._logger.info(
@@ -592,6 +647,14 @@ class AutonomousMode(BaseExecutionMode):
         synth_step.mark_completed(str(result))
         agent.state = AgentState.COMPLETED
         agent._execution_progress = progress
+        self._set_autonomous_detail(
+            agent,
+            attempts=max_retries,
+            max_attempts=max_retries,
+            sub_tasks=sub_task_names,
+            complexity="complex",
+            refined=max_retries > 1,
+        )
         return result
 
     # ------------------------------------------------------------------ #
@@ -652,6 +715,65 @@ class AutonomousMode(BaseExecutionMode):
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
+    # ------------------------------------------------------------------ #
+
+    # ------------------------------------------------------------------ #
+    # Tracer helpers                                                       #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _get_tracer(agent: Agent) -> Any:
+        """Return the agent's tracer or ``None``."""
+        return getattr(agent, "_tracer", None)
+
+    @staticmethod
+    def _record_validation(
+        agent: Agent,
+        attempt: int,
+        valid: bool,
+        layer: str,
+        reason: str,
+    ) -> None:
+        tracer = getattr(agent, "_tracer", None)
+        if tracer is None:
+            return
+        try:
+            tracer.record_validation(
+                ValidationRecord(
+                    attempt=attempt,
+                    valid=valid,
+                    layer=layer,
+                    reason=reason,
+                )
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _set_autonomous_detail(
+        agent: Agent,
+        attempts: int,
+        max_attempts: int,
+        sub_tasks: tuple[str, ...] = (),
+        complexity: str = "simple",
+        refined: bool = False,
+    ) -> None:
+        tracer = getattr(agent, "_tracer", None)
+        if tracer is None:
+            return
+        try:
+            tracer.set_autonomous_detail(
+                attempts=attempts,
+                max_attempts=max_attempts,
+                sub_tasks=sub_tasks,
+                complexity=complexity,
+                refined=refined,
+            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------ #
+    # Retry / error helpers                                                #
     # ------------------------------------------------------------------ #
 
     @staticmethod

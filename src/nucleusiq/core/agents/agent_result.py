@@ -93,6 +93,7 @@ class LLMCallRecord(BaseModel):
     has_tool_calls: bool = False
     tool_call_count: int = 0
     duration_ms: float = 0.0
+    prompt_technique: str | None = None
 
 
 class PluginEvent(BaseModel):
@@ -248,7 +249,7 @@ class AgentResult(BaseModel):
         return self.model_dump(exclude_none=True)
 
     def display(self) -> str:
-        """Human-readable execution summary."""
+        """Human-readable execution summary with full observability."""
         lines: list[str] = []
         lines.append(f"AgentResult(status={self.status.value})")
         lines.append(f"  Agent  : {self.agent_name} ({self.agent_id})")
@@ -275,6 +276,44 @@ class AgentResult(BaseModel):
             lines.append(
                 f"  LLM    : {len(self.llm_calls)} calls, {total_tokens} tokens"
             )
+            for lc in self.llm_calls:
+                purpose = f" [{lc.purpose}]" if lc.purpose else ""
+                lines.append(
+                    f"    Round {lc.round}{purpose}: "
+                    f"{lc.total_tokens} tokens, {lc.duration_ms:.0f}ms"
+                )
+
+        if self.plugin_events:
+            lines.append(f"  Plugins: {len(self.plugin_events)} events")
+            for pe in self.plugin_events:
+                lines.append(
+                    f"    {pe.plugin_name}.{pe.hook} "
+                    f"[{pe.action}] {pe.duration_ms:.1f}ms"
+                )
+
+        if self.memory_snapshot:
+            ms = self.memory_snapshot
+            token_info = f", ~{ms.token_count} tokens" if ms.token_count else ""
+            lines.append(
+                f"  Memory : {ms.strategy} ({ms.message_count} messages{token_info})"
+            )
+
+        if self.autonomous:
+            ad = self.autonomous
+            lines.append(
+                f"  Auto   : {ad.complexity or 'unknown'} "
+                f"({ad.attempts}/{ad.max_attempts} attempts)"
+            )
+            if ad.sub_tasks:
+                lines.append(f"    Sub-tasks: {', '.join(ad.sub_tasks[:5])}")
+            if ad.validations:
+                for v in ad.validations:
+                    verdict = "PASS" if v.valid else "FAIL"
+                    lines.append(
+                        f"    [{verdict}] attempt {v.attempt} ({v.layer}): {v.reason}"
+                    )
+            if ad.refined:
+                lines.append("    Refined: yes")
 
         if self.warnings:
             lines.append(f"  Warns  : {len(self.warnings)}")

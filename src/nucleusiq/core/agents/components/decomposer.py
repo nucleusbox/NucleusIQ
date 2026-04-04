@@ -66,7 +66,12 @@ class Decomposer:
         Uses a 3-gate checklist: the task is COMPLEX only when ALL
         three gates evaluate to true.  If any gate is false the task
         is SIMPLE.  Falls back to SIMPLE on any error (safe default).
+
+        Records the LLM call on the agent's tracer (this method calls
+        ``agent.llm.call()`` directly, bypassing ``call_llm()``).
         """
+        import time as _time
+
         prompt = (
             "You are a task classifier. Evaluate the following task "
             "against three gate conditions to determine whether it "
@@ -96,19 +101,59 @@ class Decomposer:
             '{"id": "sub1", "objective": "..."}, ...]}\n'
         )
         assert agent.llm is not None, "agent.llm must be set for Decomposer"
+        t0 = _time.perf_counter()
         try:
             response = await agent.llm.call(
                 model=getattr(agent.llm, "model_name", "default"),
                 messages=[{"role": "user", "content": prompt}],
                 max_output_tokens=512,
             )
+            self._record_llm_call(agent, t0, response, purpose="decomposer")
             return self._parse_analysis(response)
         except Exception as e:
             self._logger.warning(
                 "Task analysis failed: %s — defaulting to SIMPLE",
                 e,
             )
+            self._record_llm_call(agent, t0, None, purpose="decomposer")
             return TaskAnalysis(is_complex=False, reasoning=f"Analysis error: {e}")
+
+    @staticmethod
+    def _record_llm_call(
+        agent: Agent,
+        t0: float,
+        response: Any,
+        purpose: str = "decomposer",
+    ) -> None:
+        """Record this direct LLM call on the agent's tracer."""
+        import time as _time
+
+        from nucleusiq.agents.agent_result import LLMCallRecord
+
+        tracer = getattr(agent, "_tracer", None)
+        if tracer is None:
+            return
+        try:
+            total_tokens = 0
+            if response is not None:
+                usage = getattr(response, "usage_metadata", None) or getattr(
+                    response, "usage", None
+                )
+                if usage:
+                    total_tokens = getattr(usage, "total_token_count", 0) or getattr(
+                        usage, "total_tokens", 0
+                    )
+            tracer.record_llm_call(
+                LLMCallRecord(
+                    round=len(tracer.llm_calls) + 1,
+                    model=getattr(agent.llm, "model_name", "unknown"),
+                    purpose=purpose,
+                    total_tokens=total_tokens,
+                    duration_ms=(_time.perf_counter() - t0) * 1000,
+                )
+            )
+        except Exception:
+            pass
 
     def _parse_analysis(self, response: Any) -> TaskAnalysis:
         """Parse the LLM's complexity classification."""

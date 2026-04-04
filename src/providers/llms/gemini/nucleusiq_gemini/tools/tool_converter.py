@@ -22,7 +22,10 @@ Gemini uses ``function_declarations`` inside a ``tools`` wrapper::
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def convert_tool_spec(spec: dict[str, Any]) -> dict[str, Any]:
@@ -71,6 +74,15 @@ def build_tools_payload(
             native_tools.append(decl)
         else:
             function_declarations.append(decl)
+
+    if native_tools and function_declarations:
+        logger.warning(
+            "build_tools_payload received %d native + %d function declarations. "
+            "Gemini generateContent API rejects this combination. "
+            "Caller should enable proxy mode via BaseGemini.convert_tool_specs().",
+            len(native_tools),
+            len(function_declarations),
+        )
 
     result: list[dict[str, Any]] = []
     if function_declarations:

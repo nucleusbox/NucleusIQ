@@ -297,6 +297,9 @@ class Agent(BaseAgent):
         self._usage_tracker.reset()
         self._tracer = DefaultExecutionTracer() if self.config.enable_tracing else None
 
+        if self._plugin_manager is not None and self._tracer is not None:
+            self._plugin_manager._tracer = self._tracer
+
         agent_ctx = AgentContext(
             agent_name=self.name,
             task=task,
@@ -401,6 +404,8 @@ class Agent(BaseAgent):
         t0: float,
     ) -> AgentResult:
         """Construct a frozen :class:`AgentResult` from execution data."""
+        from nucleusiq.agents.agent_result import MemorySnapshot
+
         mode_value = (
             self.config.execution_mode.value
             if hasattr(self.config.execution_mode, "value")
@@ -418,6 +423,34 @@ class Agent(BaseAgent):
         except Exception:
             pass
 
+        tracer = getattr(self, "_tracer", None)
+
+        if tracer is not None and self.memory is not None:
+            try:
+                strategy_name = type(self.memory).__name__
+                messages_raw = getattr(self.memory, "messages", [])
+                msg_count = len(messages_raw) if messages_raw else 0
+                token_count = getattr(self.memory, "token_count", None)
+                messages_snapshot: tuple[dict[str, str], ...] = ()
+                if messages_raw:
+                    messages_snapshot = tuple(
+                        {
+                            "role": getattr(m, "role", "unknown"),
+                            "content": str(getattr(m, "content", ""))[:200],
+                        }
+                        for m in messages_raw[-10:]
+                    )
+                tracer.set_memory_snapshot(
+                    MemorySnapshot(
+                        strategy=strategy_name,
+                        message_count=msg_count,
+                        token_count=token_count,
+                        messages=messages_snapshot,
+                    )
+                )
+            except Exception:
+                pass
+
         tool_calls_t: tuple = ()
         llm_calls_t: tuple = ()
         plugin_events_t: tuple = ()
@@ -425,7 +458,6 @@ class Agent(BaseAgent):
         memory_snap = None
         autonomous_out: AutonomousDetail | None = None
 
-        tracer = getattr(self, "_tracer", None)
         if tracer is not None:
             tool_calls_t = tuple(tracer.tool_calls)
             llm_calls_t = tuple(tracer.llm_calls)

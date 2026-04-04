@@ -6,7 +6,7 @@ financial tools, and multi-agent systems. With NucleusIQ, developers have the co
 components and flexibility needed to develop advanced AI applications effortlessly.
 """
 
-__version__ = "0.7.4"
+__version__ = "0.7.5"
 
 # Auto-load the user's .env so API keys (OPENAI_API_KEY, etc.) are available.
 # load_dotenv() with no args uses find_dotenv() which searches from the

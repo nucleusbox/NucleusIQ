@@ -176,6 +176,46 @@ class BaseGemini(BaseLLM):
 
         return convert_tool_spec(spec)
 
+    def convert_tool_specs(self, tools: list[Any]) -> list[dict[str, Any]]:
+        """Convert ``BaseTool`` instances to Gemini-specific format.
+
+        Overrides ``BaseLLM.convert_tool_specs()`` to handle the Gemini
+        ``generateContent`` API restriction: native tools (google_search,
+        code_execution, etc.) cannot be mixed with function declarations
+        in the same request.
+
+        When both types are present, native tools are switched to **proxy
+        mode** — they appear as function declarations and their
+        ``execute()`` method makes a separate API sub-call with the real
+        native tool.  This is transparent to the core framework.
+        """
+        from nucleusiq_gemini.tools.tool_splitter import (
+            classify_tools,
+            has_mixed_tools,
+        )
+
+        if has_mixed_tools(tools):
+            native_tools, _custom_tools = classify_tools(tools)
+            logger.info(
+                "Mixed tools detected (%d native, %d custom). "
+                "Enabling proxy mode for native tools.",
+                len(native_tools),
+                len(_custom_tools),
+            )
+            for nt in native_tools:
+                if hasattr(nt, "_enable_proxy_mode"):
+                    nt._enable_proxy_mode(self)
+        else:
+            for tool in tools:
+                if (
+                    hasattr(tool, "is_proxy_mode")
+                    and tool.is_proxy_mode
+                    and hasattr(tool, "_disable_proxy_mode")
+                ):
+                    tool._disable_proxy_mode()
+
+        return super().convert_tool_specs(tools)
+
     # ================================================================== #
     # Attachment processing (Gemini-native multimodal)                     #
     # ================================================================== #

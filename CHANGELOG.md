@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.5](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.5) — 2026-04-03
+
+### Added
+
+- **Native + Custom tool mixing (Gemini proxy pattern)** — Gemini's `generateContent` API rejects requests that combine native tools (`google_search`, `code_execution`, `url_context`, `google_maps`) with custom function declarations. The proxy pattern transparently resolves this:
+  - `tool_splitter.py` — `has_mixed_tools()`, `classify_tools()`, `build_proxy_spec()` with `PROXY_DESCRIPTIONS` for all 4 native tool types
+  - `_GeminiNativeTool` enhanced with `_enable_proxy_mode()` / `_disable_proxy_mode()` lifecycle — in proxy mode, native tools appear as function declarations to the LLM and execute via a `generate_content` sub-call
+  - `BaseGemini.convert_tool_specs()` override detects mixed tools and activates proxy mode automatically
+  - Defense-in-depth warning in `build_tools_payload()` if mixed declarations are detected
+  - **Zero core framework changes** — works across `DirectMode`, `StandardMode`, `AutonomousMode` via existing `BaseLLM.convert_tool_specs()` hook
+- **Full observability wiring** — all `AgentResult` trace fields now populated when `enable_tracing=True`:
+  - **`PluginEvent` audit trail** — `PluginManager` records timing and metadata for all 6 plugin hooks (`before_agent`, `after_agent`, `before_model`, `after_model`, `execute_model_call`, `execute_tool_call`) via tracer
+  - **`AutonomousDetail`** — autonomous mode populates `attempts`, `max_attempts`, `complexity` ("simple" / "complex"), `sub_tasks` (for complex decomposition), `refined`, and `validations` (tuple of `ValidationRecord`)
+  - **`MemorySnapshot`** — `Agent._build_result()` captures memory strategy name, message count, token count, and last 10 messages (truncated to 200 chars) when a tracer and memory are present
+  - **Decomposer tracing** — `Decomposer.analyze()` now records its direct `agent.llm.call()` on the tracer manually, closing the bypass gap noted in v0.7.4
+  - **`AgentResult.display()` enhanced** — rich human-readable output now includes plugin events, memory snapshot summary, and autonomous execution details
+  - **`LLMCallRecord.prompt_technique`** — optional field added for future prompt strategy tracing
+- **59 Gemini proxy pattern tests** — `test_tool_splitter.py`, `test_native_tool_proxy.py`, `test_convert_tool_specs_mixed.py` (unit) + `test_mixed_tools.py` (integration)
+- **17 observability tests** — `test_plugin_event_tracing.py` (7), `test_autonomous_detail_tracing.py` (5), `test_memory_snapshot.py` (5)
+
+### Changed
+
+- `PluginManager` now accepts an `ExecutionTracerProtocol` via a `tracer` property — all 6 hook methods instrumented with `time.perf_counter()` timing
+- `AutonomousMode._run_simple()` and `_run_complex()` now record `ValidationRecord` and `AutonomousDetail` on the tracer at each validation checkpoint
+- `Decomposer.analyze()` records LLM call directly on tracer (previously bypassed the `call_llm` path)
+- `Agent._build_result()` captures `MemorySnapshot` from agent memory (when tracer and memory are both present) before assembling `AgentResult`
+
+### Packages
+
+| Package | Version | Note |
+|---------|---------|------|
+| `nucleusiq` | **0.7.5** | Full observability wiring, proxy pattern support in core result model |
+| `nucleusiq-openai` | 0.6.1 | No change |
+| `nucleusiq-gemini` | **0.2.3** | Native + Custom tool mixing via proxy pattern (requires `nucleusiq>=0.7.4`) |
+
+---
+
 ## [0.7.4](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.4) — 2026-04-03
 
 ### Added
@@ -516,16 +553,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.4...HEAD)
+## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.5...HEAD)
 
-### Planned for v0.7.5+
+### Planned for v0.7.6+
 
-- Native + Custom tool mixing (ToolStrategy Protocol — Gemini native/custom split)
-- Full observability wiring (PluginEvent, MemorySnapshot, AutonomousDetail, prompt tracing)
-- Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
+- Prompt strategy tracing (record which prompt template/strategy was used per LLM call)
 - Context Window Management (budget tracker, tool result compression)
+- Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
+- Agent DX: String argument support for `execute()`
 - New LLM Providers: Anthropic, Ollama
-- Gemini advanced features: Batch API, Deep Research Agent, File Search
+- Gemini advanced features: Interactions API, Batch API, Deep Research Agent, File Search
 - CostTracker Agent integration (`agent.last_cost`)
 - See `docs/BACKLOG.md` for full list
 
