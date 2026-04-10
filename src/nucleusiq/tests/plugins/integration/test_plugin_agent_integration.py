@@ -7,6 +7,7 @@ from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.plugins.base import (
     AgentContext,
     BasePlugin,
@@ -35,6 +36,7 @@ def make_agent(mode="direct", plugins=None, tools=None):
         name="TestBot",
         role="Assistant",
         objective="Help with tests",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         config=AgentConfig(execution_mode=mode, verbose=False),
         plugins=plugins or [],

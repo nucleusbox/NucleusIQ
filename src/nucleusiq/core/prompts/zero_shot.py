@@ -1,6 +1,6 @@
 # src/nucleusiq/prompts/zero_shot.py
 
-from typing import Any, List
+from typing import Any
 
 from nucleusiq.prompts.base import BasePrompt
 from pydantic import Field
@@ -26,20 +26,19 @@ class ZeroShotPrompt(BasePrompt):
         default="{system}\n\n{context}\n\n{user}\n\n{cot_instruction}",
         description="Default zero-shot template.",
     )
-    input_variables: List[str] = Field(
-        default_factory=lambda: ["system", "user"],
-        description="system & user are mandatory once we finalize the prompt.",
+    input_variables: list[str] = Field(
+        default_factory=lambda: ["system"],
+        description="system is mandatory; user is optional (task objective provides the user query).",
     )
-    optional_variables: List[str] = Field(
-        default_factory=lambda: ["context", "use_cot", "cot_instruction"],
-        description="Additional optional fields.",
+    optional_variables: list[str] = Field(
+        default_factory=lambda: ["user", "context", "use_cot", "cot_instruction"],
+        description="user is an optional preamble; the actual user query comes from the task.",
     )
 
     def _construct_prompt(self, **kwargs) -> str:
         """
-        Actually build the final string from placeholders.
-        By the time we reach here, 'system' and 'user' are guaranteed to be non-empty
-        because format_prompt() checks them.
+        Build the final string from placeholders.
+        'system' is guaranteed non-empty; 'user' is optional.
         """
         system_prompt = kwargs.get("system", "")
         context = kwargs.get("context", "")

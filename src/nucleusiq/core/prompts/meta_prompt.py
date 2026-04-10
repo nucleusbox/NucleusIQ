@@ -1,7 +1,8 @@
 # src/nucleusiq/prompts/meta_prompt.py
 
 import string
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 from nucleusiq.prompts.base import BasePrompt  # Ensure this import is correct
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -38,24 +39,24 @@ class MetaPrompt(BasePrompt):
     )
 
     # Inherited fields
-    partial_variables: Dict[str, Callable[[], Any]] = Field(
+    partial_variables: dict[str, Callable[[], Any]] = Field(
         default_factory=dict,
         description="Default or partial variables that can be overridden.",
     )
-    metadata: Dict[str, Any] | None = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None, description="Additional metadata for the prompt."
     )
-    tags: List[str] | None = Field(
+    tags: list[str] | None = Field(
         default_factory=list,
         description="Tags for categorizing and retrieving prompts.",
     )
 
     # New fields: variable_mappings and function_mappings
-    variable_mappings: Dict[str, str] = Field(
+    variable_mappings: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping of logical variable names to template placeholders.",
     )
-    function_mappings: Dict[str, Callable] = Field(
+    function_mappings: dict[str, Callable] = Field(
         default_factory=dict,
         description="Mapping of variables to transformation functions.",
     )
@@ -65,7 +66,7 @@ class MetaPrompt(BasePrompt):
         default="{primary_instruction}\n\nGenerated Prompt:\n{generated_prompt}\n\nFeedback:\n{feedback_instruction}",
         description="Template for Meta-Prompting.",
     )
-    input_variables: List[str] = Field(
+    input_variables: list[str] = Field(
         default_factory=lambda: ["primary_instruction", "feedback_instruction"],
         description="Variables required for Meta-Prompting.",
     )
@@ -213,7 +214,7 @@ class MetaPrompt(BasePrompt):
     #
     # 5) _pre_format_validation: optionally check for conflicting placeholders
     #
-    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
+    def _pre_format_validation(self, combined_vars: dict[str, Any]) -> None:
         """
         Subclass hook to impose additional checks:
           - For conflicting placeholders in variable_mappings
@@ -285,7 +286,7 @@ class MetaPrompt(BasePrompt):
             self.generated_prompt = current_prompt
         return self.format_prompt()
 
-    def _apply_function_mappings(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _apply_function_mappings(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """
         Applies function mappings to the provided variables.
 

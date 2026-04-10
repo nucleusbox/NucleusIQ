@@ -1,7 +1,7 @@
 # src/nucleusiq/prompts/factory.py
 
 from enum import Enum
-from typing import Dict, Type, TypeVar, cast
+from typing import TypeVar, cast
 
 from nucleusiq.prompts.auto_chain_of_thought import AutoChainOfThoughtPrompt
 from nucleusiq.prompts.base import BasePrompt
@@ -34,7 +34,7 @@ class PromptFactory:
     Factory class to instantiate different prompting techniques.
     """
 
-    prompt_classes: Dict[str, Type[BasePrompt]] = {
+    prompt_classes: dict[str, type[BasePrompt]] = {
         PromptTechnique.ZERO_SHOT.value: ZeroShotPrompt,
         PromptTechnique.FEW_SHOT.value: FewShotPrompt,
         PromptTechnique.CHAIN_OF_THOUGHT.value: ChainOfThoughtPrompt,
@@ -46,7 +46,7 @@ class PromptFactory:
 
     @classmethod
     def register_prompt(
-        cls, technique: PromptTechnique, prompt_class: Type[BasePrompt]
+        cls, technique: PromptTechnique, prompt_class: type[BasePrompt]
     ) -> None:
         """
         Register a new prompting technique.

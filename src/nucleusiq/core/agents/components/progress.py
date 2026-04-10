@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
 
 StepStatus = Literal["pending", "executing", "completed", "failed", "skipped"]
 
@@ -48,17 +48,17 @@ class ExecutionProgress:
     """Tracks all steps of an autonomous execution."""
 
     task_id: str
-    steps: List[StepRecord] = field(default_factory=list)
+    steps: list[StepRecord] = field(default_factory=list)
     started_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
     @property
-    def completed_steps(self) -> List[StepRecord]:
+    def completed_steps(self) -> list[StepRecord]:
         return [s for s in self.steps if s.status == "completed"]
 
     @property
-    def failed_steps(self) -> List[StepRecord]:
+    def failed_steps(self) -> list[StepRecord]:
         return [s for s in self.steps if s.status == "failed"]
 
     @property
@@ -70,7 +70,7 @@ class ExecutionProgress:
         self.steps.append(step)
         return step
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         return {
             "task_id": self.task_id,
             "total_steps": len(self.steps),

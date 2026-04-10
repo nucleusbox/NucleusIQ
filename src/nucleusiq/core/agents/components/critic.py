@@ -31,7 +31,7 @@ import json
 import logging
 import re
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -69,11 +69,11 @@ class CritiqueResult(BaseModel):
         default="",
         description="Human-readable overall assessment",
     )
-    issues: List[str] = Field(
+    issues: list[str] = Field(
         default_factory=list,
         description="Specific problems found in the result",
     )
-    suggestions: List[str] = Field(
+    suggestions: list[str] = Field(
         default_factory=list,
         description="Actionable improvements for the Refiner",
     )
@@ -138,7 +138,7 @@ class Critic:
         self,
         task_objective: str,
         final_result: Any,
-        generator_messages: List[Any] | None = None,
+        generator_messages: list[Any] | None = None,
     ) -> str:
         """Build an adaptive verification prompt for the Verifier Agent.
 
@@ -262,7 +262,7 @@ class Critic:
         )
 
     @staticmethod
-    def _extract_reasoning_trace(messages: List[Any] | None) -> str:
+    def _extract_reasoning_trace(messages: list[Any] | None) -> str:
         """Extract the Generator's execution trace from its conversation.
 
         Captures the full sequence of what the Generator did:
@@ -277,7 +277,7 @@ class Critic:
         """
         if not messages:
             return ""
-        lines: List[str] = []
+        lines: list[str] = []
         for msg in messages:
             role = msg.role if hasattr(msg, "role") else msg.get("role", "?")
             content = (
@@ -369,7 +369,7 @@ class Critic:
         task_objective: str,
         step: PlanStep,
         result: Any,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> CritiqueResult:
         """Review a single step result (single LLM call, no tool loop).
 
@@ -399,9 +399,9 @@ class Critic:
         agent: Agent,
         task_objective: str,
         plan: Plan | None = None,
-        results: List[Any] | None = None,
+        results: list[Any] | None = None,
         final_result: Any = None,
-        messages: List[Any] | None = None,
+        messages: list[Any] | None = None,
     ) -> CritiqueResult:
         """Review the final result (single LLM call, backward compatible).
 
@@ -447,7 +447,7 @@ class Critic:
         task_objective: str,
         step: PlanStep,
         result: Any,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> str:
         step_details = f"\nStep Details: {step.details}" if step.details else ""
         ctx_summary = ""
@@ -494,7 +494,7 @@ class Critic:
     def _build_conversation_review_prompt(
         task_objective: str,
         final_result: Any,
-        messages: List[Any],
+        messages: list[Any],
     ) -> str:
         """Build a multi-dimensional verification prompt.
 
@@ -504,8 +504,8 @@ class Critic:
         3. Reasoning validity — is the logic sound?
         4. Self-consistency — no internal contradictions?
         """
-        tool_evidence: List[str] = []
-        assistant_reasoning: List[str] = []
+        tool_evidence: list[str] = []
+        assistant_reasoning: list[str] = []
         for msg in messages:
             role = msg.role if hasattr(msg, "role") else msg.get("role", "?")
             content = (
@@ -607,7 +607,7 @@ class Critic:
     def _build_final_review_prompt(
         task_objective: str,
         plan: Plan,
-        results: List[Any],
+        results: list[Any],
         final_result: Any,
     ) -> str:
         plan_lines = []

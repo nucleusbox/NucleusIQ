@@ -34,6 +34,7 @@ class CallPurpose(str, Enum):
     MAIN = "main"
     PLANNING = "planning"
     TOOL_LOOP = "tool_loop"
+    SYNTHESIS = "synthesis"
     CRITIC = "critic"
     REFINER = "refiner"
 
@@ -65,6 +66,7 @@ PURPOSE_ORIGIN_MAP: dict[CallPurpose, TokenOrigin] = {
     CallPurpose.MAIN: TokenOrigin.USER,
     CallPurpose.PLANNING: TokenOrigin.FRAMEWORK,
     CallPurpose.TOOL_LOOP: TokenOrigin.FRAMEWORK,
+    CallPurpose.SYNTHESIS: TokenOrigin.FRAMEWORK,
     CallPurpose.CRITIC: TokenOrigin.FRAMEWORK,
     CallPurpose.REFINER: TokenOrigin.FRAMEWORK,
 }

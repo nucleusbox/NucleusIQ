@@ -34,6 +34,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode
 from nucleusiq.agents.plan import Plan, PlanStep
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.agents.task import Task
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
@@ -130,6 +131,9 @@ async def test_llm_planning():
         objective="Break down complex calculations into step-by-step plans and execute them",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are an advanced calculator assistant. Break down multi-step math into clear steps, use the provided tools for each arithmetic operation, and state the final numeric result.",
+        ),
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS, verbose=False, max_iterations=15
         ),
@@ -204,6 +208,9 @@ async def test_manual_multi_step_plan():
         objective="Execute manually created multi-step plans",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a calculator assistant. Execute the user's computational tasks using the available math tools accurately.",
+        ),
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS, verbose=False, max_iterations=15
         ),
@@ -291,6 +298,9 @@ async def test_complex_workflow_planning():
         objective="Execute complex workflows with multiple interdependent calculations",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a workflow calculator. Plan and execute long chains of dependent calculations using tools, preserving intermediate results correctly.",
+        ),
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS, verbose=False, max_iterations=20
         ),
@@ -357,6 +367,9 @@ async def test_plan_with_context_building():
         objective="Execute plans where each step uses results from previous steps",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a calculator that builds on prior steps. Carry forward intermediate results across sub-problems and use tools until the full task is answered.",
+        ),
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS, verbose=False, max_iterations=15
         ),

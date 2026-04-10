@@ -35,6 +35,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.plugins import (
     AgentContext,
     BasePlugin,
@@ -179,6 +180,9 @@ async def example_memory_with_plugins():
         name="MemoryBot",
         role="Friendly Assistant",
         objective="Remember user details and answer questions",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a friendly assistant. Remember what the user shares and answer follow-up questions accurately."
+        ),
         llm=llm,
         memory=memory,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -243,6 +247,9 @@ async def example_tools_with_audit_and_limit():
         name="MathBot",
         role="Calculator",
         objective="Perform math calculations",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a calculator. Use the add and multiply tools for arithmetic."
+        ),
         llm=llm,
         memory=memory,
         tools=[add_tool, mul_tool],
@@ -289,6 +296,9 @@ async def example_summary_memory_with_plugins():
         name="SummaryBot",
         role="Knowledge Assistant",
         objective="Answer questions and remember context efficiently",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a knowledge assistant. Answer clearly and rely on summarized memory when relevant."
+        ),
         llm=llm,
         memory=memory,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),

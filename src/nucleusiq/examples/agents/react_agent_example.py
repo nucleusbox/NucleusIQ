@@ -23,6 +23,7 @@ from typing import Any, Dict
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.agents.react_agent import ReActAgent
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 
 # Configure logging
@@ -121,7 +122,9 @@ async def main():
         name="ReActAgent",
         role="Assistant",
         objective="Answer questions using reasoning and tools",
-        narrative="A ReAct agent that reasons before acting",
+        prompt=ZeroShotPrompt().configure(
+            system="A ReAct agent that reasons before acting",
+        ),
         llm=llm,
         tools=[calculator, weather],
         max_iterations=10,

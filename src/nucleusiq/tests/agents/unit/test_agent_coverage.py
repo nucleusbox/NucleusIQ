@@ -26,6 +26,7 @@ from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
 from nucleusiq.tools.errors import ToolNotFoundError
 
@@ -124,6 +125,7 @@ class TestDirectModeCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
         await agent.initialize()
@@ -138,6 +140,7 @@ class TestDirectModeCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
         await agent.initialize()
@@ -153,6 +156,7 @@ class TestDirectModeCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
         await agent.initialize()
@@ -170,6 +174,7 @@ class TestDirectModeCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
         await agent.initialize()
@@ -194,6 +199,7 @@ class TestStandardModeCoverage:
             role="Calc",
             objective="Math",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=[add_tool],
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
         )
@@ -209,6 +215,7 @@ class TestStandardModeCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             tools=[],
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
         )
@@ -224,6 +231,7 @@ class TestStandardModeCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
         )
         await agent.initialize()
@@ -250,6 +258,7 @@ class TestAutonomousModeCoverage:
             role="Calc",
             objective="Math",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=False),
         )
         await agent.initialize()
@@ -266,6 +275,7 @@ class TestAutonomousModeCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=False),
         )
         await agent.initialize()
@@ -280,6 +290,7 @@ class TestAutonomousModeCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=False),
         )
         await agent.initialize()
@@ -301,6 +312,7 @@ class TestPlanningCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -317,6 +329,7 @@ class TestPlanningCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -339,7 +352,7 @@ class TestMessageBuildingCoverage:
             role="Assistant",
             objective="Help users",
             llm=None,
-            prompt=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -347,11 +360,8 @@ class TestMessageBuildingCoverage:
         messages = MessageBuilder.build(
             task,
             prompt=agent.prompt,
-            role=agent.role,
-            objective=agent.objective,
         )
         assert any(m.role == "system" for m in messages)
-        assert any("Assistant" in (m.content or "") for m in messages)
         assert any("Hello" in (m.content or "") for m in messages)
 
     @pytest.mark.asyncio
@@ -361,6 +371,7 @@ class TestMessageBuildingCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -376,8 +387,6 @@ class TestMessageBuildingCoverage:
             task,
             plan,
             prompt=agent.prompt,
-            role=agent.role,
-            objective=agent.objective,
         )
         assert any("Execution Plan" in (m.content or "") for m in messages)
 
@@ -388,6 +397,7 @@ class TestMessageBuildingCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -418,6 +428,7 @@ class TestExecuteValidationCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -434,6 +445,7 @@ class TestExecuteValidationCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -454,6 +466,7 @@ class TestStateDelegationCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -471,6 +484,7 @@ class TestStateDelegationCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -493,6 +507,7 @@ class TestStateDelegationCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         agent2 = Agent(
@@ -500,6 +515,7 @@ class TestStateDelegationCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent1.initialize()
@@ -521,6 +537,7 @@ class TestHelperMethodsCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -537,6 +554,7 @@ class TestHelperMethodsCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             tools=[add_tool],
             config=AgentConfig(verbose=False),
         )
@@ -551,6 +569,7 @@ class TestHelperMethodsCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             tools=[],
             config=AgentConfig(verbose=False),
         )
@@ -572,6 +591,7 @@ class TestErrorHandlingCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -587,7 +607,7 @@ class TestErrorHandlingCoverage:
             objective="B",
             llm=None,
             memory=None,
-            prompt=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         await agent.initialize()
@@ -638,6 +658,7 @@ class TestStructuredOutputCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             response_format=None,
             config=AgentConfig(verbose=False),
         )
@@ -650,6 +671,7 @@ class TestStructuredOutputCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         kwargs = agent._get_structured_output_kwargs(None)
@@ -661,6 +683,7 @@ class TestStructuredOutputCoverage:
             role="A",
             objective="B",
             llm=None,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
         result = agent._wrap_structured_output_result("raw_response", None)
@@ -684,6 +707,7 @@ class TestDeprecatedCoverage:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
         )
         await agent.initialize()

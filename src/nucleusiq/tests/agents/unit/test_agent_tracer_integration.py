@@ -16,6 +16,7 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
 
 
@@ -50,7 +51,7 @@ async def test_standard_mode_populates_llm_and_tool_traces():
         name="T",
         role="r",
         objective="o",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         tools=[_CalcTool()],
         config=AgentConfig(
@@ -76,7 +77,7 @@ async def test_direct_mode_tool_round_traced():
         name="D",
         role="r",
         objective="o",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         tools=[_CalcTool()],
         config=AgentConfig(execution_mode="direct", verbose=False, enable_tracing=True),
@@ -97,7 +98,7 @@ async def test_tracing_disabled_by_default_returns_empty_traces():
         name="NoTrace",
         role="r",
         objective="o",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         tools=[_CalcTool()],
         config=AgentConfig(execution_mode="standard", verbose=False),

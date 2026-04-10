@@ -12,6 +12,7 @@ import asyncio
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq_gemini import BaseGemini, GeminiLLMParams
 
 
@@ -19,9 +20,6 @@ async def main():
     llm = BaseGemini(model_name="gemini-2.5-flash")
 
     config = AgentConfig(
-        name="gemini-assistant",
-        instructions="You are a helpful AI assistant powered by Google Gemini.",
-        model="gemini-2.5-flash",
         llm_params=GeminiLLMParams(
             temperature=0.5,
             top_k=40,
@@ -29,7 +27,14 @@ async def main():
         ),
     )
 
-    agent = Agent(llm=llm, config=config)
+    agent = Agent(
+        name="gemini-assistant",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful AI assistant powered by Google Gemini.",
+        ),
+        llm=llm,
+        config=config,
+    )
 
     result = await agent.execute("Explain quantum computing in simple terms.")
     print(result.content)

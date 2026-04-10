@@ -41,6 +41,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.plugins.builtin import (
     ContextWindowPlugin,
     HumanApprovalPlugin,
@@ -170,6 +171,9 @@ async def demo_1_model_call_limit():
         name="LimitBot",
         role="A math assistant",
         objective="Help with calculations",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a math assistant. Use add and multiply tools for calculations."
+        ),
         llm=llm,
         tools=[add_tool, mul_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -198,6 +202,9 @@ async def demo_2_tool_call_limit():
         name="ToolLimitBot",
         role="A math assistant",
         objective="Help with calculations",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a math assistant. Use tools for each calculation step."
+        ),
         llm=llm,
         tools=[add_tool, mul_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -230,6 +237,9 @@ async def demo_3_tool_retry():
         name="RetryBot",
         role="An API assistant",
         objective="Fetch data from APIs",
+        prompt=ZeroShotPrompt().configure(
+            system="You fetch data using the flaky API tool and report results."
+        ),
         llm=llm,
         tools=[flaky_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -261,6 +271,9 @@ async def demo_4_model_fallback():
         name="FallbackBot",
         role="A reliable assistant",
         objective="Always respond, even if primary model has issues",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a reliable assistant. Use the add tool when arithmetic is needed."
+        ),
         llm=llm,
         tools=[add_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -290,6 +303,9 @@ async def demo_5_pii_guard():
         name="PIIBot",
         role="A contact lookup assistant",
         objective="Search contacts safely",
+        prompt=ZeroShotPrompt().configure(
+            system="You look up contacts using the search tool. Summarize results professionally."
+        ),
         llm=llm,
         tools=[search_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -348,6 +364,9 @@ async def demo_6_human_approval():
         name="CallbackBot",
         role="An assistant with callback-based approval",
         objective="Help with tasks",
+        prompt=ZeroShotPrompt().configure(
+            system="You help with tasks using approved tools only. Prefer add for math."
+        ),
         llm=llm,
         tools=[add_tool, delete_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -390,6 +409,9 @@ async def demo_6_human_approval():
         name="PolicyBot",
         role="An assistant with policy-based approval and audit trail",
         objective="Help with tasks under strict policy",
+        prompt=ZeroShotPrompt().configure(
+            system="You operate under strict tool policy. Use only permitted tools for each request."
+        ),
         llm=llm,
         tools=[add_tool, delete_tool, deploy_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -435,6 +457,9 @@ async def demo_7_context_window():
         name="WindowBot",
         role="A conversational assistant with managed context window",
         objective="Chat while managing memory",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a conversational assistant. Summarize prior context when asked."
+        ),
         llm=llm,
         memory=memory,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -480,6 +505,9 @@ async def demo_8_tool_guard():
         name="GuardBot",
         role="An assistant with restricted tool access",
         objective="Help users but block dangerous operations",
+        prompt=ZeroShotPrompt().configure(
+            system="You help users using allowed tools. Respect security restrictions on tool use."
+        ),
         llm=llm,
         tools=[add_tool, read_tool, delete_tool, restart_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -532,6 +560,9 @@ async def demo_9_secure_agent():
         name="SecureBot",
         role="A secure assistant with layered protections",
         objective="Help safely with multiple security layers",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a secure enterprise assistant. Use tools appropriately and protect sensitive data."
+        ),
         llm=llm,
         tools=[add_tool, search_tool, delete_tool, email_tool, weather_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -593,6 +624,9 @@ async def demo_10_resilient_agent():
         name="ResilientBot",
         role="A fault-tolerant assistant that handles failures gracefully",
         objective="Complete tasks despite API failures",
+        prompt=ZeroShotPrompt().configure(
+            system="You complete tasks using tools. Retry or adapt when APIs are flaky."
+        ),
         llm=llm,
         memory=memory,
         tools=[add_tool, flaky_tool],
@@ -649,6 +683,9 @@ async def demo_11_fortress_agent():
         name="FortressBot",
         role="The most protected agent with all 8 security and reliability plugins",
         objective="Help users with maximum safety and reliability",
+        prompt=ZeroShotPrompt().configure(
+            system="You assist users under strict safety and reliability controls. Use tools judiciously."
+        ),
         llm=llm,
         memory=memory,
         tools=[add_tool, search_tool, delete_tool, weather_tool, flaky_tool],

@@ -23,7 +23,7 @@ Validation + Verification pipeline:
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -165,7 +165,9 @@ class AutonomousMode(BaseExecutionMode):
                     messages,
                     tool_specs,
                     max_tool_calls=max_tool_calls,
-                    max_output_tokens=2048,
+                    max_output_tokens=getattr(
+                        agent.config, "llm_max_output_tokens", 2048
+                    ),
                 ):
                     if event.type == StreamEventType.COMPLETE:
                         final_content = event.content
@@ -261,6 +263,8 @@ class AutonomousMode(BaseExecutionMode):
             max_sub_agents=max_sub,
         )
 
+        self._rollup_sub_agent_metrics(agent, decomposer._sub_agent_results)
+
         sub_step.mark_completed(f"{len(findings)} findings collected")
         yield StreamEvent.thinking_event(
             f"Sub-tasks complete — synthesizing {len(findings)} findings…"
@@ -290,7 +294,9 @@ class AutonomousMode(BaseExecutionMode):
                     messages,
                     tool_specs,
                     max_tool_calls=max_tool_calls,
-                    max_output_tokens=2048,
+                    max_output_tokens=getattr(
+                        agent.config, "llm_max_output_tokens", 2048
+                    ),
                 ):
                     if event.type == StreamEventType.COMPLETE:
                         final_content = event.content
@@ -521,6 +527,8 @@ class AutonomousMode(BaseExecutionMode):
             max_sub_agents=max_sub,
         )
 
+        self._rollup_sub_agent_metrics(agent, decomposer._sub_agent_results)
+
         sub_step.mark_completed(f"{len(findings)} findings collected")
         agent._logger.info(
             "Decomposition complete: %d findings collected",
@@ -667,7 +675,7 @@ class AutonomousMode(BaseExecutionMode):
         critic: Critic,
         task_objective: str,
         result: Any,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
     ) -> CritiqueResult:
         """Run the Critic to independently verify the result.
 
@@ -775,6 +783,50 @@ class AutonomousMode(BaseExecutionMode):
     # ------------------------------------------------------------------ #
     # Retry / error helpers                                                #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _rollup_sub_agent_metrics(agent: Agent, sub_results: list) -> None:
+        """Roll up sub-agent LLM calls, tool calls, and context telemetry.
+
+        Called after ``Decomposer.run_sub_tasks()`` to aggregate metrics
+        from parallel sub-agents into the parent agent's tracer.  This
+        ensures the parent ``AgentResult`` reflects total work done.
+        """
+        from nucleusiq.agents.agent_result import LLMCallRecord
+
+        tracer = getattr(agent, "_tracer", None)
+        if tracer is None:
+            return
+
+        sub_context_tels: list = []
+
+        for sub in sub_results:
+            for lc in getattr(sub, "llm_calls", ()):
+                tracer.record_llm_call(
+                    LLMCallRecord(
+                        round=len(tracer._llm_calls) + 1,
+                        purpose=f"sub-agent:{lc.purpose}"
+                        if lc.purpose
+                        else "sub-agent",
+                        model=lc.model,
+                        prompt_tokens=lc.prompt_tokens,
+                        completion_tokens=lc.completion_tokens,
+                        total_tokens=lc.total_tokens,
+                        reasoning_tokens=lc.reasoning_tokens,
+                        has_tool_calls=lc.has_tool_calls,
+                        tool_call_count=lc.tool_call_count,
+                        duration_ms=lc.duration_ms,
+                        prompt_technique=lc.prompt_technique,
+                    )
+                )
+            for tc in getattr(sub, "tool_calls", ()):
+                tracer.record_tool_call(tc)
+            ct = getattr(sub, "context_telemetry", None)
+            if ct is not None:
+                sub_context_tels.append(ct)
+
+        if sub_context_tels:
+            agent._sub_agent_context_tels = sub_context_tels
 
     @staticmethod
     def _build_validation_retry(vr: ValidationResult) -> str:

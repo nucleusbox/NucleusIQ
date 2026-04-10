@@ -1,6 +1,6 @@
 # src/nucleusiq/prompts/retrieval_augmented_generation.py
 
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.prompts.base import BasePrompt
 from pydantic import Field
@@ -27,12 +27,12 @@ class RetrievalAugmentedGenerationPrompt(BasePrompt):
         default="{system}\n\n{context}\n\n{user}",
         description="Default template for Retrieval-Augmented Generation.",
     )
-    input_variables: List[str] = Field(
+    input_variables: list[str] = Field(
         default_factory=lambda: ["system", "context", "user"],
         description="All three fields are required & must be non-empty.",
     )
     # No optional variables here
-    optional_variables: List[str] = Field(
+    optional_variables: list[str] = Field(
         default_factory=list,
         description="No truly optional fields for RAG—context must be non-empty.",
     )
@@ -56,7 +56,7 @@ class RetrievalAugmentedGenerationPrompt(BasePrompt):
         """
         return super().configure(system=system, context=context, user=user)
 
-    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
+    def _pre_format_validation(self, combined_vars: dict[str, Any]) -> None:
         """
         Subclass hook to confirm 'context' is truly non-empty if provided.
         (But the base class is already set to treat 'context' as a required field

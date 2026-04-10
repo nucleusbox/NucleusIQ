@@ -36,6 +36,7 @@ from nucleusiq.streaming.events import StreamEvent
 from pydantic import BaseModel
 
 from nucleusiq_gemini._shared.model_config import (
+    get_context_window,
     get_max_output_tokens,
     supports_thinking,
 )
@@ -588,3 +589,7 @@ class BaseGemini(BaseLLM):
         ``count_tokens`` API via ``self._client.raw_client``.
         """
         return max(1, len(text) // 4)
+
+    def get_context_window(self) -> int:
+        """Return context window size from the Gemini model registry."""
+        return get_context_window(self.model_name)

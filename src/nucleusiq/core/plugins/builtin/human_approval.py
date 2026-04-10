@@ -31,15 +31,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Sequence
+from typing import Any
 
 from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
 from nucleusiq.plugins.errors import PluginError
 
 logger = logging.getLogger(__name__)
 
-ApprovalCallback = Callable[[str, Dict[str, Any]], bool | Awaitable[bool]]
+ApprovalCallback = Callable[[str, dict[str, Any]], bool | Awaitable[bool]]
 
 
 # ------------------------------------------------------------------ #
@@ -68,15 +69,15 @@ class ApprovalHandler(ABC):
     """
 
     @abstractmethod
-    async def decide(self, tool_name: str, tool_args: Dict[str, Any]) -> bool:
+    async def decide(self, tool_name: str, tool_args: dict[str, Any]) -> bool:
         """Return ``True`` to approve, ``False`` to deny."""
         ...
 
-    async def on_approve(self, tool_name: str, tool_args: Dict[str, Any]) -> None:
+    async def on_approve(self, tool_name: str, tool_args: dict[str, Any]) -> None:
         """Called after a tool call is approved. Override for side effects."""
         pass
 
-    async def on_deny(self, tool_name: str, tool_args: Dict[str, Any]) -> None:
+    async def on_deny(self, tool_name: str, tool_args: dict[str, Any]) -> None:
         """Called after a tool call is denied. Override for side effects."""
         pass
 
@@ -92,7 +93,7 @@ class ConsoleApprovalHandler(ApprovalHandler):
     This is the default handler when no callback or handler is provided.
     """
 
-    async def decide(self, tool_name: str, tool_args: Dict[str, Any]) -> bool:
+    async def decide(self, tool_name: str, tool_args: dict[str, Any]) -> bool:
         print(f"\n{'=' * 50}")
         print("  Tool approval required")
         print(f"  Tool:  {tool_name}")
@@ -136,15 +137,15 @@ class PolicyApprovalHandler(ApprovalHandler):
         self._safe = set(safe_tools or [])
         self._dangerous = set(dangerous_tools or [])
         self._default_allow = default_allow
-        self._audit_log: List[Dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
 
     @property
-    def audit_log(self) -> List[Dict[str, Any]]:
+    def audit_log(self) -> list[dict[str, Any]]:
         """Read-only access to the audit trail."""
         return list(self._audit_log)
 
     def _record(
-        self, tool_name: str, tool_args: Dict[str, Any], approved: bool, reason: str
+        self, tool_name: str, tool_args: dict[str, Any], approved: bool, reason: str
     ) -> None:
         self._audit_log.append(
             {
@@ -156,7 +157,7 @@ class PolicyApprovalHandler(ApprovalHandler):
             }
         )
 
-    async def decide(self, tool_name: str, tool_args: Dict[str, Any]) -> bool:
+    async def decide(self, tool_name: str, tool_args: dict[str, Any]) -> bool:
         if tool_name in self._safe:
             self._record(tool_name, tool_args, True, "safe_list")
             return True
@@ -166,10 +167,10 @@ class PolicyApprovalHandler(ApprovalHandler):
         self._record(tool_name, tool_args, self._default_allow, "default_policy")
         return self._default_allow
 
-    async def on_approve(self, tool_name: str, tool_args: Dict[str, Any]) -> None:
+    async def on_approve(self, tool_name: str, tool_args: dict[str, Any]) -> None:
         logger.info("PolicyApprovalHandler approved '%s'", tool_name)
 
-    async def on_deny(self, tool_name: str, tool_args: Dict[str, Any]) -> None:
+    async def on_deny(self, tool_name: str, tool_args: dict[str, Any]) -> None:
         logger.warning("PolicyApprovalHandler denied '%s'", tool_name)
 
 
@@ -250,7 +251,7 @@ class HumanApprovalPlugin(BasePlugin):
             return tool_name in self._require_approval
         return True
 
-    async def _get_decision(self, tool_name: str, tool_args: Dict[str, Any]) -> bool:
+    async def _get_decision(self, tool_name: str, tool_args: dict[str, Any]) -> bool:
         """Route to handler or callback for the approval decision."""
         if self._handler:
             return await self._handler.decide(tool_name, tool_args)

@@ -4,7 +4,7 @@ import logging
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.agents.config.agent_config import AgentConfig, AgentMetrics, AgentState
 from nucleusiq.agents.errors import AgentExecutionError, AgentTimeoutError
@@ -23,44 +23,39 @@ class BaseAgent(ABC, BaseModel):
     This class establishes the fundamental structure and capabilities that every
     agent must implement, ensuring consistency across the framework.
 
-    Agent Identity (WHO the agent is - set at creation time):
-    - role: Agent's role (e.g., "Calculator", "Assistant")
-            Used as system prompt when `prompt` is not provided.
-    - objective: Agent's general purpose (e.g., "Perform calculations")
-                 Used as system prompt when `prompt` is not provided.
-    - narrative: Agent's description/personality (optional, for documentation)
+    Agent Identity (labels for logging and documentation):
+    - name: Human-readable name (e.g., "TCS_Analyst")
+    - role: Short label describing the agent's role (e.g., "Calculator").
+            Used for logging, sub-agent identification, and documentation
+            only — NOT sent to the LLM.
+    - objective: Short label describing the agent's purpose
+                 (e.g., "Perform calculations"). Used for logging and
+                 documentation only — NOT sent to the LLM.
 
-    Prompt Precedence:
-    - If `prompt` is provided, it takes precedence over `role`/`objective`
-      for LLM message construction during execution.
-    - If `prompt` is None, `role` and `objective` are used to construct
-      the system message: "You are a {role}. Your objective is to {objective}."
-    - `role` and `objective` are always used for:
-      - Execution context (even when prompt exists)
-      - Logging and identification
-      - Fallback system message construction
+    Prompt (defines what the LLM sees):
+    - prompt: A BasePrompt instance (required). Defines the system
+              message, user template, and prompting technique.
+              Use ``PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)``
+              or any BasePrompt subclass.
 
     Task (WHAT the user wants - passed to execute()):
     - task.objective: Specific user request (e.g., "What is 5 + 3?")
 
     Tasks are created per execution and represent specific user requests.
-    The agent's identity (role, objective, narrative) is separate from the task.
     """
 
-    # Identity and Purpose (WHO the agent is)
+    # Identity labels (for logging and documentation — NOT sent to the LLM)
     id: UUID4 = Field(default_factory=uuid.uuid4)
     name: str = Field(..., description="Human-readable name for the agent")
     role: str = Field(
-        ...,
-        description="Agent's role (e.g., 'Calculator', 'Assistant') - used as system prompt when prompt is None",
+        default="Agent",
+        description="Short label for logging and identification only — "
+        "NOT sent to the LLM. Use prompt.system for LLM instructions.",
     )
     objective: str = Field(
-        ...,
-        description="Agent's general purpose (e.g., 'Perform calculations') - used as system prompt when prompt is None",
-    )
-    narrative: str | None = Field(
-        default=None,
-        description="Agent's description/personality (optional, for documentation)",
+        default="",
+        description="Short label for documentation only — "
+        "NOT sent to the LLM. Use prompt.system for LLM instructions.",
     )
 
     # Configuration
@@ -72,11 +67,16 @@ class BaseAgent(ABC, BaseModel):
 
     # Components
     memory: BaseMemory | None = Field(default=None)
-    prompt: BasePrompt | None = Field(default=None)
+    prompt: BasePrompt = Field(
+        ...,
+        description="Prompt defining the LLM's system message and behaviour. "
+        "Required. Use PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)"
+        ".configure(system='...') or any BasePrompt subclass.",
+    )
 
     # Tooling
     # Can be BaseTool instances (function calling) or LLM-specific tools (e.g., OpenAITool for native tools)
-    tools: List[Any] = Field(
+    tools: list[Any] = Field(
         default_factory=list,
         description="List of tools: BaseTool instances (function calling) or LLM-specific tools (e.g., OpenAITool)",
     )
@@ -98,7 +98,7 @@ class BaseAgent(ABC, BaseModel):
     # Private attributes
     _logger: logging.Logger = PrivateAttr()
     _start_time: float | None = PrivateAttr(default=None)
-    _current_task: Dict[str, Any] | None = PrivateAttr(default=None)
+    _current_task: dict[str, Any] | None = PrivateAttr(default=None)
     _execution_count: int = PrivateAttr(default=0)
     _retry_count: int = PrivateAttr(default=0)
 
@@ -120,11 +120,16 @@ class BaseAgent(ABC, BaseModel):
         # Avoid duplicate logs when the app configures root logging (e.g., logging.basicConfig in examples).
         # We attach our own handler, so we should not also propagate to root.
         self._logger.propagate = False
-        if self.config.verbose:
+        if self.config.effective_verbose:
             self._logger.setLevel(logging.DEBUG)
         else:
-            # Default to INFO for a small set of high-signal traces.
-            self._logger.setLevel(logging.INFO)
+            obs = self.config.observability
+            if obs is not None:
+                self._logger.setLevel(
+                    getattr(logging, obs.effective_log_level, logging.INFO)
+                )
+            else:
+                self._logger.setLevel(logging.INFO)
 
     def _validate_configuration(self):
         """Validate the agent's configuration."""
@@ -143,7 +148,7 @@ class BaseAgent(ABC, BaseModel):
         pass
 
     @abstractmethod
-    async def execute(self, task: Task | Dict[str, Any]) -> Any:
+    async def execute(self, task: Task | dict[str, Any]) -> Any:
         """
         Execute a given task using the agent's capabilities.
 
@@ -153,7 +158,7 @@ class BaseAgent(ABC, BaseModel):
         pass
 
     @abstractmethod
-    async def plan(self, task: Task | Dict[str, Any]) -> Plan:
+    async def plan(self, task: Task | dict[str, Any]) -> Plan:
         """
         Create an execution plan for the given task.
 
@@ -165,7 +170,7 @@ class BaseAgent(ABC, BaseModel):
         """
         pass
 
-    async def _execute_with_retry(self, task: Dict[str, Any]) -> Any:
+    async def _execute_with_retry(self, task: dict[str, Any]) -> Any:
         """Execute a task with retry mechanism."""
         self._execution_count = 0
         self._retry_count = 0
@@ -196,7 +201,7 @@ class BaseAgent(ABC, BaseModel):
             f"Task execution failed after {self._execution_count} attempts",
         )
 
-    async def _execute_step(self, task: Task | Dict[str, Any]) -> Any:
+    async def _execute_step(self, task: Task | dict[str, Any]) -> Any:
         """Execute a single step of the task."""
         if self._check_execution_timeout():
             raise AgentTimeoutError(

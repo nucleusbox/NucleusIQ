@@ -18,6 +18,7 @@ from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 def _make_agent(**overrides):
@@ -25,7 +26,7 @@ def _make_agent(**overrides):
         name="TestAgent",
         role="Assistant",
         objective="Help users",
-        narrative="Test agent",
+        prompt=make_test_prompt(),
     )
     defaults.update(overrides)
     return Agent(**defaults)

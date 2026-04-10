@@ -11,7 +11,7 @@ ReAct agents alternate between:
 
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.chat_models import ChatMessage
@@ -33,7 +33,9 @@ class ReActAgent(Agent):
             name="ReActAgent",
             role="Assistant",
             objective="Answer questions using reasoning and tools",
-            narrative="A ReAct agent",
+            prompt=ZeroShotPrompt().configure(
+                system="You are a ReAct agent that reasons step by step.",
+            ),
             llm=llm,
             tools=[calculator, web_search],
             max_iterations=10,
@@ -47,9 +49,9 @@ class ReActAgent(Agent):
     max_iterations: int = Field(
         default=10, description="Maximum number of Thought-Action-Observation cycles"
     )
-    _react_history: List[Dict[str, Any]] = PrivateAttr(default_factory=list)
+    _react_history: list[dict[str, Any]] = PrivateAttr(default_factory=list)
 
-    async def execute(self, task: Dict[str, Any] | Any) -> Any:  # pyrefly: ignore[bad-override]
+    async def execute(self, task: dict[str, Any] | Any) -> Any:  # pyrefly: ignore[bad-override]
         """
         Execute task using ReAct pattern.
 
@@ -78,12 +80,12 @@ class ReActAgent(Agent):
                 objective = getattr(task, "objective", "")
             return f"Echo: {objective}"
 
-        messages: List[ChatMessage] = self._build_react_messages(task)
+        messages: list[ChatMessage] = self._build_react_messages(task)
 
         for iteration in range(self.max_iterations):
             self._logger.info(f"ReAct iteration {iteration + 1}/{self.max_iterations}")
 
-            tool_specs: List[Dict[str, Any]] = []
+            tool_specs: list[dict[str, Any]] = []
             if self.tools and self.llm:
                 tool_specs = self.llm.convert_tool_specs(self.tools)
 
@@ -189,9 +191,9 @@ class ReActAgent(Agent):
         self.state = AgentState.ERROR
         return f"Max iterations ({self.max_iterations}) reached. Task incomplete."
 
-    def _build_react_messages(self, task: Dict[str, Any] | Any) -> List[ChatMessage]:
+    def _build_react_messages(self, task: dict[str, Any] | Any) -> list[ChatMessage]:
         """Build initial messages with ReAct instructions."""
-        messages: List[ChatMessage] = []
+        messages: list[ChatMessage] = []
 
         tool_names = [t.name for t in self.tools] if self.tools else []
         tool_list = ", ".join(tool_names) if tool_names else "None"
@@ -232,7 +234,7 @@ Always follow the Thought -> Action -> Observation pattern. When you have the fi
 
     def _parse_react_response(
         self, content: str, message: Any
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """
         Parse Thought and Action from LLM response.
 
@@ -320,7 +322,7 @@ Always follow the Thought -> Action -> Observation pattern. When you have the fi
             content = getattr(message, "content", None)
         return content if content is not None else ""
 
-    def get_react_history(self) -> List[Dict[str, Any]]:
+    def get_react_history(self) -> list[dict[str, Any]]:
         """
         Get the ReAct execution history.
 
@@ -335,7 +337,7 @@ Always follow the Thought -> Action -> Observation pattern. When you have the fi
             return self._react_history[-1].get("thought")
         return None
 
-    def get_last_action(self) -> Dict[str, Any] | None:
+    def get_last_action(self) -> dict[str, Any] | None:
         """Get the last action from the ReAct history."""
         if self._react_history:
             return self._react_history[-1].get("action")

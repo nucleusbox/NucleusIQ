@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq.tools.builtin.workspace import (
@@ -123,7 +123,7 @@ class DirectoryListTool(BaseTool):
             )
         return result
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,

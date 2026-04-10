@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.agents.usage.usage_tracker import (
     PURPOSE_ORIGIN_MAP,
     BucketStats,
@@ -287,9 +288,9 @@ class TestUsageTracker:
                 {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             )
 
-        assert tracker.call_count == 5
+        assert tracker.call_count == len(CallPurpose)
         summary = tracker.summary
-        assert len(summary.by_purpose) == 5
+        assert len(summary.by_purpose) == len(CallPurpose)
         for purpose in CallPurpose:
             assert summary.by_purpose[purpose.value].calls == 1
 
@@ -461,7 +462,7 @@ class TestByOriginSummary:
             )
         summary = tracker.summary
         assert summary.by_origin["user"].calls == 1
-        assert summary.by_origin["framework"].calls == 4
+        assert summary.by_origin["framework"].calls == len(CallPurpose) - 1
 
     def test_reset_clears_by_origin(self):
         tracker = UsageTracker()
@@ -689,14 +690,18 @@ class TestAgentLastUsage:
     def test_agent_has_usage_tracker(self):
         from nucleusiq.agents.agent import Agent
 
-        agent = Agent(name="test", role="test", objective="test")
+        agent = Agent(
+            name="test", role="test", objective="test", prompt=make_test_prompt()
+        )
         assert hasattr(agent, "_usage_tracker")
         assert isinstance(agent._usage_tracker, UsageTracker)
 
     def test_last_usage_returns_pydantic_model(self):
         from nucleusiq.agents.agent import Agent
 
-        agent = Agent(name="test", role="test", objective="test")
+        agent = Agent(
+            name="test", role="test", objective="test", prompt=make_test_prompt()
+        )
         usage = agent.last_usage
         assert isinstance(usage, UsageSummary)
         assert usage.call_count == 0
@@ -706,7 +711,9 @@ class TestAgentLastUsage:
         """model_dump() gives a plain dict for serialization / logging."""
         from nucleusiq.agents.agent import Agent
 
-        agent = Agent(name="test", role="test", objective="test")
+        agent = Agent(
+            name="test", role="test", objective="test", prompt=make_test_prompt()
+        )
         agent.usage_tracker.record(
             CallPurpose.MAIN,
             {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
@@ -719,7 +726,9 @@ class TestAgentLastUsage:
     def test_usage_tracker_property(self):
         from nucleusiq.agents.agent import Agent
 
-        agent = Agent(name="test", role="test", objective="test")
+        agent = Agent(
+            name="test", role="test", objective="test", prompt=make_test_prompt()
+        )
         tracker = agent.usage_tracker
         assert isinstance(tracker, UsageTracker)
         tracker.record(CallPurpose.MAIN, {"prompt_tokens": 50, "total_tokens": 50})
@@ -735,6 +744,7 @@ class TestAgentLastUsage:
             name="test",
             role="test",
             objective="test",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
         )
         await agent.initialize()

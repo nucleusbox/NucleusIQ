@@ -27,6 +27,7 @@ from nucleusiq.agents.plan import Plan
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
 
 
@@ -72,7 +73,7 @@ class TestAgentInitialization:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -95,7 +96,7 @@ class TestAgentInitialization:
             name="TestAgent",
             role="Calculator",
             objective="Perform calculations",
-            narrative="A calculator agent",
+            prompt=make_test_prompt(),
             llm=llm,
             tools=[calculator],
             config=AgentConfig(verbose=False),
@@ -120,7 +121,6 @@ class TestAgentInitialization:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
             llm=llm,
             prompt=prompt,
             config=AgentConfig(verbose=False),
@@ -138,7 +138,7 @@ class TestAgentInitialization:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=None,
             config=AgentConfig(verbose=False),
         )
@@ -173,7 +173,7 @@ class TestAgentInitialization:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             tools=[failing_tool],
             config=AgentConfig(verbose=False),
@@ -196,7 +196,7 @@ class TestAgentPlan:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -224,7 +224,7 @@ class TestAgentPlan:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -260,7 +260,7 @@ class TestAgentPlan:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -291,7 +291,7 @@ class TestAgentExecute:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=None,
             config=AgentConfig(verbose=False),
         )
@@ -312,7 +312,7 @@ class TestAgentExecute:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -336,7 +336,7 @@ class TestAgentExecute:
             name="TestAgent",
             role="Calculator",
             objective="Perform calculations",
-            narrative="A calculator agent",
+            prompt=make_test_prompt(),
             llm=llm,
             tools=[calculator],
             config=AgentConfig(verbose=False),
@@ -359,7 +359,7 @@ class TestAgentExecute:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -385,7 +385,6 @@ class TestAgentExecute:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
             llm=llm,
             prompt=prompt,
             config=AgentConfig(verbose=False),
@@ -413,7 +412,7 @@ class TestAgentExecute:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -440,7 +439,7 @@ class TestAgentStateTransitions:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -461,7 +460,7 @@ class TestAgentStateTransitions:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -500,7 +499,7 @@ class TestAgentStateTransitions:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             tools=[failing_tool],
             config=AgentConfig(verbose=False),
@@ -527,7 +526,7 @@ class TestAgentErrorHandling:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -560,7 +559,7 @@ class TestAgentErrorHandling:
             name="TestAgent",
             role="Calculator",
             objective="Perform calculations",
-            narrative="A calculator agent",
+            prompt=make_test_prompt(),
             llm=llm,
             tools=[calculator],
             config=AgentConfig(verbose=False),
@@ -593,7 +592,6 @@ class TestAgentPlanIntegration:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
             llm=llm,
             prompt=prompt,
             config=AgentConfig(verbose=False),
@@ -611,8 +609,6 @@ class TestAgentPlanIntegration:
             task,
             plan,
             prompt=agent.prompt,
-            role=agent.role,
-            objective=agent.objective,
         )
 
         # Should include system, user template, plan, and task objective
@@ -634,7 +630,6 @@ class TestAgentPlanIntegration:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
             llm=llm,
             prompt=prompt,
             config=AgentConfig(verbose=False),
@@ -646,8 +641,6 @@ class TestAgentPlanIntegration:
         messages = MessageBuilder.build(
             task,
             prompt=agent.prompt,
-            role=agent.role,
-            objective=agent.objective,
         )
 
         # Should include system, user template, and task objective (no plan)
@@ -671,7 +664,7 @@ class TestAgentIntegration:
             name="TestAgent",
             role="Calculator",
             objective="Perform calculations",
-            narrative="A calculator agent",
+            prompt=make_test_prompt(),
             llm=llm,
             tools=[calculator],
             config=AgentConfig(verbose=False),
@@ -703,7 +696,7 @@ class TestAgentIntegration:
             name="TestAgent",
             role="Calculator",
             objective="Perform calculations",
-            narrative="A calculator agent",
+            prompt=make_test_prompt(),
             llm=llm,
             tools=[calculator],
             config=AgentConfig(verbose=False),
@@ -734,7 +727,7 @@ class TestAgentIntegration:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
-            narrative="A helpful assistant",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(verbose=False),
         )

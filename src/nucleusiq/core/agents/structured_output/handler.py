@@ -6,7 +6,7 @@ Extracted from ``Agent`` to satisfy the Single Responsibility Principle.
 All execution modes call these through the Agent, which now delegates.
 """
 
-from typing import Any, Dict
+from typing import Any
 
 from nucleusiq.llms.base_llm import BaseLLM
 
@@ -46,7 +46,7 @@ class StructuredOutputHandler:
         output_config: Any,
         response_format: Any,
         llm: BaseLLM | None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return LLM call kwargs for structured output (may be empty)."""
         if output_config is None:
             return {}

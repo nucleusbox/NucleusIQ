@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Awaitable, Callable, List
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from nucleusiq.agents.agent_result import PluginEvent
 from nucleusiq.plugins.base import (
@@ -34,14 +35,14 @@ class PluginManager:
     for node hooks and outermost-first for wrap hooks.
     """
 
-    def __init__(self, plugins: List[BasePlugin] | None = None) -> None:
-        self._plugins: List[BasePlugin] = list(plugins or [])
+    def __init__(self, plugins: list[BasePlugin] | None = None) -> None:
+        self._plugins: list[BasePlugin] = list(plugins or [])
         self._model_call_count: int = 0
         self._tool_call_count: int = 0
         self._tracer: Any | None = None
 
     @property
-    def plugins(self) -> List[BasePlugin]:
+    def plugins(self) -> list[BasePlugin]:
         return self._plugins
 
     @property

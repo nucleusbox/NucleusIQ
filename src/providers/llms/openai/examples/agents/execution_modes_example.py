@@ -11,7 +11,7 @@ Key Features Demonstrated:
 - Auto-initialization (no need to call initialize() manually)
 - Task creation and execution
 - Tool integration
-- Prompt precedence
+- Explicit prompts (role/objective as labels)
 
 Run with: python src/examples/agents/execution_modes_example.py
 
@@ -32,6 +32,7 @@ from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.base_tool import BaseTool
 
 # Try to import OpenAI LLM, fallback to MockLLM if not available
@@ -214,6 +215,9 @@ async def example_autonomous_mode():
         objective="Research and analyze complex topics",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are an advanced research assistant. Plan your approach and use tools strategically when solving multi-step problems.",
+        ),
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,  # Gear 3
             verbose=True,
@@ -242,15 +246,17 @@ async def example_autonomous_mode():
 
 
 async def example_prompt_precedence():
-    """Example 4: Prompt precedence - prompt takes precedence over role/objective."""
+    """Example 4: Prompt defines LLM behavior; role/objective are app-level labels."""
     logger.info("\n" + "=" * 80)
-    logger.info("EXAMPLE 4: PROMPT PRECEDENCE")
+    logger.info("EXAMPLE 4: PROMPT VS ROLE/OBJECTIVE (LABELS)")
     logger.info("=" * 80)
     logger.info(
-        "Key Concept: If prompt is provided, it takes precedence over role/objective"
+        "Key Concept: A prompt is required. The system message in the prompt drives"
     )
-    logger.info("             for LLM message construction during execution.")
-    logger.info("             role/objective are still used for execution context.")
+    logger.info(
+        "             how the model behaves. role and objective are labels for your app,"
+    )
+    logger.info("             not a substitute for an explicit prompt.")
     logger.info("-" * 80)
 
     # Create LLM
@@ -275,38 +281,40 @@ async def example_prompt_precedence():
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=True),
     )
 
-    logger.info("✅ Agent WITH prompt created")
-    logger.info(f"   Role: {agent_with_prompt.role} (used for planning only)")
-    logger.info("   Prompt System: 'You are a creative poet...' (used for execution)")
+    logger.info("✅ Agent A created (poet system prompt)")
+    logger.info(f"   Role label: {agent_with_prompt.role}")
+    logger.info("   Prompt system: creative poet")
 
-    # Create agent WITHOUT prompt (role/objective used)
-    agent_without_prompt = Agent(
+    # Same role labels, different system prompt — behavior comes from the prompt
+    agent_calculator_prompt = Agent(
         name="RoleBot",
-        role="Calculator",  # This is used to build system message
-        objective="Perform calculations",  # This is used to build system message
+        role="Calculator",
+        objective="Perform calculations",
         llm=llm,
-        prompt=None,  # No prompt, so role/objective are used
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful calculator assistant. Answer math questions accurately and concisely.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=True),
     )
 
-    logger.info("\n✅ Agent WITHOUT prompt created")
-    logger.info(f"   Role: {agent_without_prompt.role} (used for execution)")
-    logger.info(f"   Objective: {agent_without_prompt.objective} (used for execution)")
+    logger.info("\n✅ Agent B created (calculator system prompt)")
+    logger.info(f"   Role label: {agent_calculator_prompt.role}")
+    logger.info("   Prompt system: calculator assistant")
 
     # Test both agents with same task
     task = Task(id="task1", objective="What is 2 + 2?")
 
     logger.info(f"\n📋 Testing with task: {task.objective}")
-    logger.info("\n--- Agent WITH prompt (should write a poem) ---")
+    logger.info("\n--- Agent A: poet prompt (may respond creatively) ---")
     try:
         result1 = await agent_with_prompt.execute(task)
         logger.info(f"✅ Result: {result1}")
     except Exception as e:
         logger.error(f"❌ Error: {e}")
 
-    logger.info("\n--- Agent WITHOUT prompt (should calculate) ---")
+    logger.info("\n--- Agent B: calculator prompt (direct math answer) ---")
     try:
-        result2 = await agent_without_prompt.execute(task)
+        result2 = await agent_calculator_prompt.execute(task)
         logger.info(f"✅ Result: {result2}")
     except Exception as e:
         logger.error(f"❌ Error: {e}")
@@ -334,6 +342,9 @@ async def example_auto_initialization():
         role="Assistant",
         objective="Help users",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Reply warmly and concisely.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=True),
     )
 
@@ -368,7 +379,7 @@ async def main():
     logger.info("1. DIRECT mode - Fast, simple, no tools")
     logger.info("2. STANDARD mode - Tool-enabled, linear execution")
     logger.info("3. AUTONOMOUS mode - Full reasoning loop (falls back to standard)")
-    logger.info("4. Prompt precedence - prompt vs role/objective")
+    logger.info("4. Explicit prompts — role/objective are labels; system message drives behavior")
     logger.info("5. Auto-initialization - no need to call initialize() manually")
     logger.info("\n" + "=" * 80)
 
@@ -389,7 +400,9 @@ async def main():
         logger.info(
             "   • Use AUTONOMOUS mode for complex multi-step tasks (coming soon)"
         )
-        logger.info("   • Prompt takes precedence over role/objective for execution")
+        logger.info(
+            "   • Always set prompt (e.g. ZeroShotPrompt); role/objective label the agent in your app"
+        )
         logger.info("   • Auto-initialization means you can call execute() directly")
         logger.info("   • ExecutionMode enum provides type safety and clarity")
 

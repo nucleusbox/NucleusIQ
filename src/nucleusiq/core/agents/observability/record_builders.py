@@ -61,6 +61,7 @@ def build_llm_call_record(
     purpose: str,
     duration_ms: float = 0.0,
     model: str | None = None,
+    prompt_technique: str | None = None,
 ) -> LLMCallRecord:
     """Build an :class:`LLMCallRecord` from a non-streaming provider response."""
     usage = usage_dict_from_response(response) or {}
@@ -83,6 +84,7 @@ def build_llm_call_record(
         has_tool_calls=bool(tcs),
         tool_call_count=len(tcs),
         duration_ms=duration_ms,
+        prompt_technique=prompt_technique,
     )
 
 
@@ -93,6 +95,7 @@ def build_llm_call_record_from_stream(
     purpose: str,
     duration_ms: float = 0.0,
     model: str | None = None,
+    prompt_technique: str | None = None,
 ) -> LLMCallRecord:
     """Build an :class:`LLMCallRecord` from streaming COMPLETE metadata."""
     usage: dict[str, Any] = {}
@@ -126,4 +129,5 @@ def build_llm_call_record_from_stream(
         has_tool_calls=has_tools,
         tool_call_count=len(raw_tcs),
         duration_ms=duration_ms,
+        prompt_technique=prompt_technique,
     )

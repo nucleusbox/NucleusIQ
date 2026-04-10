@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.base_tool import BaseTool
 
 
@@ -100,10 +100,8 @@ async def main():
 
     # Initialize mock LLM and prompt
     llm = MockLLM()
-    zero_shot = PromptFactory.create_prompt(
-        technique=PromptTechnique.ZERO_SHOT
-    ).configure(
-        system="You are a helpful assistant.",
+    zero_shot = ZeroShotPrompt().configure(
+        system="EchoBot repeats or uses tools.",
         user="Compute the sum of two numbers or repeat the request.",
     )
 
@@ -118,7 +116,6 @@ async def main():
         name="EchoBot",
         role="Echo Service",
         objective="Echo or compute sums.",
-        narrative="EchoBot repeats or uses tools.",
         llm=llm,
         prompt=zero_shot,
         tools=[adder],

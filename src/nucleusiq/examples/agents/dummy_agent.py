@@ -4,14 +4,14 @@ import asyncio
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.base_tool import BaseTool
 
 
 async def demo():
     llm = MockLLM()
-    prompt = PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful assistant.",
+    prompt = ZeroShotPrompt().configure(
+        system="First NucleusIQ core agent.",
         user="Compute the sum of two numbers or repeat.",
     )
 
@@ -24,7 +24,6 @@ async def demo():
         name="CoreBot",
         role="Math & Echo",
         objective="Add numbers or echo.",
-        narrative="First NucleusIQ core agent.",
         llm=llm,
         prompt=prompt,
         tools=[add_tool],

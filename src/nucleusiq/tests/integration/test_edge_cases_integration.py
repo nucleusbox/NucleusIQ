@@ -21,6 +21,7 @@ from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.memory import FullHistoryMemory
 from nucleusiq.tools.builtin import FileReadTool
 
@@ -58,6 +59,7 @@ class TestToolErrorPropagation:
             name="ErrAgent",
             role="Tester",
             objective="Test error handling",
+            prompt=make_test_prompt(),
             llm=ErrorToolMockLLM(),
             tools=[FileReadTool(workspace_root=str(tmp_path))],
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -71,6 +73,7 @@ class TestToolErrorPropagation:
             name="ErrStream",
             role="Tester",
             objective="Test error handling",
+            prompt=make_test_prompt(),
             llm=ErrorToolMockLLM(),
             tools=[FileReadTool(workspace_root=str(tmp_path))],
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -97,6 +100,7 @@ class TestAllAttachmentTypesIntegration:
             name="ImgB64Bot",
             role="Vision",
             objective="Describe images",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -122,6 +126,7 @@ class TestAllAttachmentTypesIntegration:
             name="FB64Bot",
             role="Reader",
             objective="Read files",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -146,6 +151,7 @@ class TestAllAttachmentTypesIntegration:
             name="BinB64Bot",
             role="Analyst",
             objective="Analyze binary",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -169,6 +175,7 @@ class TestAllAttachmentTypesIntegration:
             name="BytesBot",
             role="Reader",
             objective="Read bytes",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -200,6 +207,7 @@ class TestMultiTurnMemoryWithAttachments:
             name="MemBot",
             role="Analyst",
             objective="Analyze over multiple turns",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             memory=mem,
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -235,6 +243,7 @@ class TestMultiTurnMemoryWithAttachments:
             name="MetaBot",
             role="Analyst",
             objective="Analyze",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             memory=mem,
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -296,6 +305,7 @@ class TestAttachmentPlusTools:
             name="ComboBot",
             role="Analyst",
             objective="Analyze all inputs",
+            prompt=make_test_prompt(),
             llm=FileReadMockLLM("extra.txt"),
             tools=[FileReadTool(workspace_root=str(tmp_path))],
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -329,6 +339,7 @@ class TestAutonomousStreamingMemory:
             name="AutoBot",
             role="Orchestrator",
             objective="Orchestrate tasks",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             memory=mem,
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),

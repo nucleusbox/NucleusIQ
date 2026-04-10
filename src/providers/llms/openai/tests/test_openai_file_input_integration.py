@@ -64,9 +64,12 @@ class TestPDFPipeline:
             ],
         )
 
+        from nucleusiq.prompts.zero_shot import ZeroShotPrompt
+
+        prompt = ZeroShotPrompt().configure(system="You are a financial analyst.")
         msgs = MessageBuilder.build(
             task,
-            role="financial analyst",
+            prompt=prompt,
             attachment_processor=llm.process_attachments,
         )
         msg_dicts = [m.to_dict() for m in msgs]

@@ -24,6 +24,7 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 @pytest.mark.asyncio
@@ -33,7 +34,7 @@ async def test_autonomous_simple_path_traces_llm_and_critic():
         name="Auto",
         role="r",
         objective="o",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         config=AgentConfig(
             execution_mode="autonomous", verbose=False, enable_tracing=True
@@ -67,7 +68,7 @@ async def test_autonomous_tracer_resets_between_executions():
         name="Auto2",
         role="r",
         objective="o",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         config=AgentConfig(
             execution_mode="autonomous", verbose=False, enable_tracing=True
@@ -91,7 +92,7 @@ async def test_autonomous_critic_call_has_correct_purpose():
         name="CriticCheck",
         role="r",
         objective="o",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         config=AgentConfig(
             execution_mode="autonomous", verbose=False, enable_tracing=True

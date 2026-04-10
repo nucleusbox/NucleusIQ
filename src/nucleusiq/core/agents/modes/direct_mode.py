@@ -13,7 +13,7 @@ Characteristics:
 
 import json
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -48,7 +48,10 @@ class DirectMode(BaseExecutionMode):
             tool_specs = self._get_tool_specs(agent) if has_tools else None
 
             call_kwargs = self.build_call_kwargs(
-                agent, messages, tool_specs, max_output_tokens=1024
+                agent,
+                messages,
+                tool_specs,
+                max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 1024),
             )
             response = await self.call_llm(agent, call_kwargs, messages, tool_specs)
 
@@ -130,7 +133,7 @@ class DirectMode(BaseExecutionMode):
                 messages,
                 tool_specs,
                 max_tool_calls=max_tool_calls,
-                max_output_tokens=1024,
+                max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 1024),
             ):
                 yield event
 
@@ -150,8 +153,8 @@ class DirectMode(BaseExecutionMode):
         self,
         agent: "Agent",
         task: Task,
-        messages: List[ChatMessage],
-        tool_specs: List[Dict[str, Any]] | None,
+        messages: list[ChatMessage],
+        tool_specs: list[dict[str, Any]] | None,
         msg: Any,
         tool_calls: list,
     ) -> Any:
@@ -183,12 +186,21 @@ class DirectMode(BaseExecutionMode):
             agent._logger.info("Tool requested: %s", tc.name)
             try:
                 tool_result = await self.call_tool(agent, tc, tool_round=1)
+                tool_result_str = json.dumps(tool_result)
+
+                # Context window management: compress large tool results
+                engine = getattr(agent, "_context_engine", None)
+                if engine is not None:
+                    tool_result_str = engine.ingest_tool_result(
+                        tool_result_str, tc.name
+                    )
+
                 messages.append(
                     ChatMessage(
                         role="tool",
                         name=tc.name,
                         tool_call_id=tc.id,
-                        content=json.dumps(tool_result),
+                        content=tool_result_str,
                     )
                 )
                 total_calls += 1
@@ -198,7 +210,10 @@ class DirectMode(BaseExecutionMode):
                 return f"Error: Tool '{tc.name}' execution failed: {str(e)}"
 
         call_kwargs = self.build_call_kwargs(
-            agent, messages, tool_specs, max_output_tokens=1024
+            agent,
+            messages,
+            tool_specs,
+            max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 1024),
         )
         response = await self.call_llm(agent, call_kwargs, messages, tool_specs)
 
@@ -223,7 +238,7 @@ class DirectMode(BaseExecutionMode):
         return None
 
     @staticmethod
-    def _get_tool_specs(agent: "Agent") -> List[Dict[str, Any]]:
+    def _get_tool_specs(agent: "Agent") -> list[dict[str, Any]]:
         if agent.tools and agent.llm:
             return agent.llm.convert_tool_specs(agent.tools)
         return []

@@ -11,7 +11,7 @@ providing compile-time type safety and runtime validation via Pydantic.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 from typing_extensions import TypedDict
@@ -49,9 +49,9 @@ class ToolCallRequest(BaseModel):
             fn_args = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
         return cls(id=tc_id, name=fn_name, arguments=fn_args)
 
-    def to_openai_dict(self) -> Dict[str, Any]:
+    def to_openai_dict(self) -> dict[str, Any]:
         """Serialize to OpenAI ``tool_calls[]`` wire format."""
-        d: Dict[str, Any] = {
+        d: dict[str, Any] = {
             "type": "function",
             "function": {"name": self.name, "arguments": self.arguments},
         }
@@ -74,14 +74,14 @@ class ChatMessage(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     role: Literal["system", "user", "assistant", "tool", "function"]
-    content: str | List[Dict[str, Any]] | None = None
-    tool_calls: List[ToolCallRequest] | None = None
+    content: str | list[dict[str, Any]] | None = None
+    tool_calls: list[ToolCallRequest] | None = None
     tool_call_id: str | None = None
     name: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to the dict format expected by LLM providers."""
-        d: Dict[str, Any] = {"role": self.role, "content": self.content}
+        d: dict[str, Any] = {"role": self.role, "content": self.content}
         if self.tool_calls:
             d["tool_calls"] = [tc.to_openai_dict() for tc in self.tool_calls]
         if self.tool_call_id is not None:
@@ -91,7 +91,7 @@ class ChatMessage(BaseModel):
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> ChatMessage:
+    def from_dict(cls, d: dict[str, Any]) -> ChatMessage:
         """Create from a plain dict (e.g. memory context)."""
         raw_tc = d.get("tool_calls")
         tool_calls = [ToolCallRequest.from_raw(tc) for tc in raw_tc] if raw_tc else None
@@ -112,12 +112,12 @@ class LLMCallKwargs(TypedDict, total=False):
     """
 
     model: str
-    messages: List[Dict[str, Any]]
-    tools: List[Dict[str, Any]] | None
+    messages: list[dict[str, Any]]
+    tools: list[dict[str, Any]] | None
     max_output_tokens: int | None
     response_format: Any
 
 
-def messages_to_dicts(messages: List[ChatMessage]) -> List[Dict[str, Any]]:
+def messages_to_dicts(messages: list[ChatMessage]) -> list[dict[str, Any]]:
     """Serialize a list of ``ChatMessage`` to dicts for LLM providers."""
     return [m.to_dict() for m in messages]

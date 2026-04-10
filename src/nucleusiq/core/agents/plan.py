@@ -5,7 +5,7 @@ Plan classes for representing execution plans.
 Plan = HOW to break down a task into steps
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.agents.errors import AgentExecutionError
 from nucleusiq.agents.task import Task
@@ -32,12 +32,12 @@ class PlanStepResponse(BaseModel):
 
     step: int = Field(..., description="Step number (1-indexed)")
     action: str = Field(..., description="Action to take (e.g., 'execute', tool name)")
-    args: Dict[str, Any] | None = Field(
+    args: dict[str, Any] | None = Field(
         default_factory=dict, description="Action arguments"
     )
     details: str | None = Field(default=None, description="Step details or description")
 
-    def to_plan_step(self, task: Task | Dict[str, Any] | None = None) -> "PlanStep":
+    def to_plan_step(self, task: Task | dict[str, Any] | None = None) -> "PlanStep":
         """
         Convert PlanStepResponse to PlanStep.
 
@@ -74,9 +74,9 @@ class PlanResponse(BaseModel):
         ```
     """
 
-    steps: List[PlanStepResponse] = Field(..., description="List of plan steps")
+    steps: list[PlanStepResponse] = Field(..., description="List of plan steps")
 
-    def to_plan(self, task: Task | Dict[str, Any]) -> "Plan":
+    def to_plan(self, task: Task | dict[str, Any]) -> "Plan":
         """
         Convert PlanResponse to Plan.
 
@@ -90,7 +90,7 @@ class PlanResponse(BaseModel):
         return Plan(steps=plan_steps, task=task)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PlanResponse":
+    def from_dict(cls, data: dict[str, Any]) -> "PlanResponse":
         """
         Create PlanResponse from dictionary.
 
@@ -124,10 +124,10 @@ class PlanStep(BaseModel):
 
     step: int = Field(..., description="Step number (1-indexed)")
     action: str = Field(..., description="Action to take (e.g., 'execute', tool name)")
-    task: Task | Dict[str, Any] | None = Field(
+    task: Task | dict[str, Any] | None = Field(
         default=None, description="Task for this step"
     )
-    args: Dict[str, Any] | None = Field(default=None, description="Action arguments")
+    args: dict[str, Any] | None = Field(default=None, description="Action arguments")
     details: str | None = Field(default=None, description="Step details or description")
 
 
@@ -154,12 +154,12 @@ class Plan(BaseModel):
         ```
     """
 
-    steps: List[PlanStep] = Field(..., description="List of plan steps")
-    task: Task | Dict[str, Any] = Field(..., description="Original task")
+    steps: list[PlanStep] = Field(..., description="List of plan steps")
+    task: Task | dict[str, Any] = Field(..., description="Original task")
 
     @classmethod
     def from_list(
-        cls, steps: List[Dict[str, Any]], task: Task | Dict[str, Any]
+        cls, steps: list[dict[str, Any]], task: Task | dict[str, Any]
     ) -> "Plan":
         """
         Create Plan from list of step dictionaries (backward compatibility).
@@ -176,7 +176,7 @@ class Plan(BaseModel):
         plan_steps = [PlanStep(**step) for step in steps]
         return cls(steps=plan_steps, task=task)
 
-    def to_list(self) -> List[Dict[str, Any]]:
+    def to_list(self) -> list[dict[str, Any]]:
         """
         Convert Plan to list of dictionaries (backward compatibility).
 
@@ -193,6 +193,6 @@ class Plan(BaseModel):
         """Allow indexing into plan steps."""
         return self.steps[index]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the Plan object to a dictionary."""
         return self.model_dump(mode="json")

@@ -10,6 +10,7 @@ from nucleusiq.agents.config import AgentConfig
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.base import BaseMemory
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 class _Msg:
@@ -60,7 +61,7 @@ def _make_agent(memory=None, tracing=True):
         name="MemTest",
         role="tester",
         objective="test memory snapshots",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         memory=memory,
         config=AgentConfig(

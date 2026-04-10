@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.tools import BaseTool
@@ -93,6 +94,7 @@ class TestDirectMode:
             role="Assistant",
             objective="Answer questions",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
 
@@ -115,6 +117,7 @@ class TestDirectMode:
             role="Assistant",
             objective="Answer questions",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=[calculator],  # Tools provided but should be ignored
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
@@ -164,6 +167,7 @@ class TestDirectMode:
             role="Assistant",
             objective="Answer questions",
             llm=None,  # No LLM
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
 
@@ -191,6 +195,7 @@ class TestStandardMode:
             role="Calculator",
             objective="Perform calculations",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=[calculator],
             config=AgentConfig(
                 execution_mode=ExecutionMode.STANDARD,  # Default
@@ -216,6 +221,7 @@ class TestStandardMode:
             role="Assistant",
             objective="Help users",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),  # No execution_mode specified
         )
 
@@ -233,6 +239,7 @@ class TestStandardMode:
             role="Assistant",
             objective="Answer questions",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=[],  # No tools
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
         )
@@ -282,6 +289,7 @@ class TestStandardMode:
             role="Math Assistant",
             objective="Perform math operations",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=[calculator, subtract],
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
         )
@@ -310,6 +318,7 @@ class TestAutonomousMode:
             role="Researcher",
             objective="Research topics",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=[calculator],
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=False),
         )
@@ -333,6 +342,7 @@ class TestAutonomousMode:
             role="Assistant",
             objective="Help users",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=False),
         )
 
@@ -358,6 +368,7 @@ class TestModeRouting:
             role="Assistant",
             objective="Help users",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
 
@@ -385,6 +396,7 @@ class TestModeRouting:
             role="Assistant",
             objective="Help users",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
         )
 
@@ -412,6 +424,7 @@ class TestModeRouting:
             role="Assistant",
             objective="Help users",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=False),
         )
 
@@ -439,6 +452,7 @@ class TestModeRouting:
             role="Assistant",
             objective="Help users",
             llm=llm,
+            prompt=make_test_prompt(),
             config=AgentConfig(verbose=False),
         )
 
@@ -472,6 +486,7 @@ class TestExecutionModeIntegration:
                 role="Assistant",
                 objective="Help users",
                 llm=llm,
+                prompt=make_test_prompt(),
                 config=AgentConfig(execution_mode=mode, verbose=False),
             )
 
@@ -495,6 +510,7 @@ class TestExecutionModeIntegration:
                 role="Assistant",
                 objective="Help users",
                 llm=llm,
+                prompt=make_test_prompt(),
                 config=AgentConfig(execution_mode=mode, verbose=False),
             )
 
@@ -551,6 +567,7 @@ class TestToolLimitValidation:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=_make_tools(6),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -567,6 +584,7 @@ class TestToolLimitValidation:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=_make_tools(5),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -582,6 +600,7 @@ class TestToolLimitValidation:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=_make_tools(31),
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         )
@@ -598,6 +617,7 @@ class TestToolLimitValidation:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=_make_tools(101),
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),
         )
@@ -614,6 +634,7 @@ class TestToolLimitValidation:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=_make_tools(10),
             config=AgentConfig(
                 execution_mode=ExecutionMode.DIRECT,
@@ -632,6 +653,7 @@ class TestToolLimitValidation:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=_make_tools(20),
             config=AgentConfig(
                 execution_mode=ExecutionMode.DIRECT,
@@ -691,6 +713,7 @@ class TestDirectModeToolSupport:
             role="Calculator",
             objective="Math",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=[calculator],
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )
@@ -709,6 +732,7 @@ class TestDirectModeToolSupport:
             role="A",
             objective="B",
             llm=llm,
+            prompt=make_test_prompt(),
             tools=[],
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
         )

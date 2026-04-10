@@ -22,7 +22,7 @@ from typing import Any, Dict
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 
 # Configure logging
@@ -66,9 +66,8 @@ async def example_1_direct_mode():
     logger.info("Example 1: Direct Mode (Fast, Simple)")
     logger.info("=" * 60)
 
-    prompt = PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)
-    prompt.configure(
-        system="You are a helpful assistant that performs calculations.",
+    prompt = ZeroShotPrompt().configure(
+        system="A calculator agent",
         user="Answer questions accurately.",
     )
 
@@ -76,7 +75,6 @@ async def example_1_direct_mode():
         name="DirectAgent",
         role="Calculator",
         objective="Perform calculations",
-        narrative="A calculator agent",
         llm=MockLLM(),
         prompt=prompt,
         tools=[CalculatorTool()],
@@ -101,9 +99,8 @@ async def example_2_standard_mode():
     logger.info("Example 2: Standard Mode (Tool-Driven)")
     logger.info("=" * 60)
 
-    prompt = PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)
-    prompt.configure(
-        system="You are a helpful assistant that performs calculations.",
+    prompt = ZeroShotPrompt().configure(
+        system="A calculator agent with tool support",
         user="Answer questions accurately and show your work.",
     )
 
@@ -111,7 +108,6 @@ async def example_2_standard_mode():
         name="StandardAgent",
         role="Calculator",
         objective="Perform calculations",
-        narrative="A calculator agent with tool support",
         llm=MockLLM(),
         prompt=prompt,
         tools=[CalculatorTool()],
@@ -140,8 +136,8 @@ async def example_3_manual_plan():
         name="ManualPlanAgent",
         role="Calculator",
         objective="Perform calculations",
-        narrative="A calculator agent",
         llm=MockLLM(),
+        prompt=ZeroShotPrompt().configure(system="A calculator agent"),
         tools=[CalculatorTool()],
         config=AgentConfig(verbose=True),
     )
@@ -169,9 +165,8 @@ async def example_4_autonomous_mode():
     logger.info("Example 4: Autonomous Mode (Orchestration + Verification)")
     logger.info("=" * 60)
 
-    prompt = PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)
-    prompt.configure(
-        system="You are a helpful assistant that performs calculations.",
+    prompt = ZeroShotPrompt().configure(
+        system="A calculator agent with full features",
         user="Answer questions accurately and show your work step by step.",
     )
 
@@ -179,7 +174,6 @@ async def example_4_autonomous_mode():
         name="AutonomousAgent",
         role="Calculator",
         objective="Perform calculations",
-        narrative="A calculator agent with full features",
         llm=MockLLM(),
         prompt=prompt,
         tools=[CalculatorTool()],

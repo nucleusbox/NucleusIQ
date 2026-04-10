@@ -21,6 +21,7 @@ if str(src_dir) not in sys.path:
 
 import pytest
 from nucleusiq.agents.plan import Plan, PlanStep
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.agents.task import Task
 from pydantic import ValidationError
 
@@ -439,6 +440,7 @@ class TestPlanIntegration:
             name="TestAgent",
             role="Assistant",
             objective="Help users",
+            prompt=make_test_prompt(),
             llm=llm,
             config=AgentConfig(),
         )

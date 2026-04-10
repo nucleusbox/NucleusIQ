@@ -31,6 +31,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.builtin import FileReadTool
 
 try:
@@ -71,6 +72,9 @@ async def main() -> None:
         name="Analyst",
         role="Data Analyst",
         objective="Analyze business data",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a data analyst. Read files with the provided tool and summarize findings accurately."
+        ),
         llm=llm,
         tools=[FileReadTool(ws)],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),

@@ -437,7 +437,7 @@ wheels = [
 
 [[package]]
 name = "nucleusiq"
-version = "0.7.0"
+version = "0.7.6"
 source = { editable = "../../../nucleusiq" }
 dependencies = [
     { name = "pydantic" },
@@ -450,7 +450,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "nucleusiq-openai", marker = "extra == 'openai'", editable = "." },
-    { name = "pydantic", specifier = ">=2.0,<3.0" },
+    { name = "pydantic", specifier = ">=2.11.0,<3.0" },
     { name = "python-dotenv", specifier = ">=0.19.0,<2.0" },
     { name = "pyyaml", specifier = ">=5.4,<7.0" },
     { name = "requests", specifier = ">=2.33.0,<3.0" },
@@ -462,6 +462,7 @@ provides-extras = ["openai", "clustering"]
 [package.metadata.requires-dev]
 dev = [
     { name = "nucleusiq-openai", editable = "." },
+    { name = "pyrefly", specifier = ">=0.59" },
     { name = "pytest", specifier = ">=8.0,<10.0" },
     { name = "pytest-asyncio", specifier = ">=0.23,<2.0" },
     { name = "pytest-cov", specifier = ">=4.0,<8.0" },
@@ -469,7 +470,10 @@ dev = [
     { name = "ruff", specifier = ">=0.4,<1.0" },
     { name = "scikit-learn", specifier = ">=1.0" },
 ]
-lint = [{ name = "ruff", specifier = ">=0.4,<1.0" }]
+lint = [
+    { name = "pyrefly", specifier = ">=0.59" },
+    { name = "ruff", specifier = ">=0.4,<1.0" },
+]
 test = [
     { name = "nucleusiq-openai", editable = "." },
     { name = "pytest", specifier = ">=8.0,<10.0" },
@@ -481,7 +485,7 @@ test = [
 
 [[package]]
 name = "nucleusiq-openai"
-version = "0.6.0"
+version = "0.6.2"
 source = { editable = "." }
 dependencies = [
     { name = "nucleusiq" },

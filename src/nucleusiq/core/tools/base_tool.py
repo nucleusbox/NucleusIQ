@@ -1,12 +1,10 @@
 # File: src/nucleusiq/core/tools/base_tool.py
 import inspect
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
-    Type,
     get_origin,
 )
 
@@ -42,7 +40,7 @@ def _parse_annotation(annotation: Any) -> str:
     return mapping.get(origin, "string")
 
 
-def _pydantic_model_to_json_schema(model: Type[Any]) -> Dict[str, Any]:
+def _pydantic_model_to_json_schema(model: type[Any]) -> dict[str, Any]:
     """
     Convert a Pydantic BaseModel to generic JSON Schema.
 
@@ -175,7 +173,7 @@ class BaseTool(ABC):
         pass
 
     @abstractmethod
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         """
         Return a generic tool specification (LLM-agnostic).
 
@@ -196,7 +194,7 @@ class BaseTool(ABC):
         """
         pass
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = {"name": self.name, "description": self.description}
         if self.version:
             data["version"] = self.version
@@ -209,7 +207,7 @@ class BaseTool(ABC):
         *,
         name: str | None = None,
         description: str | None = None,
-        args_schema: Type[Any] | None = None,
+        args_schema: type[Any] | None = None,
     ) -> "BaseTool":
         """
         Wrap any Python function as a tool with auto-generated spec.
@@ -248,14 +246,14 @@ class BaseTool(ABC):
                     # Direct function call
                     return self.fn(**kwargs)
 
-            def get_spec(self) -> Dict[str, Any]:
+            def get_spec(self) -> dict[str, Any]:
                 # If Pydantic schema is provided, use it
                 if self.args_schema:
                     parameters = _pydantic_model_to_json_schema(self.args_schema)
                 else:
                     # Generate from function signature
                     sig = inspect.signature(self.fn)
-                    props: Dict[str, Any] = {}
+                    props: dict[str, Any] = {}
                     required: list[str] = []
                     for pname, param in sig.parameters.items():
                         ann = (

@@ -1,6 +1,6 @@
 # src/nucleusiq/prompts/chain_of_thought.py
 
-from typing import Any, Dict
+from typing import Any
 
 from nucleusiq.prompts.base import BasePrompt
 from pydantic import Field
@@ -87,7 +87,7 @@ class ChainOfThoughtPrompt(BasePrompt):
     #
     # Hook method to ensure final validation
     #
-    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
+    def _pre_format_validation(self, combined_vars: dict[str, Any]) -> None:
         """
         Subclass-specific validation:
           - use_cot must be True

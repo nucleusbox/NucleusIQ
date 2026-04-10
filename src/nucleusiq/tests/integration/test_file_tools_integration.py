@@ -20,6 +20,7 @@ from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools.builtin import (
     DirectoryListTool,
     FileExtractTool,
@@ -84,6 +85,7 @@ def _make_agent(
         name="FileAgent",
         role="Data Analyst",
         objective="Analyze files",
+        prompt=make_test_prompt(),
         llm=FileToolMockLLM(tool_name, tool_args),
         tools=[
             FileReadTool(workspace_root=ws),

@@ -11,7 +11,7 @@ running summary, and the window is trimmed.
 from __future__ import annotations
 
 from collections import deque
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 from nucleusiq.memory.base import BaseMemory
 from pydantic import ConfigDict, Field
@@ -66,7 +66,7 @@ class SummaryWindowMemory(BaseMemory):
     # -- Sync core -------------------------------------------------------
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
-        entry: Dict[str, Any] = {"role": role, "content": content}
+        entry: dict[str, Any] = {"role": role, "content": content}
         if "metadata" in kwargs:
             entry["metadata"] = kwargs["metadata"]
         self._messages.append(entry)
@@ -75,8 +75,8 @@ class SummaryWindowMemory(BaseMemory):
 
     def get_context(
         self, query: str | None = None, **kwargs: Any
-    ) -> List[Dict[str, str]]:
-        ctx: List[Dict[str, str]] = []
+    ) -> list[dict[str, str]]:
+        ctx: list[dict[str, str]] = []
         if self._summary:
             ctx.append({"role": "system", "content": self._summary})
         ctx.extend(self._messages)
@@ -86,21 +86,21 @@ class SummaryWindowMemory(BaseMemory):
         self._messages.clear()
         self._summary = ""
 
-    def export_state(self) -> Dict[str, Any]:
+    def export_state(self) -> dict[str, Any]:
         return {
             "messages": list(self._messages),
             "summary": self._summary,
             "window_size": self.window_size,
         }
 
-    def import_state(self, state: Dict[str, Any]) -> None:
+    def import_state(self, state: dict[str, Any]) -> None:
         self._messages = deque(state.get("messages", []))
         self._summary = state.get("summary", "")
 
     # -- Async (preferred path) ------------------------------------------
 
     async def aadd_message(self, role: str, content: str, **kwargs: Any) -> None:
-        entry: Dict[str, Any] = {"role": role, "content": content}
+        entry: dict[str, Any] = {"role": role, "content": content}
         if "metadata" in kwargs:
             entry["metadata"] = kwargs["metadata"]
         self._messages.append(entry)
@@ -137,13 +137,13 @@ class SummaryWindowMemory(BaseMemory):
             return
         self._summary = await self._summarize(overflow)
 
-    def _drain_overflow(self) -> List[Dict[str, str]]:
-        overflow: List[Dict[str, str]] = []
+    def _drain_overflow(self) -> list[dict[str, str]]:
+        overflow: list[dict[str, str]] = []
         while len(self._messages) > self.window_size:
             overflow.append(self._messages.popleft())
         return overflow
 
-    async def _summarize(self, messages: List[Dict[str, str]]) -> str:
+    async def _summarize(self, messages: list[dict[str, str]]) -> str:
         prompt = _SUMMARIZE_PROMPT.format(
             prev_summary=self._summary or "(none)",
             messages=self._format_messages(messages),
@@ -162,7 +162,7 @@ class SummaryWindowMemory(BaseMemory):
         return str(response)
 
     @staticmethod
-    def _format_messages(msgs: List[Dict[str, str]]) -> str:
+    def _format_messages(msgs: list[dict[str, str]]) -> str:
         return "\n".join(
             f"[{m.get('role', '?')}]: {m.get('content', '')}" for m in msgs
         )

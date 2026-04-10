@@ -32,6 +32,7 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
 
@@ -412,6 +413,9 @@ async def test_mode_comparison():
         objective="Answer questions",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant that answers questions clearly and concisely.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
     )
     try:
@@ -431,6 +435,9 @@ async def test_mode_comparison():
         objective="Perform calculations",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful calculator assistant. Use tools to perform calculations accurately.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
     )
     try:
@@ -450,6 +457,9 @@ async def test_mode_comparison():
         objective="Research and analyze",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are an advanced assistant. Plan briefly and use tools when needed to solve the task.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS, verbose=False),
     )
     try:

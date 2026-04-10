@@ -1,4 +1,5 @@
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 from nucleusiq.prompts.base import BasePrompt
 from pydantic import ConfigDict, Field, field_validator
@@ -22,13 +23,13 @@ class PromptComposer(BasePrompt):
     user_query: str | None = Field(default=None)
 
     # Mappings
-    variable_mappings: Dict[str, str] = Field(default_factory=dict)
-    function_mappings: Dict[str, Callable[..., str]] = Field(default_factory=dict)
+    variable_mappings: dict[str, str] = Field(default_factory=dict)
+    function_mappings: dict[str, Callable[..., str]] = Field(default_factory=dict)
 
     # Overridden base fields
     template: str = Field(default="")
-    input_variables: List[str] = Field(default_factory=list)
-    optional_variables: List[str] = Field(
+    input_variables: list[str] = Field(default_factory=list)
+    optional_variables: list[str] = Field(
         default_factory=lambda: ["system", "examples", "chain_of_thought", "user_query"]
     )
 
@@ -117,7 +118,7 @@ class PromptComposer(BasePrompt):
     #
     # Optional extra checks (like conflict checking)
     #
-    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
+    def _pre_format_validation(self, combined_vars: dict[str, Any]) -> None:
         # If you wanted to detect duplicates in variable_mappings, do it here.
         pass
 

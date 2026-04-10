@@ -16,7 +16,7 @@ Migration path:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
 from nucleusiq.llms.base_llm import BaseLLM
@@ -33,9 +33,9 @@ class ExecutionContext(Protocol):
     """
 
     llm: BaseLLM | None
-    tools: List[Any]
+    tools: list[Any]
     memory: BaseMemory | None
-    prompt: BasePrompt | None
+    prompt: BasePrompt
     config: AgentConfig
     role: str
     objective: str
@@ -49,11 +49,11 @@ class ExecutionContext(Protocol):
     def _executor(self) -> Any: ...
 
     @property
-    def _current_llm_overrides(self) -> Dict[str, Any]: ...
+    def _current_llm_overrides(self) -> dict[str, Any]: ...
 
     def _resolve_response_format(self) -> Any: ...
 
-    def _get_structured_output_kwargs(self, output_config: Any) -> Dict[str, Any]: ...
+    def _get_structured_output_kwargs(self, output_config: Any) -> dict[str, Any]: ...
 
     def _wrap_structured_output_result(
         self, response: Any, output_config: Any

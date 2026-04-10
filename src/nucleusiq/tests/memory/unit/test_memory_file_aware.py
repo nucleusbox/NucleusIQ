@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 from nucleusiq.agents.agent import Agent
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.modes.base_mode import (
@@ -204,6 +205,7 @@ class TestAgentMemoryFileAware:
             name="MemBot",
             role="Analyst",
             objective="Analyze docs",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             memory=mem,
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -234,6 +236,7 @@ class TestAgentMemoryFileAware:
             name="PlainBot",
             role="Helper",
             objective="Help",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             memory=mem,
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),

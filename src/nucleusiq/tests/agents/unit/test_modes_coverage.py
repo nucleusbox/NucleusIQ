@@ -12,6 +12,7 @@ from nucleusiq.agents.task import Task
 from nucleusiq.llms.errors import LLMError
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 def _make_agent(**overrides):
@@ -19,7 +20,7 @@ def _make_agent(**overrides):
         name="TestAgent",
         role="Assistant",
         objective="Help users",
-        narrative="Test agent",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
     )
     defaults.update(overrides)

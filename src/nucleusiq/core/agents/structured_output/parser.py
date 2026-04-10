@@ -11,8 +11,6 @@ import re
 import sys
 from typing import (
     Any,
-    Dict,
-    Type,
     TypeVar,
     Union,
     get_args,
@@ -35,7 +33,7 @@ else:
         from typing_extensions import is_typeddict
     except ImportError:
 
-        def is_typeddict(tp: Type) -> bool:
+        def is_typeddict(tp: type) -> bool:
             return (
                 hasattr(tp, "__annotations__")
                 and hasattr(tp, "__total__")
@@ -48,7 +46,7 @@ else:
 # ============================================================================
 
 
-def is_pydantic(schema: Type) -> bool:
+def is_pydantic(schema: type) -> bool:
     """Check if type is a Pydantic BaseModel."""
     try:
         return isinstance(schema, type) and issubclass(schema, BaseModel)
@@ -56,12 +54,12 @@ def is_pydantic(schema: Type) -> bool:
         return False
 
 
-def is_dataclass(schema: Type) -> bool:
+def is_dataclass(schema: type) -> bool:
     """Check if type is a dataclass."""
     return dataclasses.is_dataclass(schema) and isinstance(schema, type)
 
 
-def is_typed_dict(schema: Type) -> bool:
+def is_typed_dict(schema: type) -> bool:
     """Check if type is a TypedDict."""
     return is_typeddict(schema)
 
@@ -81,7 +79,7 @@ def schema_to_json(
     *,
     strict: bool = False,
     for_provider: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Convert a schema to JSON Schema format.
 
@@ -114,22 +112,22 @@ def schema_to_json(
 
 
 def _pydantic_to_json(
-    schema: Type[BaseModel],
+    schema: type[BaseModel],
     *,
     strict: bool = False,
     for_provider: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Convert Pydantic model to JSON Schema."""
     json_schema = schema.model_json_schema()
     return _clean_schema(json_schema, strict=strict, for_provider=for_provider)
 
 
 def _dataclass_to_json(
-    schema: Type,
+    schema: type,
     *,
     strict: bool = False,
     for_provider: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Convert dataclass to JSON Schema."""
     hints = get_type_hints(schema)
     fields = dataclasses.fields(schema)
@@ -147,7 +145,7 @@ def _dataclass_to_json(
         ):
             required.append(f.name)
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "type": "object",
         "properties": properties,
     }
@@ -159,11 +157,11 @@ def _dataclass_to_json(
 
 
 def _typeddict_to_json(
-    schema: Type,
+    schema: type,
     *,
     strict: bool = False,
     for_provider: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Convert TypedDict to JSON Schema."""
     hints = get_type_hints(schema)
     required_keys = getattr(schema, "__required_keys__", frozenset())
@@ -176,7 +174,7 @@ def _typeddict_to_json(
         if name in required_keys:
             required.append(name)
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "type": "object",
         "properties": properties,
     }
@@ -188,11 +186,11 @@ def _typeddict_to_json(
 
 
 def _annotations_to_json(
-    schema: Type,
+    schema: type,
     *,
     strict: bool = False,
     for_provider: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Convert type annotations to JSON Schema."""
     hints = get_type_hints(schema)
 
@@ -207,7 +205,7 @@ def _annotations_to_json(
     return _clean_schema(result, strict=strict, for_provider=for_provider)
 
 
-def _type_to_json(type_hint: Type) -> Dict[str, Any]:
+def _type_to_json(type_hint: type) -> dict[str, Any]:
     """Convert Python type to JSON Schema type."""
     origin = get_origin(type_hint)
     args = get_args(type_hint)
@@ -261,11 +259,11 @@ def _type_to_json(type_hint: Type) -> Dict[str, Any]:
 
 
 def _clean_schema(
-    schema: Dict[str, Any],
+    schema: dict[str, Any],
     *,
     strict: bool = False,
     for_provider: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Clean and transform JSON Schema for target provider."""
     import copy
 
@@ -296,8 +294,8 @@ def _clean_schema(
 
 
 def _clean_property(
-    prop: Dict[str, Any], *, for_provider: str | None = None
-) -> Dict[str, Any]:
+    prop: dict[str, Any], *, for_provider: str | None = None
+) -> dict[str, Any]:
     """Clean a property schema."""
     import copy
 
@@ -333,7 +331,7 @@ def _clean_property(
     return prop
 
 
-def _inline_refs(obj: Any, defs: Dict[str, Any]) -> Any:
+def _inline_refs(obj: Any, defs: dict[str, Any]) -> Any:
     """Inline $ref references."""
     if isinstance(obj, dict):
         if "$ref" in obj:
@@ -393,7 +391,7 @@ def extract_json(text: str) -> str:
         )
 
 
-def parse_schema(text: str) -> Dict[str, Any]:
+def parse_schema(text: str) -> dict[str, Any]:
     """
     Parse JSON from LLM response text.
 

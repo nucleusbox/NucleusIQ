@@ -20,6 +20,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.base_tool import BaseTool
 
 logging.basicConfig(level=logging.WARNING)
@@ -79,7 +80,7 @@ async def main() -> None:
         name="DirectBot",
         role="Assistant",
         objective="Help users",
-        narrative="Fast direct-mode agent",
+        prompt=ZeroShotPrompt().configure(system="Fast direct-mode agent"),
         llm=MockLLM(stream_chunk_size=5),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
@@ -91,7 +92,7 @@ async def main() -> None:
         name="CalcBot",
         role="Calculator",
         objective="Perform calculations",
-        narrative="Standard-mode agent with tools",
+        prompt=ZeroShotPrompt().configure(system="Standard-mode agent with tools"),
         llm=MockLLM(stream_chunk_size=3),
         tools=[adder_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -104,7 +105,7 @@ async def main() -> None:
         name="AutoBot",
         role="Analyst",
         objective="Analyze data",
-        narrative="Autonomous-mode agent",
+        prompt=ZeroShotPrompt().configure(system="Autonomous-mode agent"),
         llm=MockLLM(stream_chunk_size=4),
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,

@@ -8,11 +8,12 @@ from nucleusiq.agents.errors import AgentExecutionError
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools.base_tool import BaseTool
 
 
 def _make_agent(**overrides):
-    defaults = dict(name="A", role="R", objective="O", narrative="N")
+    defaults = dict(name="A", role="R", objective="O", prompt=make_test_prompt())
     defaults.update(overrides)
     return Agent(**defaults)
 

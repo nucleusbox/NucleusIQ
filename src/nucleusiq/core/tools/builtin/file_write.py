@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from typing import Any, Dict
+from typing import Any
 
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq.tools.builtin.workspace import (
@@ -127,7 +127,7 @@ class FileWriteTool(BaseTool):
         size = resolved.stat().st_size
         return f"{action} '{path}' ({format_file_size(size)})."
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,

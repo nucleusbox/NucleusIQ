@@ -229,7 +229,7 @@ class BaseLLM(BaseLanguageModel, ABC):
             yield StreamEvent.complete_event(content)
 
     # ------------------------------------------------------------------ #
-    # Token estimation                                                     #
+    # Token estimation & context window                                    #
     # ------------------------------------------------------------------ #
 
     def estimate_tokens(self, text: str) -> int:
@@ -246,6 +246,18 @@ class BaseLLM(BaseLanguageModel, ABC):
             TokenBudgetMemory(max_tokens=4096, token_counter=llm.estimate_tokens)
         """
         return max(1, len(text) // 4)
+
+    def get_context_window(self) -> int:
+        """Return the model's context window size in tokens.
+
+        Provider subclasses should override with the actual model-specific
+        value from their model registries.  The default is a conservative
+        128K which works for most modern models.
+
+        Used by ``ContextEngine`` to auto-detect the budget when
+        ``ContextConfig.max_context_tokens`` is ``None``.
+        """
+        return 128_000
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #

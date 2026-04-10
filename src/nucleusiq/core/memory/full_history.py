@@ -7,7 +7,7 @@ Trade-off: unbounded token growth.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.memory.base import BaseMemory
 
@@ -15,7 +15,7 @@ from nucleusiq.memory.base import BaseMemory
 class FullHistoryMemory(BaseMemory):
     """Keeps the complete conversation history in memory."""
 
-    _messages: List[Dict[str, str]] = []
+    _messages: list[dict[str, str]] = []
 
     def model_post_init(self, __context: Any) -> None:
         self._messages = []
@@ -25,21 +25,21 @@ class FullHistoryMemory(BaseMemory):
         return "full_history"
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
-        entry: Dict[str, Any] = {"role": role, "content": content}
+        entry: dict[str, Any] = {"role": role, "content": content}
         if "metadata" in kwargs:
             entry["metadata"] = kwargs["metadata"]
         self._messages.append(entry)
 
     def get_context(
         self, query: str | None = None, **kwargs: Any
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         return list(self._messages)
 
     def clear(self) -> None:
         self._messages.clear()
 
-    def export_state(self) -> Dict[str, Any]:
+    def export_state(self) -> dict[str, Any]:
         return {"messages": list(self._messages)}
 
-    def import_state(self, state: Dict[str, Any]) -> None:
+    def import_state(self, state: dict[str, Any]) -> None:
         self._messages = list(state.get("messages", []))

@@ -34,13 +34,10 @@ from __future__ import annotations
 
 import json
 from abc import ABC
+from collections.abc import Awaitable, Callable
 from typing import (
     TYPE_CHECKING,
     Any,
-    Awaitable,
-    Callable,
-    Dict,
-    List,
     Protocol,
 )
 
@@ -87,7 +84,7 @@ class AgentContext(BaseModel):
     memory: Any | None = Field(
         default=None, description="BaseMemory instance if configured"
     )
-    metadata: Dict[str, Any] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Mutable dict for plugins to share data",
     )
@@ -114,10 +111,10 @@ class ModelRequest(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     model: str = "default"
-    messages: List[Any] = Field(
+    messages: list[Any] = Field(
         default_factory=list, description="ChatMessage list to be sent"
     )
-    tools: List[Dict[str, Any]] | None = Field(
+    tools: list[dict[str, Any]] | None = Field(
         default=None, description="LLM-formatted tool specifications"
     )
     max_output_tokens: int = 1024
@@ -125,9 +122,9 @@ class ModelRequest(BaseModel):
         default=0, description="Number of LLM calls so far in this execution"
     )
     agent_name: str = ""
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    extra_kwargs: Dict[str, Any] = Field(
+    extra_kwargs: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional LLM call kwargs (structured output, LLM params, etc.)",
     )
@@ -144,7 +141,7 @@ class ModelRequest(BaseModel):
         """
         return self.model_copy(update=updates)
 
-    def to_call_kwargs(self) -> Dict[str, Any]:
+    def to_call_kwargs(self) -> dict[str, Any]:
         """Serialize to the kwargs dict expected by ``BaseLLM.call()``.
 
         Merges the typed fields with ``extra_kwargs`` so the LLM receives
@@ -161,7 +158,7 @@ class ModelRequest(BaseModel):
             else:
                 raw_msgs.append({"role": "user", "content": str(m)})
 
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": raw_msgs,
             "tools": self.tools,
@@ -185,13 +182,13 @@ class ToolRequest(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     tool_name: str
-    tool_args: Dict[str, Any] = Field(default_factory=dict)
+    tool_args: dict[str, Any] = Field(default_factory=dict)
     tool_call_id: str | None = None
     call_count: int = Field(
         default=0, description="Number of tool calls so far in this execution"
     )
     agent_name: str = ""
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     _tool_call_request: Any = PrivateAttr(default=None)
 

@@ -33,6 +33,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.plugins import (
     AgentContext,
     BasePlugin,
@@ -170,6 +171,9 @@ async def demo_observe_and_modify():
         name="ChatBot",
         role="Helpful assistant",
         objective="Chat and remember context",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Use conversation memory to stay consistent across turns."
+        ),
         llm=llm,
         memory=memory,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -224,6 +228,9 @@ async def demo_wrap_hooks():
         name="MathBot",
         role="Calculator",
         objective="Do math",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a math assistant. Use add and multiply tools to solve arithmetic problems."
+        ),
         llm=llm,
         tools=[add_tool, mul_tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -277,6 +284,9 @@ async def demo_full_stack():
         name="FullBot",
         role="Research assistant",
         objective="Search and remember",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a research assistant. Use the search tool for facts and memory to recall prior turns."
+        ),
         llm=llm,
         memory=memory,
         tools=[search_tool],

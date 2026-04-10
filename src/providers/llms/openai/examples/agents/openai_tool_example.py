@@ -16,7 +16,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 
@@ -90,8 +90,8 @@ async def main():
 
     # Step 4: Create prompt
     logger.info("\n4. Creating prompt...")
-    prompt = PromptFactory.create_prompt(technique=PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful assistant with access to various tools including web search, code execution, and calculations.",
+    prompt = ZeroShotPrompt().configure(
+        system="Can search the web, execute code, perform calculations, and more.",
         user="Use tools when needed to answer questions accurately.",
     )
     logger.info("✅ Prompt created")
@@ -102,7 +102,6 @@ async def main():
         name="OpenAIAgent",
         role="Assistant",
         objective="Help users with accurate information using available tools.",
-        narrative="Can search the web, execute code, perform calculations, and more.",
         llm=llm,
         prompt=prompt,
         tools=[

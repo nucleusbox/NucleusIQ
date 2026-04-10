@@ -24,7 +24,8 @@ import json
 import logging
 import sys
 import xml.etree.ElementTree as ET
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
 
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq.tools.builtin.workspace import (
@@ -589,7 +590,7 @@ class FileExtractTool(BaseTool):
 
         return handler(self, path, text, size, max_sample, query, opts)
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         supported = ", ".join(sorted(_FORMAT_HANDLERS.keys()))
         return {
             "name": self.name,

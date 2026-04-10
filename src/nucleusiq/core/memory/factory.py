@@ -1,7 +1,7 @@
 # src/nucleusiq/memory/factory.py
 
 from enum import Enum
-from typing import Any, Dict, Type, Union
+from typing import Any, Union
 
 from nucleusiq.memory.base import BaseMemory
 from nucleusiq.memory.errors import NucleusMemoryError
@@ -43,7 +43,7 @@ class MemoryFactory:
         mem = MemoryFactory.create_memory(MemoryStrategy.SLIDING_WINDOW, window_size=10)
     """
 
-    _registry: Dict[str, Type[BaseMemory]] = {
+    _registry: dict[str, type[BaseMemory]] = {
         MemoryStrategy.FULL_HISTORY.value: FullHistoryMemory,
         MemoryStrategy.SLIDING_WINDOW.value: SlidingWindowMemory,
         MemoryStrategy.TOKEN_BUDGET.value: TokenBudgetMemory,
@@ -55,7 +55,7 @@ class MemoryFactory:
     def register_memory(
         cls,
         strategy: _StrategyKey,
-        memory_class: Type[BaseMemory],
+        memory_class: type[BaseMemory],
     ) -> None:
         """Register a new memory strategy (built-in or external provider).
 

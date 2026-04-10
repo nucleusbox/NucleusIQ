@@ -43,6 +43,7 @@ _src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent, Attachment, AttachmentType, Task
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq_openai import BaseOpenAI
@@ -126,6 +127,9 @@ async def example_pdf_native():
         role="Financial analyst",
         objective="Analyze documents",
         llm=get_llm(),
+        prompt=ZeroShotPrompt().configure(
+            system="You are a financial analyst. Summarize and extract key metrics from documents the user attaches.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
 
@@ -173,6 +177,9 @@ async def example_structured_data():
         role="Data analyst",
         objective="Analyze data",
         llm=get_llm(),
+        prompt=ZeroShotPrompt().configure(
+            system="You are a data analyst. Answer questions using attached CSV, JSON, and structured files.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
 
@@ -229,6 +236,9 @@ async def example_file_base64():
         role="API processor",
         objective="Process API data",
         llm=get_llm(),
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Interpret file content supplied as base64 and answer the user's question.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
 
@@ -278,6 +288,9 @@ async def example_file_url():
         role="Document processor",
         objective="Process remote files",
         llm=get_llm(),
+        prompt=ZeroShotPrompt().configure(
+            system="You are a document assistant. Answer based on remotely referenced files when the model can access them.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
 
@@ -321,6 +334,9 @@ async def example_mixed():
         role="Research analyst",
         objective="Cross-reference sources",
         llm=get_llm(),
+        prompt=ZeroShotPrompt().configure(
+            system="You are a research analyst. Cross-check PDFs, images, spreadsheets, and URLs the user provides.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
 
@@ -382,6 +398,9 @@ async def example_streaming():
         role="Writer",
         objective="Write summaries",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a concise writer. Summarize attached notes clearly.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
 

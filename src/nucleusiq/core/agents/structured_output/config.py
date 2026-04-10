@@ -8,8 +8,9 @@ how structured output should be obtained and validated.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict
+from typing import Any
 
 from .types import OutputMode, SchemaType
 
@@ -119,7 +120,7 @@ class OutputSchema:
             return False
         return True
 
-    def for_provider(self, provider: str) -> Dict[str, Any]:
+    def for_provider(self, provider: str) -> dict[str, Any]:
         """
         Get provider-specific configuration.
 

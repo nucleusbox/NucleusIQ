@@ -13,6 +13,7 @@ import asyncio
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.decorators import tool
 from nucleusiq_gemini import BaseGemini, GeminiLLMParams
 
@@ -63,14 +64,15 @@ async def main():
     )
 
     agent = Agent(
+        name="gemini-standard",
+        prompt=ZeroShotPrompt().configure(
+            system=(
+                "You are a helpful travel assistant. Use available tools to "
+                "gather real data before answering questions."
+            ),
+        ),
         llm=llm,
         config=config,
-        name="gemini-standard",
-        instructions=(
-            "You are a helpful travel assistant. Use available tools to "
-            "gather real data before answering questions."
-        ),
-        model="gemini-2.5-flash",
         tools=[get_weather, get_population],
     )
 

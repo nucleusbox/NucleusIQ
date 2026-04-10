@@ -27,6 +27,7 @@ from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.tests.conftest import make_test_prompt
 
 # ================================================================== #
 # 1. Text attachment flow-through                                      #
@@ -50,6 +51,7 @@ class TestTextAttachmentIntegration:
                 name="TextBot",
                 role="Analyst",
                 objective="Read documents",
+                prompt=make_test_prompt(),
                 llm=MockLLM(),
                 config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
             )
@@ -93,6 +95,7 @@ class TestTextAttachmentIntegration:
                 name="PlainBot",
                 role="Helper",
                 objective="Answer questions",
+                prompt=make_test_prompt(),
                 llm=MockLLM(),
                 config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
             )
@@ -128,6 +131,7 @@ class TestImageAttachmentIntegration:
                 name="VisionBot",
                 role="Image analyzer",
                 objective="Describe images",
+                prompt=make_test_prompt(),
                 llm=MockLLM(),
                 config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
             )
@@ -178,6 +182,7 @@ class TestFileUrlIntegration:
                 name="FileBot",
                 role="Document reader",
                 objective="Process files",
+                prompt=make_test_prompt(),
                 llm=MockLLM(),
                 config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
             )
@@ -226,6 +231,7 @@ class TestMixedAttachmentIntegration:
                 name="MultiBot",
                 role="Researcher",
                 objective="Analyze multiple sources",
+                prompt=make_test_prompt(),
                 llm=MockLLM(),
                 config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
             )
@@ -283,6 +289,7 @@ class TestProviderProcessorIntegration:
             name="CustomBot",
             role="Transformer",
             objective="Transform inputs",
+            prompt=make_test_prompt(),
             llm=CustomLLM(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -318,6 +325,7 @@ class TestUsageTrackerWithAttachments:
             name="TrackerBot",
             role="Analyst",
             objective="Analyze files",
+            prompt=make_test_prompt(),
             llm=MockLLM(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -363,6 +371,7 @@ class TestUsageTrackerWithAttachments:
             name="UsageBot",
             role="Analyst",
             objective="Analyze files",
+            prompt=make_test_prompt(),
             llm=UsageMockLLM(),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -394,6 +403,7 @@ class TestStreamingWithAttachments:
             name="StreamBot",
             role="Reader",
             objective="Read files",
+            prompt=make_test_prompt(),
             llm=MockLLM(stream_chunk_size=5),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
@@ -423,6 +433,7 @@ class TestStreamingWithAttachments:
             name="VisionStream",
             role="Vision",
             objective="Describe images",
+            prompt=make_test_prompt(),
             llm=MockLLM(stream_chunk_size=3),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )

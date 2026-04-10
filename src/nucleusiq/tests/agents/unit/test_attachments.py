@@ -281,7 +281,7 @@ class TestTaskAttachments:
 class TestMessageBuilderMultimodal:
     def test_plain_task_no_attachments(self):
         task = Task(id="t1", objective="What is 2+2?")
-        msgs = MessageBuilder.build(task, role="Assistant", objective="Help")
+        msgs = MessageBuilder.build(task)
         user_msg = msgs[-1]
         assert user_msg.role == "user"
         assert user_msg.content == "What is 2+2?"
@@ -295,7 +295,7 @@ class TestMessageBuilderMultimodal:
                 Attachment(type="text", data="file content here", name="doc.txt"),
             ],
         )
-        msgs = MessageBuilder.build(task, role="Analyst", objective="Analyze")
+        msgs = MessageBuilder.build(task)
         user_msg = msgs[-1]
         assert user_msg.role == "user"
         assert isinstance(user_msg.content, list)
@@ -316,7 +316,7 @@ class TestMessageBuilderMultimodal:
                 ),
             ],
         )
-        msgs = MessageBuilder.build(task, role="Vision", objective="Describe images")
+        msgs = MessageBuilder.build(task)
         user_msg = msgs[-1]
         assert isinstance(user_msg.content, list)
         assert len(user_msg.content) == 2
@@ -339,7 +339,7 @@ class TestMessageBuilderMultimodal:
                 Attachment(type="image_url", data="https://example.com/chart.png"),
             ],
         )
-        msgs = MessageBuilder.build(task, role="Analyst", objective="Analyze")
+        msgs = MessageBuilder.build(task)
         user_msg = msgs[-1]
         assert isinstance(user_msg.content, list)
         assert len(user_msg.content) == 3
@@ -358,7 +358,7 @@ class TestMessageBuilderMultimodal:
                 Attachment(type="image_url", data="https://img.com/a.jpg"),
             ],
         )
-        msgs = MessageBuilder.build(task, role="Bot", objective="Help")
+        msgs = MessageBuilder.build(task)
         user_msg = msgs[-1]
         d = user_msg.to_dict()
         assert isinstance(d["content"], list)
@@ -368,15 +368,13 @@ class TestMessageBuilderMultimodal:
         """Dict-based tasks produce plain string content (backward compat)."""
         msgs = MessageBuilder.build(
             {"id": "t1", "objective": "hello"},
-            role="Bot",
-            objective="Help",
         )
         assert isinstance(msgs[-1].content, str)
 
     def test_task_empty_attachments_list(self):
         """Empty attachments list behaves like no attachments."""
         task = Task(id="t1", objective="plain task", attachments=[])
-        msgs = MessageBuilder.build(task, role="Bot", objective="Help")
+        msgs = MessageBuilder.build(task)
         assert isinstance(msgs[-1].content, str)
         assert msgs[-1].content == "plain task"
 

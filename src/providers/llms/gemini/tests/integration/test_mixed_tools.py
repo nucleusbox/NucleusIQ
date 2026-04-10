@@ -19,6 +19,7 @@ import pytest
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.agents.task import Task
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq_gemini import BaseGemini
 from nucleusiq_gemini.tools.gemini_tool import GeminiTool
@@ -322,7 +323,9 @@ class TestMixedToolsAgentStandardMode:
             name="IntegrationStandard",
             role="Research assistant with calculation abilities",
             objective="Answer questions using web search and calculations",
-            narrative="Use google_search for live data, calculator for math.",
+            prompt=ZeroShotPrompt().configure(
+                system="Use google_search for live data, calculator for math."
+            ),
             llm=BaseGemini(model_name="gemini-2.5-flash", temperature=0.0),
             tools=[search, calc],
             config=AgentConfig(
@@ -364,7 +367,9 @@ class TestMixedToolsAgentStandardMode:
             name="IntegrationSearchOnly",
             role="Web researcher",
             objective="Find information on the web",
-            narrative="Use google_search to find current information.",
+            prompt=ZeroShotPrompt().configure(
+                system="Use google_search to find current information."
+            ),
             llm=BaseGemini(model_name="gemini-2.5-flash", temperature=0.0),
             tools=[search, calc],
             config=AgentConfig(
@@ -396,7 +401,7 @@ class TestMixedToolsAgentStandardMode:
             name="IntegrationTracing",
             role="Assistant",
             objective="Answer questions",
-            narrative="Use tools as needed.",
+            prompt=ZeroShotPrompt().configure(system="Use tools as needed."),
             llm=BaseGemini(model_name="gemini-2.5-flash", temperature=0.0),
             tools=[search, calc],
             config=AgentConfig(
@@ -438,7 +443,7 @@ class TestMixedToolsAgentDirectMode:
             name="IntegrationDirect",
             role="Research assistant",
             objective="Answer questions using search and calculator",
-            narrative="Use google_search for live data.",
+            prompt=ZeroShotPrompt().configure(system="Use google_search for live data."),
             llm=BaseGemini(model_name="gemini-2.5-flash", temperature=0.0),
             tools=[search, calc],
             config=AgentConfig(
@@ -529,13 +534,15 @@ class TestMultiToolEvidenceFlash:
             name="EvidenceFlash",
             role="Research assistant with conversion and notes",
             objective="Search, convert units, and save notes",
-            narrative=(
-                "Tools:\n"
-                "1. google_search - web search\n"
-                "2. code_execution - run Python code\n"
-                "3. unit_converter - convert units "
-                "(km/miles, celsius/fahrenheit, kg/pounds, liters/gallons)\n"
-                "4. note_taker - save/list notes"
+            prompt=ZeroShotPrompt().configure(
+                system=(
+                    "Tools:\n"
+                    "1. google_search - web search\n"
+                    "2. code_execution - run Python code\n"
+                    "3. unit_converter - convert units "
+                    "(km/miles, celsius/fahrenheit, kg/pounds, liters/gallons)\n"
+                    "4. note_taker - save/list notes"
+                )
             ),
             llm=BaseGemini(model_name="gemini-2.5-flash", temperature=0.0),
             tools=[
@@ -584,10 +591,12 @@ class TestMultiToolEvidenceFlash:
             name="EvidenceCodeCalc",
             role="Calculation assistant",
             objective="Calculate and convert units",
-            narrative=(
-                "Tools:\n"
-                "1. code_execution - run Python code\n"
-                "2. unit_converter - convert units"
+            prompt=ZeroShotPrompt().configure(
+                system=(
+                    "Tools:\n"
+                    "1. code_execution - run Python code\n"
+                    "2. unit_converter - convert units"
+                )
             ),
             llm=BaseGemini(model_name="gemini-2.5-flash", temperature=0.0),
             tools=[GeminiTool.code_execution(), UnitConverterTool()],
@@ -638,13 +647,15 @@ class TestMultiToolEvidencePro:
             name="EvidencePro",
             role="Full-suite research assistant",
             objective="Use all tools to complete research",
-            narrative=(
-                "You have exactly 4 tools. Use ALL of them:\n"
-                "1. google_search - Search the web\n"
-                "2. code_execution - Execute Python code\n"
-                "3. unit_converter - Convert units "
-                "(km/miles, celsius/fahrenheit, kg/pounds, liters/gallons)\n"
-                "4. note_taker - Save/list notes (action='save'/'list')"
+            prompt=ZeroShotPrompt().configure(
+                system=(
+                    "You have exactly 4 tools. Use ALL of them:\n"
+                    "1. google_search - Search the web\n"
+                    "2. code_execution - Execute Python code\n"
+                    "3. unit_converter - Convert units "
+                    "(km/miles, celsius/fahrenheit, kg/pounds, liters/gallons)\n"
+                    "4. note_taker - Save/list notes (action='save'/'list')"
+                )
             ),
             llm=BaseGemini(model_name="gemini-2.5-pro", temperature=0.0),
             tools=[

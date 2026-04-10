@@ -46,3 +46,49 @@ def is_strict_defaults_model(model: str) -> bool:
     """
     m = (model or "").lower()
     return m.startswith("gpt-5") or is_o_series(m)
+
+
+# ------------------------------------------------------------------ #
+# Context window registry                                              #
+# ------------------------------------------------------------------ #
+
+_CONTEXT_WINDOWS: dict[str, int] = {
+    "gpt-4.1": 1_047_576,
+    "gpt-4.1-mini": 1_047_576,
+    "gpt-4.1-nano": 1_047_576,
+    "gpt-4o": 128_000,
+    "gpt-4o-mini": 128_000,
+    "gpt-4-turbo": 128_000,
+    "gpt-4": 8_192,
+    "gpt-4-32k": 32_768,
+    "gpt-3.5-turbo": 16_385,
+    "gpt-5": 1_050_000,
+    "gpt-5-mini": 400_000,
+    "gpt-5-nano": 400_000,
+    "gpt-5.4": 1_050_000,
+    "gpt-5.4-mini": 400_000,
+    "gpt-5.4-nano": 400_000,
+    "o1": 200_000,
+    "o1-mini": 128_000,
+    "o1-preview": 128_000,
+    "o3": 200_000,
+    "o3-mini": 200_000,
+    "o4-mini": 200_000,
+}
+
+_DEFAULT_CONTEXT_WINDOW = 128_000
+
+
+def get_context_window(model: str) -> int:
+    """Return context window size for an OpenAI model.
+
+    Matches on exact name first, then prefix-matches for versioned
+    model names (e.g. ``gpt-4o-2024-08-06`` → ``gpt-4o``).
+    """
+    m = (model or "").lower()
+    if m in _CONTEXT_WINDOWS:
+        return _CONTEXT_WINDOWS[m]
+    for prefix, size in _CONTEXT_WINDOWS.items():
+        if m.startswith(prefix):
+            return size
+    return _DEFAULT_CONTEXT_WINDOW

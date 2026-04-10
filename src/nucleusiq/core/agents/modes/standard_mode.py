@@ -15,7 +15,7 @@ Characteristics:
 
 import json
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -107,7 +107,7 @@ class StandardMode(BaseExecutionMode):
                 messages,
                 tool_specs,
                 max_tool_calls=max_tool_calls,
-                max_output_tokens=2048,
+                max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 2048),
             ):
                 if event.type == StreamEventType.COMPLETE:
                     final_content = event.content
@@ -143,7 +143,7 @@ class StandardMode(BaseExecutionMode):
                     mode="standard",
                 )
 
-    def _get_tool_specs(self, agent: "Agent") -> List[Dict[str, Any]]:
+    def _get_tool_specs(self, agent: "Agent") -> list[dict[str, Any]]:
         """Return LLM-formatted tool specifications."""
         if agent.tools and agent.llm:
             return agent.llm.convert_tool_specs(agent.tools)
@@ -152,21 +152,32 @@ class StandardMode(BaseExecutionMode):
     async def _tool_call_loop(
         self,
         agent: "Agent",
-        task: Task | Dict[str, Any],
-        messages: List[ChatMessage],
-        tool_specs: List[Dict[str, Any]],
+        task: Task | dict[str, Any],
+        messages: list[ChatMessage],
+        tool_specs: list[dict[str, Any]],
     ) -> Any:
         """Core tool-calling loop: LLM -> tool -> LLM -> ... -> final answer."""
         max_tool_calls = agent.config.get_effective_max_tool_calls()
         tool_call_count = 0
         call_round = 0
         empty_retries_remaining = 1
+        pre_synth_snapshot: list[ChatMessage] | None = None
 
         while tool_call_count < max_tool_calls:
             call_round += 1
+
+            # Snapshot messages *before* call_llm (which runs
+            # post_response and may mask tool results).  Synthesis
+            # needs the full, unmasked context to generate output.
+            if agent.config.enable_synthesis and tool_call_count > 0 and call_round > 2:
+                pre_synth_snapshot = list(messages)
+
             purpose = CallPurpose.MAIN if call_round == 1 else CallPurpose.TOOL_LOOP
             call_kwargs = self.build_call_kwargs(
-                agent, messages, tool_specs or None, max_output_tokens=2048
+                agent,
+                messages,
+                tool_specs or None,
+                max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 2048),
             )
             response = await self.call_llm(
                 agent, call_kwargs, messages, tool_specs or None, purpose=purpose
@@ -197,6 +208,15 @@ class StandardMode(BaseExecutionMode):
                 continue
 
             if content:
+                if pre_synth_snapshot is not None:
+                    agent._logger.info(
+                        "Synthesis pass: %d tool calls over %d rounds — "
+                        "re-calling LLM without tools for final output",
+                        tool_call_count,
+                        call_round - 1,
+                    )
+                    content = await self._synthesis_pass(agent, pre_synth_snapshot)
+
                 agent.state = AgentState.COMPLETED
                 await self._store_in_memory(agent, task, content)
                 return content
@@ -254,7 +274,7 @@ class StandardMode(BaseExecutionMode):
         agent: "Agent",
         msg: Any,
         tool_calls: list,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         *,
         tool_round: int = 1,
     ) -> str | None:
@@ -288,12 +308,21 @@ class StandardMode(BaseExecutionMode):
 
             try:
                 tool_result = await self.call_tool(agent, tc, tool_round=tool_round)
+                tool_result_str = json.dumps(tool_result)
+
+                # Context window management: compress large tool results
+                engine = getattr(agent, "_context_engine", None)
+                if engine is not None:
+                    tool_result_str = engine.ingest_tool_result(
+                        tool_result_str, tc.name
+                    )
+
                 messages.append(
                     ChatMessage(
                         role="tool",
                         name=tc.name,
                         tool_call_id=tc.id,
-                        content=json.dumps(tool_result),
+                        content=tool_result_str,
                     )
                 )
             except ToolExecutionError:
@@ -323,6 +352,48 @@ class StandardMode(BaseExecutionMode):
             fn_name = getattr(fn_info, "name", None) if fn_info else None
             fn_args_str = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
         return tc_id, fn_name, fn_args_str
+
+    async def _synthesis_pass(
+        self,
+        agent: "Agent",
+        messages: list[ChatMessage],
+    ) -> str:
+        """Final LLM call without tools to break mode inertia.
+
+        After multiple rounds of tool calls the model tends to stay in
+        a data-gathering mindset and returns a terse status update
+        instead of the full deliverable.  Re-calling with the same
+        messages but **no tool specs** AND a synthesis nudge forces the
+        model into generation mode so it produces the full output.
+        """
+        synth_messages = list(messages)
+        synth_messages.append(
+            ChatMessage(
+                role="user",
+                content=(
+                    "All data gathering is complete. "
+                    "Now produce the COMPLETE, FULL-LENGTH deliverable "
+                    "exactly as described in your instructions. "
+                    "Do not summarize — write the entire output."
+                ),
+            )
+        )
+
+        call_kwargs = self.build_call_kwargs(
+            agent,
+            synth_messages,
+            None,
+            max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 2048),
+        )
+        response = await self.call_llm(
+            agent,
+            call_kwargs,
+            synth_messages,
+            None,
+            purpose=CallPurpose.SYNTHESIS,
+        )
+        self.validate_response(response)
+        return self.extract_content(response.choices[0].message) or ""
 
     async def _store_in_memory(self, agent: "Agent", task: Any, content: str) -> None:
         """Persist result in agent memory."""

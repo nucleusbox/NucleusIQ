@@ -15,7 +15,7 @@ override the async methods directly.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,7 +43,7 @@ class BaseMemory(BaseModel, ABC):
         default=None,
         description="Session identifier for conversation scoping.",
     )
-    metadata: Dict[str, Any] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Arbitrary metadata passed to provider backends.",
     )
@@ -76,7 +76,7 @@ class BaseMemory(BaseModel, ABC):
     @abstractmethod
     def get_context(
         self, query: str | None = None, **kwargs: Any
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """Retrieve relevant conversation context.
 
         Args:
@@ -101,7 +101,7 @@ class BaseMemory(BaseModel, ABC):
 
     def get_relevant_context(
         self, query: Any = None, **kwargs: Any
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """Retrieve context relevant to a specific query or task.
 
         By default delegates to ``get_context()`` — suitable for
@@ -121,11 +121,11 @@ class BaseMemory(BaseModel, ABC):
     def initialize(self) -> None:
         """One-time setup (connect to DB, warm cache, etc.)."""
 
-    def export_state(self) -> Dict[str, Any]:
+    def export_state(self) -> dict[str, Any]:
         """Serialize internal state for persistence."""
         return {}
 
-    def import_state(self, state: Dict[str, Any]) -> None:
+    def import_state(self, state: dict[str, Any]) -> None:
         """Restore internal state from a previous export."""
 
     # ------------------------------------------------------------------
@@ -135,7 +135,7 @@ class BaseMemory(BaseModel, ABC):
 
     async def aget_relevant_context(
         self, query: Any = None, **kwargs: Any
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         return self.get_relevant_context(query, **kwargs)
 
     async def aadd_message(self, role: str, content: str, **kwargs: Any) -> None:
@@ -143,7 +143,7 @@ class BaseMemory(BaseModel, ABC):
 
     async def aget_context(
         self, query: str | None = None, **kwargs: Any
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         return self.get_context(query, **kwargs)
 
     async def aclear(self) -> None:
@@ -152,8 +152,8 @@ class BaseMemory(BaseModel, ABC):
     async def ainitialize(self) -> None:
         self.initialize()
 
-    async def aexport_state(self) -> Dict[str, Any]:
+    async def aexport_state(self) -> dict[str, Any]:
         return self.export_state()
 
-    async def aimport_state(self, state: Dict[str, Any]) -> None:
+    async def aimport_state(self, state: dict[str, Any]) -> None:
         self.import_state(state)

@@ -10,7 +10,7 @@ provided, falls back to keeping the last raw message as the summary.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 from nucleusiq.memory.base import BaseMemory
 from pydantic import ConfigDict, Field
@@ -90,7 +90,7 @@ class SummaryMemory(BaseMemory):
 
     def get_context(
         self, query: str | None = None, **kwargs: Any
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         if not self._summary:
             return []
         return [{"role": "system", "content": self._summary}]
@@ -99,13 +99,13 @@ class SummaryMemory(BaseMemory):
         self._summary = ""
         self._message_count = 0
 
-    def export_state(self) -> Dict[str, Any]:
+    def export_state(self) -> dict[str, Any]:
         return {
             "summary": self._summary,
             "message_count": self._message_count,
         }
 
-    def import_state(self, state: Dict[str, Any]) -> None:
+    def import_state(self, state: dict[str, Any]) -> None:
         self._summary = state.get("summary", "")
         self._message_count = state.get("message_count", 0)
 

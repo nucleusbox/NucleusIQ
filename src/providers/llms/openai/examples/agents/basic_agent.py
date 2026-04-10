@@ -20,7 +20,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq_openai import BaseOpenAI
 
 # Configure logging
@@ -62,8 +62,8 @@ async def main():
 
     # Step 2: Create prompt
     logger.info("\n2. Creating prompt...")
-    prompt = PromptFactory.create_prompt(technique=PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful assistant.",
+    prompt = ZeroShotPrompt().configure(
+        system="BasicBot is a helpful assistant that answers questions.",
         user="Answer the user's question clearly and concisely.",
     )
     logger.info("✅ Prompt created")
@@ -74,7 +74,6 @@ async def main():
         name="BasicBot",
         role="Assistant",
         objective="Help users with their questions.",
-        narrative="BasicBot is a helpful assistant that answers questions.",
         llm=llm,  # LLM is just a parameter
         prompt=prompt,
         config=AgentConfig(verbose=True),

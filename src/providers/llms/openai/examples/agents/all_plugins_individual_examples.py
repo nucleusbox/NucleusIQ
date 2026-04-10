@@ -24,6 +24,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
 from nucleusiq.plugins.builtin import (
     ContextWindowPlugin,
@@ -116,6 +117,9 @@ async def example_model_call_limit():
         role="Assistant with cost control",
         objective="Answer questions within call budget",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer clearly and concisely.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         plugins=[ModelCallLimitPlugin(max_calls=5)],
     )
@@ -147,6 +151,9 @@ async def example_tool_call_limit():
         objective="Calculate with bounded tool usage",
         llm=llm,
         tools=[add_tool, mul_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a math assistant. Use add and multiply tools for calculations when appropriate.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             ToolCallLimitPlugin(max_calls=5),
@@ -179,6 +186,9 @@ async def example_tool_retry():
         objective="Use tools with retry protection",
         llm=llm,
         tools=[add_tool, mul_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a math assistant. Use tools to compute answers reliably.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             ToolRetryPlugin(max_retries=2, base_delay=0.5, max_delay=5.0),
@@ -210,6 +220,9 @@ async def example_model_fallback():
         role="Resilient assistant with model fallback",
         objective="Answer questions with failover protection",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer directly and concisely.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         plugins=[
             ModelFallbackPlugin(
@@ -247,6 +260,9 @@ async def example_pii_guard():
         objective="Help users while protecting PII",
         llm=llm,
         tools=[search_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a privacy-aware assistant. Use search_contacts when users ask about people in the directory; summarize findings without inventing data.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             PIIGuardPlugin(
@@ -276,6 +292,9 @@ async def example_pii_guard():
         objective="Help users while masking PII",
         llm=llm,
         tools=[search_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a privacy-aware assistant. Use search_contacts for lookups and report what the tool returns.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             PIIGuardPlugin(
@@ -302,6 +321,9 @@ async def example_pii_guard():
         role="API key protection",
         objective="Detect custom PII patterns",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a security-aware assistant. Discuss API keys and validation generically; never reproduce full secret values.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         plugins=[
             PIIGuardPlugin(
@@ -351,6 +373,9 @@ async def example_human_approval():
         objective="Do math with human oversight",
         llm=llm,
         tools=[add_tool, mul_tool, delete_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a calculator assistant. Prefer add and multiply tools for arithmetic; do not delete files unless explicitly required.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             HumanApprovalPlugin(
@@ -389,6 +414,9 @@ async def example_context_window():
         objective="Chat with managed context",
         llm=llm,
         memory=memory,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful conversational assistant. Remember context from the conversation when answering.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         plugins=[
             ContextWindowPlugin(
@@ -436,6 +464,9 @@ async def example_tool_guard():
         objective="Use tools safely",
         llm=llm,
         tools=[add_tool, mul_tool, search_tool, delete_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Use add, multiply, or search_contacts as needed; respect tool policy errors.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             ToolGuardPlugin(
@@ -460,6 +491,9 @@ async def example_tool_guard():
         objective="Only do math",
         llm=llm,
         tools=[add_tool, mul_tool, search_tool, delete_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a math-only assistant. Use only add and multiply tools for calculations.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             ToolGuardPlugin(allowed=["add", "multiply"]),

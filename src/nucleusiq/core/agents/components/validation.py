@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any
 
 from nucleusiq.plugins.errors import PluginExecutionError
 
@@ -33,7 +33,7 @@ class ValidationResult:
     valid: bool
     layer: str = ""
     reason: str = ""
-    details: List[str] = field(default_factory=list)
+    details: list[str] = field(default_factory=list)
 
 
 class ValidationPipeline:
@@ -59,7 +59,7 @@ class ValidationPipeline:
         self,
         agent: Agent,
         result: Any,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
     ) -> ValidationResult:
         """Run all applicable validation layers in order.
 
@@ -94,7 +94,7 @@ class ValidationPipeline:
     @staticmethod
     def _check_tool_outputs(
         result: Any,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
     ) -> ValidationResult:
         """Built-in checks on tool outputs — no LLM, no plugins."""
 
@@ -191,7 +191,7 @@ class ValidationPipeline:
         self,
         agent: Agent,
         result: Any,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
     ) -> ValidationResult:
         """Optional LLM-based review — only runs when explicitly enabled.
 

@@ -1,11 +1,9 @@
 # src/nucleusiq/utilities/clustering.py
 
-from typing import Dict, List
-
 
 def cluster_questions(
-    questions: List[str], num_clusters: int = 5
-) -> Dict[int, List[str]]:
+    questions: list[str], num_clusters: int = 5
+) -> dict[int, list[str]]:
     """
     Clusters questions into the specified number of clusters using KMeans.
 
@@ -42,7 +40,7 @@ def cluster_questions(
     if labels is None:
         raise RuntimeError("KMeans labels not available after fitting")
 
-    clusters: Dict[int, List[str]] = {}
+    clusters: dict[int, list[str]] = {}
     for label, question in zip(labels, questions):
         clusters.setdefault(label, []).append(question)
 

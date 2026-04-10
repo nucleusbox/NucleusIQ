@@ -21,6 +21,7 @@ import uuid
 
 import pytest
 from nucleusiq.agents.task import Task
+from nucleusiq.tests.conftest import make_test_prompt
 from pydantic import ValidationError
 
 
@@ -378,7 +379,11 @@ class TestTaskIntegration:
 
         llm = MockLLM()
         agent = Agent(
-            name="TestAgent", role="Assistant", objective="Help users", llm=llm
+            name="TestAgent",
+            role="Assistant",
+            objective="Help users",
+            llm=llm,
+            prompt=make_test_prompt(),
         )
 
         task = Task(id="task1", objective="What is 2 + 2?")
@@ -395,7 +400,11 @@ class TestTaskIntegration:
 
         llm = MockLLM()
         agent = Agent(
-            name="TestAgent", role="Assistant", objective="Help users", llm=llm
+            name="TestAgent",
+            role="Assistant",
+            objective="Help users",
+            llm=llm,
+            prompt=make_test_prompt(),
         )
 
         task = Task(id="task1", objective="What is 2 + 2?")

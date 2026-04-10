@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import sys
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Type, TypeVar
+from typing import Any, TypeVar
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -28,10 +29,10 @@ class BasePrompt(BaseModel, ABC):
     template: str = Field(
         default="", description="Prompt template string with placeholders."
     )
-    input_variables: List[str] = Field(
+    input_variables: list[str] = Field(
         default_factory=list, description="Names of required variables."
     )
-    optional_variables: List[str] = Field(
+    optional_variables: list[str] = Field(
         default_factory=list, description="Names of optional variables."
     )
 
@@ -44,10 +45,10 @@ class BasePrompt(BaseModel, ABC):
     )
     user: str | None = Field(default=None, description="User prompt or question.")
 
-    partial_variables: Dict[str, Any | Callable[[], Any]] = Field(default_factory=dict)
+    partial_variables: dict[str, Any | Callable[[], Any]] = Field(default_factory=dict)
     output_parser: Callable[[str], Any] | None = None
-    metadata: Dict[str, Any] | None = None
-    tags: List[str] | None = Field(default_factory=list)
+    metadata: dict[str, Any] | None = None
+    tags: list[str] | None = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
@@ -114,7 +115,7 @@ class BasePrompt(BaseModel, ABC):
         # If all checks pass, do final construction
         return self._construct_prompt(**combined_vars)
 
-    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
+    def _pre_format_validation(self, combined_vars: dict[str, Any]) -> None:
         """
         Optional hook for subclass-specific validations.
         By default, does nothing.
@@ -156,7 +157,7 @@ class BasePrompt(BaseModel, ABC):
             )
 
     @classmethod
-    def load(cls: Type[Self], file_path: Path | str) -> Self:
+    def load(cls: type[Self], file_path: Path | str) -> Self:
         p = Path(file_path)
         if p.suffix == ".json":
             with open(p, encoding="utf-8") as f:
@@ -194,11 +195,11 @@ class BasePrompt(BaseModel, ABC):
     #
     # Additional convenience methods
     #
-    def set_metadata(self, metadata: Dict[str, Any]) -> Self:
+    def set_metadata(self, metadata: dict[str, Any]) -> Self:
         self.metadata = metadata
         return self
 
-    def add_tags(self, tags: List[str]) -> Self:
+    def add_tags(self, tags: list[str]) -> Self:
         if self.tags is not None:
             self.tags.extend(tags)
         else:
@@ -209,7 +210,7 @@ class BasePrompt(BaseModel, ABC):
         self.output_parser = parser
         return self
 
-    def _merge_partial_variables(self, **kwargs: Any) -> Dict[str, Any]:
+    def _merge_partial_variables(self, **kwargs: Any) -> dict[str, Any]:
         # Merges partial_variables with any provided kwargs
         partial_vals = {
             k: (v() if callable(v) else v) for k, v in self.partial_variables.items()

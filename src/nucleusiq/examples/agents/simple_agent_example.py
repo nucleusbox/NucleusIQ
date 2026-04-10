@@ -19,7 +19,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.base_tool import BaseTool
 
 # Configure logging
@@ -45,8 +45,8 @@ async def main():
 
     # Step 2: Create prompt
     logger.info("\n2. Creating prompt...")
-    prompt = PromptFactory.create_prompt(technique=PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful assistant.",
+    prompt = ZeroShotPrompt().configure(
+        system="SimpleBot can add numbers using tools.",
         user="Compute the sum of two numbers or repeat the request.",
     )
     logger.info("✅ Prompt created")
@@ -67,7 +67,6 @@ async def main():
         name="SimpleBot",
         role="Calculator",
         objective="Help users with calculations.",
-        narrative="SimpleBot can add numbers using tools.",
         llm=llm,
         prompt=prompt,
         tools=[adder_tool],

@@ -30,7 +30,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Any, Callable, Dict, Type, get_origin, overload
+from collections.abc import Callable
+from typing import Any, get_origin, overload
 
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq.tools.errors import ToolValidationError
@@ -157,7 +158,7 @@ def _build_spec_from_signature(
     except Exception:
         resolved_hints = {}
 
-    properties: Dict[str, Any] = {}
+    properties: dict[str, Any] = {}
     required: list[str] = []
 
     for pname, param in sig.parameters.items():
@@ -166,7 +167,7 @@ def _build_spec_from_signature(
 
         annotation = resolved_hints.get(pname, param.annotation)
         json_type = _annotation_to_json_type(annotation)
-        prop: Dict[str, Any] = {
+        prop: dict[str, Any] = {
             "type": json_type,
             "description": param_docs.get(pname, ""),
         }
@@ -207,7 +208,7 @@ class DecoratedTool(BaseTool):
         *,
         tool_name: str,
         tool_description: str,
-        args_schema: Type[Any] | None = None,
+        args_schema: type[Any] | None = None,
     ) -> None:
         super().__init__(name=tool_name, description=tool_description)
         self._fn = fn
@@ -236,7 +237,7 @@ class DecoratedTool(BaseTool):
             return await self._fn(**kwargs)
         return self._fn(**kwargs)
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         return self._spec
 
     # ---- Pydantic schema builder ------------------------------------ #
@@ -271,7 +272,7 @@ def tool(  # pyrefly: ignore[inconsistent-overload]
     name: str | None = None,
     *,
     description: str | None = None,
-    args_schema: Type[Any] | None = None,
+    args_schema: type[Any] | None = None,
 ) -> Callable[[Callable[..., Any]], DecoratedTool]: ...
 
 
@@ -280,7 +281,7 @@ def tool(
     *,
     name: str | None = None,
     description: str | None = None,
-    args_schema: Type[Any] | None = None,
+    args_schema: type[Any] | None = None,
 ) -> DecoratedTool | Callable[[Callable[..., Any]], DecoratedTool]:
     """Create a ``BaseTool`` from a function via decorator.
 

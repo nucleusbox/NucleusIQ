@@ -9,6 +9,7 @@ from nucleusiq.agents.react_agent import ReActAgent
 from nucleusiq.llms.errors import LLMError
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.prompts.zero_shot import ZeroShotPrompt
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 def _make_agent(**overrides):
@@ -16,7 +17,7 @@ def _make_agent(**overrides):
         name="TestReAct",
         role="Assistant",
         objective="Answer questions",
-        narrative="A test agent",
+        prompt=make_test_prompt(),
     )
     defaults.update(overrides)
     return ReActAgent(**defaults)

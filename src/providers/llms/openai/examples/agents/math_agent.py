@@ -20,7 +20,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
 
@@ -56,8 +56,8 @@ async def main():
 
     # Step 2: Create prompt
     logger.info("\n2. Creating prompt...")
-    prompt = PromptFactory.create_prompt(technique=PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful math assistant that can perform calculations.",
+    prompt = ZeroShotPrompt().configure(
+        system="MathBot can perform basic arithmetic operations using tools.",
         user="Help the user with their mathematical questions. Use tools when appropriate.",
     )
     logger.info("✅ Prompt created")
@@ -97,7 +97,6 @@ async def main():
         name="MathBot",
         role="Math Assistant",
         objective="Help users with mathematical calculations.",
-        narrative="MathBot can perform basic arithmetic operations using tools.",
         llm=llm,  # LLM is just a parameter
         prompt=prompt,
         tools=tools,

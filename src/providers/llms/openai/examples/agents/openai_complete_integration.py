@@ -38,6 +38,7 @@ from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.structured_output import OutputMode, OutputSchema
 from nucleusiq.agents.task import Task
 from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
 
@@ -124,6 +125,9 @@ async def example_direct_mode_structured():
         role="Data Extraction Assistant",
         objective="Extract structured information from text",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a data extraction assistant. Extract structured person fields accurately from the user's text.",
+        ),
         response_format=PersonInfo,  # AUTO mode - uses NATIVE for OpenAI
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
@@ -354,6 +358,9 @@ async def example_structured_output_native():
         role="Structured Data Extractor",
         objective="Extract structured data with strict validation",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a precise math assistant. Perform the calculation and populate the structured response schema exactly.",
+        ),
         response_format=OutputSchema(
             schema=CalculationResult,
             mode=OutputMode.NATIVE,
@@ -415,6 +422,9 @@ async def example_react_agent():
         objective="Use reasoning and tools to solve problems",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a ReAct agent. Think step by step, choose tools when they help, and give a clear final answer.",
+        ),
         max_iterations=10,
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
     )

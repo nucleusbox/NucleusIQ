@@ -11,7 +11,7 @@ NucleusIQ Design Philosophy:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, Set, Type, TypeVar, Union
+from typing import Any, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -20,9 +20,9 @@ T = TypeVar("T")
 
 # Supported schema types
 SchemaType = Union[
-    Type[BaseModel],  # Pydantic models
-    Type,  # Dataclasses, TypedDicts, or any class with annotations
-    Dict[str, Any],  # Raw JSON Schema
+    type[BaseModel],  # Pydantic models
+    type,  # Dataclasses, TypedDicts, or any class with annotations
+    dict[str, Any],  # Raw JSON Schema
 ]
 
 
@@ -65,7 +65,7 @@ class OutputMode(str, Enum):
     """Use prompt engineering with JSON instructions. (Coming Soon)"""
 
     @classmethod
-    def implemented_modes(cls) -> Set[OutputMode]:
+    def implemented_modes(cls) -> set[OutputMode]:
         """Return set of currently implemented modes."""
         return {cls.AUTO, cls.NATIVE}
 

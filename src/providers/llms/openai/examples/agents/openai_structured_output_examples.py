@@ -39,6 +39,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.structured_output import OutputMode, OutputSchema
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.agents.task import Task
 from nucleusiq_openai import BaseOpenAI
 
@@ -117,6 +118,9 @@ async def example_auto_mode_pydantic():
         name="Extractor",
         role="Data Extractor",
         objective="Extract structured data",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract person records from unstructured text. Fill all schema fields accurately."
+        ),
         llm=llm,
         response_format=Person,  # AUTO mode → NATIVE for OpenAI
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -167,6 +171,9 @@ async def example_native_mode_strict():
         name="StrictExtractor",
         role="Strict Data Extractor",
         objective="Extract data with strict validation",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract structured person data. Obey the schema strictly; every required field must be present."
+        ),
         llm=llm,
         response_format=OutputSchema(
             schema=Person,
@@ -218,6 +225,9 @@ async def example_nested_pydantic():
         name="CompanyExtractor",
         role="Company Data Extractor",
         objective="Extract company information",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract company information including nested executive details. Match the full schema."
+        ),
         llm=llm,
         response_format=Company,  # Nested structure
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -268,6 +278,9 @@ async def example_dataclass_schema():
         name="ProductExtractor",
         role="Product Data Extractor",
         objective="Extract product information",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract product fields (name, price, category, stock) from the user's description."
+        ),
         llm=llm,
         response_format=Product,  # Dataclass
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -315,6 +328,9 @@ async def example_typeddict_schema():
         name="WeatherExtractor",
         role="Weather Data Extractor",
         objective="Extract weather information",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract weather details (location, temperature, condition, humidity) into the given schema."
+        ),
         llm=llm,
         response_format=WeatherInfo,  # TypedDict
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -363,6 +379,9 @@ async def example_error_handling():
         name="RetryExtractor",
         role="Data Extractor with Retry",
         objective="Extract data with automatic retry on errors",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract person information. If any field is missing, infer reasonable values when possible to satisfy the schema."
+        ),
         llm=llm,
         response_format=OutputSchema(
             schema=Person,
@@ -416,6 +435,9 @@ async def example_non_strict_mode():
         name="FlexibleExtractor",
         role="Flexible Data Extractor",
         objective="Extract data with flexible validation",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract person data per the schema. Non-strict mode may include extra fields when helpful."
+        ),
         llm=llm,
         response_format=OutputSchema(
             schema=Person,

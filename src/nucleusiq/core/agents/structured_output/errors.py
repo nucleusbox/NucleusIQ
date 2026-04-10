@@ -12,7 +12,7 @@ Hierarchy::
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.errors.base import NucleusIQError
 
@@ -68,7 +68,7 @@ class SchemaValidationError(StructuredOutputError):
         *,
         schema_name: str | None = None,
         raw_output: Any = None,
-        field_errors: List[Dict[str, Any]] | None = None,
+        field_errors: list[dict[str, Any]] | None = None,
         retryable: bool = True,
     ):
         super().__init__(
@@ -135,8 +135,8 @@ class MultipleOutputError(StructuredOutputError):
         self,
         message: str,
         *,
-        output_names: List[str] | None = None,
-        outputs: List[Any] | None = None,
+        output_names: list[str] | None = None,
+        outputs: list[Any] | None = None,
     ):
         super().__init__(
             message,

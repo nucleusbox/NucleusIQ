@@ -14,7 +14,7 @@ import inspect
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any, ClassVar, Dict, List, Type
+from typing import Any, ClassVar
 
 from nucleusiq.agents.agent_result import AgentResult, AutonomousDetail, ResultStatus
 from nucleusiq.agents.builder.base_agent import BaseAgent
@@ -52,34 +52,28 @@ class Agent(BaseAgent):
     - "standard": Tool-enabled loop, max 30 tool calls (Gear 2) - default
     - "autonomous": Orchestration + Critic/Refiner, max 100 tool calls (Gear 3)
 
-    Prompt Precedence:
-    - If ``prompt`` is provided, it takes precedence over ``role``/``objective``
-      for LLM message construction during execution.
-    - If ``prompt`` is None, ``role`` and ``objective`` are used to construct
-      the system message: "You are a {role}. Your objective is to {objective}."
+    Prompt (required):
+    - ``prompt`` — a ``BasePrompt`` instance defining the system message
+      and optional user preamble for the LLM.  Use
+      ``PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT)``
+      or any BasePrompt subclass.
 
-    Example:
-        # With prompt (prompt takes precedence)
+    Labels (for logging / documentation only — NOT sent to LLM):
+    - ``role`` — short human-readable label (default "Agent")
+    - ``objective`` — short description of purpose
+
+    Example::
+
         agent = Agent(
             name="CalculatorBot",
-            role="Calculator",
-            objective="Perform calculations",
-            prompt=PromptFactory.create_prompt().configure(
+            role="Calculator",  # label only
+            objective="Perform math ops",  # label only
+            prompt=PromptFactory.create_prompt(PromptTechnique.ZERO_SHOT).configure(
                 system="You are a helpful calculator assistant.",
-                user="Answer questions accurately."
+                user="Answer questions accurately.",
             ),
             llm=llm,
-            config=AgentConfig(execution_mode="standard")
-        )
-
-        # Without prompt (role/objective used)
-        agent = Agent(
-            name="CalculatorBot",
-            role="Calculator",              # Used to build system message
-            objective="Perform calculations", # Used to build system message
-            prompt=None,
-            llm=llm,
-            config=AgentConfig(execution_mode="direct")
+            config=AgentConfig(execution_mode="standard"),
         )
     """
 
@@ -87,14 +81,14 @@ class Agent(BaseAgent):
     # Mode registry (Open/Closed Principle)                               #
     # ------------------------------------------------------------------ #
 
-    _mode_registry: ClassVar[Dict[str, Type[BaseExecutionMode]]] = {
+    _mode_registry: ClassVar[dict[str, type[BaseExecutionMode]]] = {
         "direct": DirectMode,
         "standard": StandardMode,
         "autonomous": AutonomousMode,
     }
 
     @classmethod
-    def register_mode(cls, name: str, mode_class: Type[BaseExecutionMode]) -> None:
+    def register_mode(cls, name: str, mode_class: type[BaseExecutionMode]) -> None:
         """
         Register a new execution mode without modifying Agent.
 
@@ -108,7 +102,7 @@ class Agent(BaseAgent):
     # Plugin system                                                        #
     # ------------------------------------------------------------------ #
 
-    plugins: List[BasePlugin] = Field(
+    plugins: list[BasePlugin] = Field(
         default_factory=list,
         description="List of plugins to hook into the agent execution pipeline",
     )
@@ -124,8 +118,10 @@ class Agent(BaseAgent):
     )
     _usage_tracker: UsageTracker = PrivateAttr(default_factory=UsageTracker)
     _tracer: DefaultExecutionTracer | None = PrivateAttr(default=None)
+    _context_engine: Any = PrivateAttr(default=None)
     _last_messages: list | None = PrivateAttr(default=None)
     _execution_progress: Any = PrivateAttr(default=None)
+    _sub_agent_context_tels: list = PrivateAttr(default_factory=list)
 
     # ------------------------------------------------------------------ #
     # LIFECYCLE                                                           #
@@ -181,7 +177,7 @@ class Agent(BaseAgent):
     # PLAN CREATION (simple default)                                      #
     # ------------------------------------------------------------------ #
 
-    async def plan(self, task: Task | Dict[str, Any]) -> Plan:
+    async def plan(self, task: Task | dict[str, Any]) -> Plan:
         """
         Create an execution plan for the given task.
 
@@ -209,7 +205,7 @@ class Agent(BaseAgent):
     def _resolve_llm_params(
         self,
         per_execute: LLMParams | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Merge LLM parameter overrides and return a kwargs dict.
 
@@ -259,9 +255,91 @@ class Agent(BaseAgent):
             )
         return mode_class()
 
+    def _create_context_engine(self) -> Any:
+        """Create a ContextEngine if context management is configured.
+
+        Returns ``None`` when context management is disabled (zero overhead).
+        Auto-creates with defaults when ``respect_context_window=True``
+        and ``config.context`` is ``None``.
+        """
+        try:
+            from nucleusiq.agents.context.config import ContextConfig
+            from nucleusiq.agents.context.engine import ContextEngine
+
+            ctx_config = self.config.context
+
+            if ctx_config is None and self.config.respect_context_window:
+                mode_val = (
+                    self.config.execution_mode.value
+                    if hasattr(self.config.execution_mode, "value")
+                    else str(self.config.execution_mode)
+                )
+                ctx_config = ContextConfig.for_mode(mode_val)
+
+            if ctx_config is None or ctx_config.strategy == "none":
+                return None
+
+            max_tokens = ctx_config.max_context_tokens
+            if max_tokens is None and self.llm:
+                try:
+                    raw = self.llm.get_context_window()
+                    max_tokens = int(raw) if isinstance(raw, (int, float)) else None
+                except Exception:
+                    max_tokens = None
+
+            counter = self._build_token_counter()
+
+            return ContextEngine(
+                config=ctx_config,
+                token_counter=counter,
+                max_tokens=max_tokens or 128_000,
+                tracer=self._tracer,
+            )
+        except Exception:
+            self._logger.debug("Context engine creation failed, proceeding without it")
+            return None
+
+    def _build_token_counter(self) -> Any:
+        """Build a TokenCounter from the LLM's estimate_tokens method."""
+        from nucleusiq.agents.context.counter import DefaultTokenCounter
+
+        if self.llm is None:
+            return DefaultTokenCounter()
+
+        class _LLMTokenCounter:
+            """Adapter: wraps BaseLLM.estimate_tokens() as a TokenCounter."""
+
+            def __init__(self, llm: Any) -> None:
+                self._llm = llm
+
+            def count(self, text: str) -> int:
+                return self._llm.estimate_tokens(text)
+
+            def count_messages(self, messages: list) -> int:
+                total = 0
+                for msg in messages:
+                    total += 4
+                    content = msg.content if hasattr(msg, "content") else ""
+                    if isinstance(content, str):
+                        total += self.count(content)
+                    elif isinstance(content, list):
+                        for part in content:
+                            if isinstance(part, dict):
+                                text = part.get("text", "")
+                                if text:
+                                    total += self.count(text)
+                    if hasattr(msg, "name") and msg.name:
+                        total += self.count(msg.name)
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            total += self.count(str(tc))
+                return total
+
+        return _LLMTokenCounter(self.llm)
+
     async def _setup_execution(
         self,
-        task: Task | Dict[str, Any],
+        task: Task | dict[str, Any],
         llm_params: LLMParams | None = None,
     ) -> tuple:
         """Shared lifecycle setup for ``execute()`` and ``execute_stream()``.
@@ -295,10 +373,16 @@ class Agent(BaseAgent):
         self._plugin_manager.reset_counters()
 
         self._usage_tracker.reset()
-        self._tracer = DefaultExecutionTracer() if self.config.enable_tracing else None
+        self._tracer = (
+            DefaultExecutionTracer() if self.config.effective_tracing else None
+        )
 
         if self._plugin_manager is not None and self._tracer is not None:
             self._plugin_manager._tracer = self._tracer
+
+        # Context window management — create ContextEngine if configured
+        self._context_engine = self._create_context_engine()
+        self._sub_agent_context_tels = []
 
         agent_ctx = AgentContext(
             agent_name=self.name,
@@ -332,7 +416,7 @@ class Agent(BaseAgent):
 
     async def execute(
         self,
-        task: Task | Dict[str, Any],
+        task: Task | dict[str, Any],
         llm_params: LLMParams | None = None,
     ) -> AgentResult:
         """Execute a task using the agent's capabilities.
@@ -471,6 +555,24 @@ class Agent(BaseAgent):
                 except Exception:
                     autonomous_out = None
 
+        # Context telemetry (merge sub-agent telemetries for autonomous mode)
+        context_tel = None
+        engine = getattr(self, "_context_engine", None)
+        if engine is not None:
+            try:
+                context_tel = engine.telemetry
+            except Exception:
+                pass
+
+        sub_tels = getattr(self, "_sub_agent_context_tels", [])
+        if sub_tels:
+            try:
+                from nucleusiq.agents.context.telemetry import ContextTelemetry
+
+                context_tel = ContextTelemetry.merge(context_tel, sub_tels)
+            except Exception:
+                pass
+
         return AgentResult(
             agent_id=str(self.id),
             agent_name=self.name,
@@ -488,6 +590,7 @@ class Agent(BaseAgent):
             plugin_events=plugin_events_t,
             memory_snapshot=memory_snap,
             autonomous=autonomous_out,
+            context_telemetry=context_tel,
             warnings=warnings_t,
         )
 
@@ -497,7 +600,7 @@ class Agent(BaseAgent):
 
     async def execute_stream(
         self,
-        task: Task | Dict[str, Any],
+        task: Task | dict[str, Any],
         llm_params: LLMParams | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream task execution as ``StreamEvent`` objects.
@@ -568,7 +671,7 @@ class Agent(BaseAgent):
             self.response_format, self.llm
         )
 
-    def _get_structured_output_kwargs(self, output_config: Any) -> Dict[str, Any]:
+    def _get_structured_output_kwargs(self, output_config: Any) -> dict[str, Any]:
         """Build LLM call kwargs for structured output.
 
         Delegates to ``StructuredOutputHandler``.
@@ -631,12 +734,12 @@ class Agent(BaseAgent):
             self._logger.error(f"Result processing failed: {str(e)}")
             raise
 
-    def _validate_task(self, task: Dict[str, Any]) -> bool:
+    def _validate_task(self, task: dict[str, Any]) -> bool:
         """Validate task format and requirements."""
         required_fields = ["id", "objective"]
         return all(field in task for field in required_fields)
 
-    async def _execute_tool(self, tool_name: str, params: Dict[str, Any]) -> Any:
+    async def _execute_tool(self, tool_name: str, params: dict[str, Any]) -> Any:
         """Execute a specific tool with parameters."""
         from nucleusiq.tools.errors import ToolNotFoundError
 
@@ -653,7 +756,7 @@ class Agent(BaseAgent):
         finally:
             self.state = AgentState.EXECUTING
 
-    async def _handle_error(self, error: Exception, context: Dict[str, Any]) -> None:
+    async def _handle_error(self, error: Exception, context: dict[str, Any]) -> None:
         """Handle execution errors with appropriate logging and recovery."""
         self._logger.error(f"Error during execution: {str(error)}")
 
@@ -666,7 +769,7 @@ class Agent(BaseAgent):
         self.metrics.error_count += 1
         self.state = AgentState.ERROR
 
-    async def save_state(self) -> Dict[str, Any]:
+    async def save_state(self) -> dict[str, Any]:
         """Save agent's current state."""
         state = {
             "id": self.id,
@@ -682,7 +785,7 @@ class Agent(BaseAgent):
 
         return state
 
-    async def load_state(self, state: Dict[str, Any]) -> None:
+    async def load_state(self, state: dict[str, Any]) -> None:
         """Load agent's saved state."""
         self.state = state["state"]
         self.metrics = AgentMetrics(**state["metrics"])
@@ -694,7 +797,7 @@ class Agent(BaseAgent):
         self._logger.info(f"Loaded agent state from {state['timestamp']}")
 
     async def delegate_task(
-        self, task: Dict[str, Any], target_agent: "BaseAgent"
+        self, task: dict[str, Any], target_agent: "BaseAgent"
     ) -> Any:
         """Delegate a task to another agent."""
         self._logger.info(

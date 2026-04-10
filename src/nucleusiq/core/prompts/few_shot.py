@@ -1,6 +1,6 @@
 # src/nucleusiq/prompts/few_shot.py
 
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.prompts.base import BasePrompt
 from pydantic import Field
@@ -13,7 +13,7 @@ class FewShotPrompt(BasePrompt):
     """
 
     # Fields unique to Few-Shot prompting
-    examples: List[Dict[str, str]] = Field(
+    examples: list[dict[str, str]] = Field(
         default_factory=list, description="List of examples with input-output pairs."
     )
     example_separator: str = Field(
@@ -37,11 +37,11 @@ class FewShotPrompt(BasePrompt):
         default="{system}\n\n{examples}\n\n{context}\n\n{user}\n\n{cot_instruction}",
         description="Default template for Few-Shot Prompting.",
     )
-    input_variables: List[str] = Field(
+    input_variables: list[str] = Field(
         default_factory=lambda: ["system", "user", "examples"],
         description="These three are mandatory by the time we format the prompt.",
     )
-    optional_variables: List[str] = Field(
+    optional_variables: list[str] = Field(
         default_factory=lambda: ["context", "use_cot", "cot_instruction"],
         description="Additional optional fields for Few-Shot.",
     )
@@ -63,7 +63,7 @@ class FewShotPrompt(BasePrompt):
         self.examples.append({"input": input_text, "output": output_text})
         return self
 
-    def add_examples(self, examples: List[Dict[str, str]]) -> "FewShotPrompt":
+    def add_examples(self, examples: list[dict[str, str]]) -> "FewShotPrompt":
         """
         Adds multiple examples to the FewShotPrompt.
 
@@ -87,7 +87,7 @@ class FewShotPrompt(BasePrompt):
         user: str | None = None,
         use_cot: bool | None = None,
         cot_instruction: str | None = None,
-        examples: List[Dict[str, str]] | None = None,
+        examples: list[dict[str, str]] | None = None,
     ) -> "FewShotPrompt":
         """
         Configure multiple parameters at once, including examples.
@@ -139,7 +139,7 @@ class FewShotPrompt(BasePrompt):
     #
     # Overriding format_prompt() to enforce "examples" must not be empty
     #
-    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
+    def _pre_format_validation(self, combined_vars: dict[str, Any]) -> None:
         """
         Hook to enforce that 'examples' is non-empty before final prompt creation.
         """

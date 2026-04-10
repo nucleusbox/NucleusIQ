@@ -481,6 +481,12 @@ class BaseOpenAI(BaseLLM):
         enc = tiktoken.encoding_for_model(self.model_name)
         return len(enc.encode(text))
 
+    def get_context_window(self) -> int:
+        """Return context window size from the OpenAI model registry."""
+        from nucleusiq_openai._shared.model_config import get_context_window
+
+        return get_context_window(self.model_name)
+
     # Delegate model quirk checks for external use
     def _uses_max_completion_tokens(self, model: str) -> bool:
         return uses_max_completion_tokens(model)

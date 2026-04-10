@@ -37,6 +37,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode
 from nucleusiq.agents.structured_output import OutputMode, OutputSchema
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.agents.task import Task
 from nucleusiq_openai import BaseOpenAI
 
@@ -102,6 +103,9 @@ async def example_simple():
         name="ContactExtractor",
         role="Information Extractor",
         objective="Extract contact information",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract contact information from text into the required schema."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         response_format=ContactInfo,  # <-- Just pass the Pydantic model
@@ -134,6 +138,9 @@ async def example_explicit_config():
         name="ReviewAnalyzer",
         role="Product Analyst",
         objective="Analyze product reviews",
+        prompt=ZeroShotPrompt().configure(
+            system="You analyze product reviews and return structured sentiment, rating, and key points."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         response_format=OutputSchema(
@@ -171,6 +178,9 @@ async def example_dataclass():
         name="MeetingParser",
         role="Meeting Assistant",
         objective="Extract action items from meeting notes",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract action items from meeting notes into the structured format."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         response_format=MeetingAction,
@@ -203,6 +213,9 @@ async def example_typeddict():
         name="ConfigParser",
         role="Config Parser",
         objective="Parse server configuration",
+        prompt=ZeroShotPrompt().configure(
+            system="You parse server configuration descriptions into host, port, and debug fields."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         response_format=ServerConfig,
@@ -236,6 +249,9 @@ async def example_no_schema():
         name="ChatBot",
         role="Assistant",
         objective="Answer questions",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer in plain text."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )

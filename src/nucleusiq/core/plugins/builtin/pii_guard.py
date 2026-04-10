@@ -32,14 +32,15 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from nucleusiq.plugins.base import BasePlugin, ModelRequest
 from nucleusiq.plugins.errors import PluginError, PluginHalt
 
 logger = logging.getLogger(__name__)
 
-BUILTIN_PATTERNS: Dict[str, re.Pattern] = {
+BUILTIN_PATTERNS: dict[str, re.Pattern] = {
     "email": re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"),
     "credit_card": re.compile(r"\b(?:\d[ \-]*?){13,19}\b"),
     "phone": re.compile(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"),
@@ -83,7 +84,7 @@ class PIIGuardPlugin(BasePlugin):
     def __init__(
         self,
         pii_types: Sequence[str] | None = None,
-        custom_patterns: Dict[str, str] | None = None,
+        custom_patterns: dict[str, str] | None = None,
         strategy: str = "redact",
         apply_to_input: bool = True,
         apply_to_output: bool = False,
@@ -93,7 +94,7 @@ class PIIGuardPlugin(BasePlugin):
                 f"Invalid strategy: {strategy!r}. Use 'redact', 'mask', or 'block'."
             )
 
-        self._patterns: Dict[str, re.Pattern] = {}
+        self._patterns: dict[str, re.Pattern] = {}
         for pii_type in pii_types or []:
             if pii_type not in BUILTIN_PATTERNS:
                 raise PluginError(
@@ -116,9 +117,9 @@ class PIIGuardPlugin(BasePlugin):
     def name(self) -> str:
         return "pii_guard"
 
-    def _detect(self, text: str) -> List[Dict[str, Any]]:
+    def _detect(self, text: str) -> list[dict[str, Any]]:
         """Find all PII matches in text."""
-        findings: List[Dict[str, Any]] = []
+        findings: list[dict[str, Any]] = []
         for pii_type, pattern in self._patterns.items():
             for match in pattern.finditer(text):
                 value = match.group()
@@ -183,7 +184,7 @@ class PIIGuardPlugin(BasePlugin):
             return self._mask(text)
         return text
 
-    def _sanitize_messages(self, messages: List[Any]) -> List[Any]:
+    def _sanitize_messages(self, messages: list[Any]) -> list[Any]:
         """Sanitize PII in a list of message objects."""
         cleaned = []
         for msg in messages:

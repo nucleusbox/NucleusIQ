@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Sequence
+from collections.abc import Sequence
 
 from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.plugins.base import AgentContext, BasePlugin

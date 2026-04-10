@@ -13,6 +13,7 @@ import asyncio
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.usage.pricing import CostTracker
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq_gemini import BaseGemini, GeminiLLMParams
 
 
@@ -29,11 +30,10 @@ async def main():
     )
 
     agent = Agent(
+        name="gemini-cost-demo",
+        prompt=ZeroShotPrompt().configure(system="You are a helpful assistant."),
         llm=llm,
         config=config,
-        name="gemini-cost-demo",
-        instructions="You are a helpful assistant.",
-        model=model,
     )
 
     result = await agent.execute("Explain the theory of relativity in 3 sentences.")

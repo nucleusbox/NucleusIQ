@@ -1,6 +1,6 @@
 # src/nucleusiq/prompts/auto_chain_of_thought.py
 
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.llms.base_llm import BaseLLM
 from nucleusiq.prompts.base import BasePrompt
@@ -31,11 +31,11 @@ class AutoChainOfThoughtPrompt(BasePrompt):
         default="{system}\n\n{context}\n\n{task}\n\n{examples}\n\n{user}\n\n{cot_instruction}",
         description="Default template for Auto-CoT Prompting.",
     )
-    input_variables: List[str] = Field(
+    input_variables: list[str] = Field(
         default_factory=lambda: ["task", "questions"],
         description="Mandatory fields for Auto-CoT: 'task' (str) and 'questions' (list).",
     )
-    optional_variables: List[str] = Field(
+    optional_variables: list[str] = Field(
         default_factory=lambda: [
             "system",
             "context",
@@ -91,7 +91,7 @@ class AutoChainOfThoughtPrompt(BasePrompt):
     #
     # Subclass-specific checks
     #
-    def _pre_format_validation(self, combined_vars: Dict[str, Any]) -> None:
+    def _pre_format_validation(self, combined_vars: dict[str, Any]) -> None:
         """
         Ensures 'llm' is set, 'task' is non-empty, 'questions' is a non-empty list, etc.
         """

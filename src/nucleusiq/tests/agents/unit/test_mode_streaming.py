@@ -25,6 +25,7 @@ from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
 from nucleusiq.streaming.events import StreamEvent
+from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -64,7 +65,7 @@ def _make_agent(**overrides) -> Agent:
         name="TestAgent",
         role="Assistant",
         objective="Help users",
-        narrative="Test agent",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
     )
     defaults.update(overrides)

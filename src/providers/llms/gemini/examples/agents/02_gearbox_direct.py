@@ -13,6 +13,7 @@ import asyncio
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq_gemini import BaseGemini, GeminiLLMParams
 
 
@@ -28,11 +29,12 @@ async def main():
     )
 
     agent = Agent(
+        name="gemini-direct",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a concise assistant. Answer in 2-3 sentences.",
+        ),
         llm=llm,
         config=config,
-        name="gemini-direct",
-        instructions="You are a concise assistant. Answer in 2-3 sentences.",
-        model="gemini-2.5-flash",
     )
 
     result = await agent.execute("What is the capital of France?")

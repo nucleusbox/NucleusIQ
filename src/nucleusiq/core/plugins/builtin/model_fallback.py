@@ -20,7 +20,8 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence, Tuple, Type
+from collections.abc import Sequence
+from typing import Any
 
 from nucleusiq.plugins.base import BasePlugin, ModelHandler, ModelRequest
 from nucleusiq.plugins.errors import PluginError
@@ -39,7 +40,7 @@ class ModelFallbackPlugin(BasePlugin):
     def __init__(
         self,
         fallbacks: Sequence[str],
-        retry_on: Tuple[Type[Exception], ...] | Type[Exception] = (Exception,),
+        retry_on: tuple[type[Exception], ...] | type[Exception] = (Exception,),
     ) -> None:
         if not fallbacks:
             raise PluginError("At least one fallback model is required")

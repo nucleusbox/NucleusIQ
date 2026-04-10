@@ -25,7 +25,8 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, List
+from collections.abc import Callable
+from typing import Any
 
 from nucleusiq.plugins.base import BasePlugin, ModelRequest
 from nucleusiq.plugins.errors import PluginError
@@ -99,7 +100,7 @@ class ContextWindowPlugin(BasePlugin):
     def name(self) -> str:
         return "context_window"
 
-    def _trim_by_messages(self, messages: List[Any]) -> List[Any]:
+    def _trim_by_messages(self, messages: list[Any]) -> list[Any]:
         if self._max_messages is None or len(messages) <= self._max_messages:
             return messages
 
@@ -122,7 +123,7 @@ class ContextWindowPlugin(BasePlugin):
         result.extend(messages[-keep_end:])
         return result
 
-    def _trim_by_tokens(self, messages: List[Any]) -> List[Any]:
+    def _trim_by_tokens(self, messages: list[Any]) -> list[Any]:
         if self._max_tokens is None:
             return messages
 
@@ -148,7 +149,7 @@ class ContextWindowPlugin(BasePlugin):
                 if keep_end > 0
                 else messages[keep_start:]
             )
-            kept_middle: List[Any] = []
+            kept_middle: list[Any] = []
             used = 0
             for msg in reversed(middle):
                 cost = _message_token_count(msg, self._counter)

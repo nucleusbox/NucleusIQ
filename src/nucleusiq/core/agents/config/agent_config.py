@@ -1,7 +1,11 @@
 # src/nucleusiq/agents/config/agent_config.py
+from __future__ import annotations
+
 from enum import Enum
 from typing import Literal
 
+from nucleusiq.agents.config.observability_config import ObservabilityConfig
+from nucleusiq.agents.context.config import ContextConfig
 from nucleusiq.llms.llm_params import LLMParams
 from pydantic import BaseModel, Field
 
@@ -30,13 +34,32 @@ class AgentConfig(BaseModel):
     respect_context_window: bool = Field(
         default=True, description="Maintain context within model's window"
     )
-    verbose: bool = Field(default=False, description="Enable detailed logging")
+    context: ContextConfig | None = Field(
+        default=None,
+        description=(
+            "Context window management configuration. "
+            "None = uses respect_context_window flag (legacy). "
+            "ContextConfig() = auto-detect with defaults. "
+            "ContextConfig(max_context_tokens=50000) = explicit override."
+        ),
+    )
+    verbose: bool = Field(
+        default=False,
+        description="Enable detailed logging (legacy — prefer observability)",
+    )
     enable_tracing: bool = Field(
         default=False,
         description=(
             "Populate AgentResult with execution trace data "
             "(llm_calls, tool_calls, warnings). Off by default for zero overhead. "
-            "Enable for observability, debugging, or dashboard integration."
+            "Legacy — prefer observability.tracing."
+        ),
+    )
+    observability: ObservabilityConfig | None = Field(
+        default=None,
+        description=(
+            "Unified observability config. When set, takes precedence over "
+            "verbose and enable_tracing. None = use legacy fields."
         ),
     )
     # Gearbox Strategy: Execution Modes
@@ -85,6 +108,17 @@ class AgentConfig(BaseModel):
         ),
     )
 
+    # Synthesis pass (breaks mode inertia after heavy tool use)
+    enable_synthesis: bool = Field(
+        default=True,
+        description=(
+            "After multiple rounds of tool calls, make one final LLM call "
+            "without tools to produce the synthesized output. Prevents "
+            "mode inertia where the model stays in tool-calling behaviour "
+            "and returns a terse summary instead of the full deliverable."
+        ),
+    )
+
     # Autonomous mode
     critique_rounds: int = Field(
         default=3,
@@ -122,6 +156,20 @@ class AgentConfig(BaseModel):
     )
 
     _MODE_TOOL_DEFAULTS: dict = {"direct": 5, "standard": 30, "autonomous": 100}
+
+    @property
+    def effective_tracing(self) -> bool:
+        """Resolve whether tracing is enabled (observability takes precedence)."""
+        if self.observability is not None:
+            return self.observability.tracing
+        return self.enable_tracing
+
+    @property
+    def effective_verbose(self) -> bool:
+        """Resolve whether verbose logging is enabled."""
+        if self.observability is not None:
+            return self.observability.verbose
+        return self.verbose
 
     def get_effective_max_tool_calls(self) -> int:
         """Return the effective tool call limit for the current execution mode.

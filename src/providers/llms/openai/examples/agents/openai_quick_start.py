@@ -30,6 +30,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
 
@@ -59,6 +60,9 @@ async def quick_start_1_simple_chat():
         name="ChatBot",
         role="Assistant",
         objective="Answer questions helpfully",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer questions clearly and concisely."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
     )
@@ -93,6 +97,9 @@ async def quick_start_2_with_tools():
         name="Calculator",
         role="Calculator",
         objective="Perform calculations",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a calculator assistant. Use the provided tools to compute accurate results."
+        ),
         llm=llm,
         tools=[tool],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
@@ -123,6 +130,9 @@ async def quick_start_3_structured_output():
         name="Extractor",
         role="Data Extractor",
         objective="Extract structured data",
+        prompt=ZeroShotPrompt().configure(
+            system="You extract structured data from the user's text. Populate every required field in the response schema."
+        ),
         llm=llm,
         response_format=Person,  # Just pass the schema!
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
@@ -158,6 +168,9 @@ async def quick_start_4_autonomous_planning():
         name="Planner",
         role="Planning Assistant",
         objective="Plan and execute multi-step tasks",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a planning assistant. Break down multi-step tasks and use tools to complete each step."
+        ),
         llm=llm,
         tools=[tool],
         config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),

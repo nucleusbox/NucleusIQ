@@ -26,7 +26,7 @@ load_dotenv()
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 
@@ -96,8 +96,8 @@ async def main():
 
     # Step 4: Create prompt
     logger.info("\n4. Creating prompt...")
-    prompt = PromptFactory.create_prompt(technique=PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful assistant with access to various tools.",
+    prompt = ZeroShotPrompt().configure(
+        system="Has access to web search, code execution, file search, and more.",
         user="Use tools when needed.",
     )
     logger.info("✅ Prompt created")
@@ -108,7 +108,6 @@ async def main():
         name="AllToolsAgent",
         role="Assistant",
         objective="Help users with various capabilities.",
-        narrative="Has access to web search, code execution, file search, and more.",
         llm=llm,
         prompt=prompt,
         tools=tools,

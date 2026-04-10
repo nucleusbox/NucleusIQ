@@ -23,6 +23,7 @@ if _nucleusiq_core not in sys.path:
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.memory.full_history import FullHistoryMemory
 from nucleusiq.memory.sliding_window import SlidingWindowMemory
 from nucleusiq.tools import BaseTool
@@ -83,7 +84,7 @@ class TestAgentExecution:
             name="GeminiBot",
             role="Assistant",
             objective="Answer questions.",
-            narrative="You are a helpful assistant.",
+            prompt=ZeroShotPrompt().configure(system="You are a helpful assistant."),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -109,7 +110,7 @@ class TestAgentExecution:
             name="GeminiBot",
             role="Assistant",
             objective="Answer briefly.",
-            narrative="You are concise.",
+            prompt=ZeroShotPrompt().configure(system="You are concise."),
             llm=llm,
             config=AgentConfig(verbose=False, llm_params=params),
         )
@@ -125,13 +126,15 @@ class TestAgentExecution:
 
     @pytest.mark.asyncio
     async def test_agent_system_prompt(self):
-        """Agent narrative is passed as system message to Gemini."""
+        """Agent system prompt is passed as system message to Gemini."""
         llm = _make_gemini_llm()
         agent = Agent(
             name="FrenchBot",
             role="Translator",
             objective="Translate to French.",
-            narrative="You always respond in French, no matter what language the user uses.",
+            prompt=ZeroShotPrompt().configure(
+                system="You always respond in French, no matter what language the user uses."
+            ),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -162,7 +165,9 @@ class TestAgentMemory:
             name="MemoryBot",
             role="Assistant",
             objective="Answer using conversation history.",
-            narrative="You are a helpful assistant. Use the conversation history.",
+            prompt=ZeroShotPrompt().configure(
+                system="You are a helpful assistant. Use the conversation history."
+            ),
             llm=llm,
             memory=memory,
             config=AgentConfig(verbose=False),
@@ -188,7 +193,9 @@ class TestAgentMemory:
             name="MemoryBot",
             role="Assistant",
             objective="Answer using conversation history.",
-            narrative="You are a helpful assistant. Use the conversation history.",
+            prompt=ZeroShotPrompt().configure(
+                system="You are a helpful assistant. Use the conversation history."
+            ),
             llm=llm,
             memory=memory,
             config=AgentConfig(verbose=False),
@@ -219,7 +226,7 @@ class TestAgentStreaming:
             name="StreamBot",
             role="Assistant",
             objective="Answer questions.",
-            narrative="You are a helpful assistant.",
+            prompt=ZeroShotPrompt().configure(system="You are a helpful assistant."),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -247,7 +254,7 @@ class TestAgentStreaming:
             name="StreamBot",
             role="Assistant",
             objective="Answer questions.",
-            narrative="You are concise.",
+            prompt=ZeroShotPrompt().configure(system="You are concise."),
             llm=llm,
             config=AgentConfig(verbose=False),
         )
@@ -284,10 +291,12 @@ class TestAgentTools:
             name="CalcBot",
             role="Calculator",
             objective="Perform calculations using the add tool.",
-            narrative=(
-                "You are a calculator assistant. "
-                "When asked to add numbers, always use the add tool. "
-                "Report the tool result to the user."
+            prompt=ZeroShotPrompt().configure(
+                system=(
+                    "You are a calculator assistant. "
+                    "When asked to add numbers, always use the add tool. "
+                    "Report the tool result to the user."
+                )
             ),
             llm=llm,
             tools=[calculator],
@@ -320,7 +329,7 @@ class TestExecutionModes:
             name="DirectBot",
             role="Assistant",
             objective="Answer directly.",
-            narrative="You are concise.",
+            prompt=ZeroShotPrompt().configure(system="You are concise."),
             llm=llm,
             config=AgentConfig(
                 verbose=False,
@@ -346,7 +355,7 @@ class TestExecutionModes:
             name="StandardBot",
             role="Assistant",
             objective="Answer questions.",
-            narrative="You are helpful.",
+            prompt=ZeroShotPrompt().configure(system="You are helpful."),
             llm=llm,
             config=AgentConfig(
                 verbose=False,

@@ -23,7 +23,7 @@ stop, etc.).  Provider-specific subclasses (``OpenAILLMParams``,
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -88,7 +88,7 @@ class LLMParams(BaseModel):
         None,
         description="Fixed seed for deterministic/reproducible outputs.",
     )
-    stop: List[str] | None = Field(
+    stop: list[str] | None = Field(
         None,
         description="Stop sequences — generation halts when any of these appear.",
     )
@@ -97,7 +97,7 @@ class LLMParams(BaseModel):
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
 
-    def to_call_kwargs(self) -> Dict[str, Any]:
+    def to_call_kwargs(self) -> dict[str, Any]:
         """
         Convert to a kwargs dict for ``llm.call()``, excluding ``None`` values.
 

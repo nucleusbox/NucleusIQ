@@ -11,7 +11,7 @@ The Executor is responsible for:
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.agents.chat_models import ToolCallRequest
 from nucleusiq.agents.plan import PlanStep
@@ -37,7 +37,7 @@ class Executor:
     - Supporting both BaseTool and native tools
     """
 
-    def __init__(self, llm: BaseLLM, tools: List[BaseTool]):
+    def __init__(self, llm: BaseLLM, tools: list[BaseTool]):
         """
         Initialize the Executor.
 
@@ -51,7 +51,7 @@ class Executor:
             f"Executor initialized with {len(self.tools)} tools: {list(self.tools.keys())}"
         )
 
-    async def execute(self, fn_call: ToolCallRequest | Dict[str, Any]) -> Any:
+    async def execute(self, fn_call: ToolCallRequest | dict[str, Any]) -> Any:
         """
         Execute a single tool call.
 
@@ -120,7 +120,7 @@ class Executor:
                 args_snapshot=fn_args,
             ) from e
 
-    async def execute_step(self, step: PlanStep, context: Dict[str, Any]) -> Any:
+    async def execute_step(self, step: PlanStep, context: dict[str, Any]) -> Any:
         """
         Execute a plan step with context.
 

@@ -13,6 +13,7 @@ import asyncio
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools.decorators import tool
 from nucleusiq_gemini import BaseGemini, GeminiLLMParams
 
@@ -65,15 +66,16 @@ async def main():
     )
 
     agent = Agent(
+        name="gemini-autonomous",
+        prompt=ZeroShotPrompt().configure(
+            system=(
+                "You are an expert research assistant. Break complex questions "
+                "into sub-tasks, use tools to gather data, and synthesize a "
+                "comprehensive answer. Always verify your findings."
+            ),
+        ),
         llm=llm,
         config=config,
-        name="gemini-autonomous",
-        instructions=(
-            "You are an expert research assistant. Break complex questions "
-            "into sub-tasks, use tools to gather data, and synthesize a "
-            "comprehensive answer. Always verify your findings."
-        ),
-        model="gemini-2.5-flash",
         tools=[search_database, calculate],
     )
 

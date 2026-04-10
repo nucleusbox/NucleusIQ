@@ -198,6 +198,9 @@ class AgentResult(BaseModel):
     # --- Autonomous-mode detail (wired in future 0.7.x) ---
     autonomous: AutonomousDetail | None = None
 
+    # --- Context window telemetry (populated since 0.7.6) ---
+    context_telemetry: Any = None
+
     # --- Non-fatal issues (populated since 0.7.4) ---
     warnings: tuple[str, ...] = ()
 
@@ -314,6 +317,30 @@ class AgentResult(BaseModel):
                     )
             if ad.refined:
                 lines.append("    Refined: yes")
+
+        if self.context_telemetry is not None:
+            ct = self.context_telemetry
+            lines.append(
+                f"  Context: {ct.context_limit} tokens "
+                f"(peak {ct.peak_utilization:.0%}, final {ct.final_utilization:.0%})"
+            )
+            if ct.compaction_count > 0:
+                lines.append(
+                    f"    Compactions: {ct.compaction_count} "
+                    f"(freed {ct.tokens_freed_total} tokens)"
+                )
+                for ce in ct.compaction_events:
+                    lines.append(
+                        f"    [{ce.strategy}] {ce.tokens_before}→{ce.tokens_after} "
+                        f"({ce.tokens_freed} freed, {ce.duration_ms:.1f}ms)"
+                    )
+            if ct.artifacts_offloaded > 0:
+                lines.append(f"    Offloaded: {ct.artifacts_offloaded} artifacts")
+            if ct.region_breakdown:
+                regions = ", ".join(
+                    f"{k}={v}" for k, v in ct.region_breakdown.items() if v > 0
+                )
+                lines.append(f"    Regions: {regions}")
 
         if self.warnings:
             lines.append(f"  Warns  : {len(self.warnings)}")

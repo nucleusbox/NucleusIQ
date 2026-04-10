@@ -19,7 +19,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -36,7 +36,7 @@ class TaskAnalysis:
     """Result of task complexity analysis."""
 
     is_complex: bool
-    sub_tasks: List[Dict[str, str]] = field(default_factory=list)
+    sub_tasks: list[dict[str, str]] = field(default_factory=list)
     reasoning: str = ""
 
 
@@ -55,6 +55,7 @@ class Decomposer:
 
     def __init__(self, logger: logging.Logger | None = None) -> None:
         self._logger = logger or logging.getLogger(__name__)
+        self._sub_agent_results: list[Any] = []
 
     # ------------------------------------------------------------------ #
     # Task Analysis                                                        #
@@ -230,6 +231,7 @@ class Decomposer:
                 name=f"{parent.name}-sub-{sub_task_id}",
                 role=parent.role,
                 objective=sub_task_objective,
+                prompt=parent.prompt,
                 llm=parent.llm,
                 tools=list(parent.tools),
                 memory=None,
@@ -253,9 +255,9 @@ class Decomposer:
     async def run_sub_tasks(
         self,
         parent: Agent,
-        sub_tasks: List[Dict[str, str]],
+        sub_tasks: list[dict[str, str]],
         max_sub_agents: int = 5,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Run sub-tasks in parallel via isolated sub-agents.
 
         Each sub-agent runs independently with its own context.
@@ -295,9 +297,12 @@ class Decomposer:
         if not agents_and_tasks:
             return []
 
-        async def _execute_one(agent: Agent, st: Dict[str, str]) -> Dict[str, Any]:
+        collected_results: list[Any] = []
+
+        async def _execute_one(agent: Agent, st: dict[str, str]) -> dict[str, Any]:
             try:
                 raw = await agent.execute(Task(id=st["id"], objective=st["objective"]))
+                collected_results.append(raw)
                 return {
                     "id": st["id"],
                     "objective": st["objective"],
@@ -314,6 +319,7 @@ class Decomposer:
         findings = await asyncio.gather(
             *[_execute_one(agent, st) for agent, st in agents_and_tasks]
         )
+        self._sub_agent_results = collected_results
         return list(findings)
 
     # ------------------------------------------------------------------ #
@@ -323,7 +329,7 @@ class Decomposer:
     @staticmethod
     def build_synthesis_prompt(
         task_objective: str,
-        findings: List[Dict[str, Any]],
+        findings: list[dict[str, Any]],
     ) -> str:
         """Build a prompt to synthesize sub-agent findings.
 

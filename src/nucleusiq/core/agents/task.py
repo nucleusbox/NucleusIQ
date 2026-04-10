@@ -8,7 +8,7 @@ This is different from Agent.objective which is the agent's general purpose.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from nucleusiq.agents.attachments import Attachment
 from pydantic import BaseModel, Field
@@ -41,17 +41,17 @@ class Task(BaseModel):
     objective: str = Field(
         ..., description="What the user wants done (specific request)"
     )
-    context: Dict[str, Any] | None = Field(
+    context: dict[str, Any] | None = Field(
         default=None, description="Additional context for the task"
     )
-    metadata: Dict[str, Any] | None = Field(default=None, description="Task metadata")
-    attachments: List[Attachment] | None = Field(
+    metadata: dict[str, Any] | None = Field(default=None, description="Task metadata")
+    attachments: list[Attachment] | None = Field(
         default=None,
         description="Files, images, or other media attached to this task",
     )
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> Task:
+    def from_dict(cls, data: dict[str, Any]) -> Task:
         """
         Create Task from dictionary (backward compatibility).
 
@@ -63,7 +63,7 @@ class Task(BaseModel):
         """
         return cls(**data)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert Task to dictionary.
 

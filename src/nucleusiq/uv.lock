@@ -450,7 +450,7 @@ wheels = [
 
 [[package]]
 name = "nucleusiq"
-version = "0.7.1"
+version = "0.7.6"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
@@ -472,6 +472,7 @@ openai = [
 [package.dev-dependencies]
 dev = [
     { name = "nucleusiq-openai" },
+    { name = "pyrefly" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -481,6 +482,7 @@ dev = [
     { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 lint = [
+    { name = "pyrefly" },
     { name = "ruff" },
 ]
 test = [
@@ -496,7 +498,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "nucleusiq-openai", marker = "extra == 'openai'", editable = "../providers/llms/openai" },
-    { name = "pydantic", specifier = ">=2.0,<3.0" },
+    { name = "pydantic", specifier = ">=2.11.0,<3.0" },
     { name = "python-dotenv", specifier = ">=0.19.0,<2.0" },
     { name = "pyyaml", specifier = ">=5.4,<7.0" },
     { name = "requests", specifier = ">=2.33.0,<3.0" },
@@ -508,6 +510,7 @@ provides-extras = ["openai", "clustering"]
 [package.metadata.requires-dev]
 dev = [
     { name = "nucleusiq-openai", editable = "../providers/llms/openai" },
+    { name = "pyrefly", specifier = ">=0.59" },
     { name = "pytest", specifier = ">=8.0,<10.0" },
     { name = "pytest-asyncio", specifier = ">=0.23,<2.0" },
     { name = "pytest-cov", specifier = ">=4.0,<8.0" },
@@ -515,7 +518,10 @@ dev = [
     { name = "ruff", specifier = ">=0.4,<1.0" },
     { name = "scikit-learn", specifier = ">=1.0" },
 ]
-lint = [{ name = "ruff", specifier = ">=0.4,<1.0" }]
+lint = [
+    { name = "pyrefly", specifier = ">=0.59" },
+    { name = "ruff", specifier = ">=0.4,<1.0" },
+]
 test = [
     { name = "nucleusiq-openai", editable = "../providers/llms/openai" },
     { name = "pytest", specifier = ">=8.0,<10.0" },
@@ -527,7 +533,7 @@ test = [
 
 [[package]]
 name = "nucleusiq-openai"
-version = "0.6.0"
+version = "0.6.2"
 source = { editable = "../providers/llms/openai" }
 dependencies = [
     { name = "nucleusiq" },
@@ -882,6 +888,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
+]
+
+[[package]]
+name = "pyrefly"
+version = "0.60.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/6e/f9acf0192cfe6ab4428d81a33f7246c280750b4ea0aae68b66331baf2946/pyrefly-0.60.1.tar.gz", hash = "sha256:d2206aa58de1890cc8e3fc7114b45a12dd603fba7cd9e7b635731023528c0450", size = 5514085, upload-time = "2026-04-09T20:03:01.157Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/92/ff/ba18efaa78c76511787dbd03f01aa86504535ea3e573c6360ffe97c6c241/pyrefly-0.60.1-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:833b26d18a3ba724ba2b36c101ee379925f5853c613bf51168267a32597e01b6", size = 12924976, upload-time = "2026-04-09T20:02:35.976Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/6c/9b365c70a5d48f2cd0503633a97dac0e481e68dd5382f0170cf6abbe73d2/pyrefly-0.60.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:e6430e9e37d39f5a98f403fd3ce012ba38956300e2064eef97b086b78496978d", size = 12434281, upload-time = "2026-04-09T20:02:38.726Z" },
+    { url = "https://files.pythonhosted.org/packages/34/15/a759693e1ddd8a662805ae03a156ee133408b4c6e3adea403b3a5000385d/pyrefly-0.60.1-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:992d2d9c90e26279154a6d8177901f5c55dbd2278d91d607223979a499644936", size = 35960986, upload-time = "2026-04-09T20:02:41.365Z" },
+    { url = "https://files.pythonhosted.org/packages/36/ad/0d9efc3759456abdaa34981b4d6997a0a70f2e64ce0bae8948179c754b8a/pyrefly-0.60.1-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:81b7f24a3146a40e32e1ae1181263a2e909cdef78ba32cccd5fce3949f126020", size = 38681453, upload-time = "2026-04-09T20:02:44.862Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/b7/bed2925d8c779675b4f1f3bfe3eddd580f6fba4d94e7e72b948071b1ccbe/pyrefly-0.60.1-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:37b70aea286db310bae7a01e18bfeedf8c4b5127091e65486a06c46a0f4992d1", size = 36925245, upload-time = "2026-04-09T20:02:48.009Z" },
+    { url = "https://files.pythonhosted.org/packages/24/66/bd3ff3ef548249f96b39103c46f85757da2f6cc6bcc432f44d602db2ad5d/pyrefly-0.60.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f075e019176651c3f444735e505619cc586ddd8785382b47f9fe77178dde2ba3", size = 41464771, upload-time = "2026-04-09T20:02:51.664Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/9a/58b7808da0943382f29e6845537bbfe00fb7d898784174e3ac20b2011849/pyrefly-0.60.1-py3-none-win32.whl", hash = "sha256:67a48e683ce3b89f6bcf8d13f52e42f1ad3ae3d4b9576e697997f353e2b83e75", size = 11918343, upload-time = "2026-04-09T20:02:54.575Z" },
+    { url = "https://files.pythonhosted.org/packages/32/a4/8175c5e80fc8399608850dc79ad9314d066684120f21eb5411a5047f40dc/pyrefly-0.60.1-py3-none-win_amd64.whl", hash = "sha256:6583cb4faf6e496443b25f6453d49d04df70ba0e00d637e64ac691afe83c5496", size = 12755148, upload-time = "2026-04-09T20:02:56.72Z" },
+    { url = "https://files.pythonhosted.org/packages/00/37/5294059a7b89548bd60e9527c2a8aaf23d0cbe798bd9a0892c42481e11be/pyrefly-0.60.1-py3-none-win_arm64.whl", hash = "sha256:abbac5ac29614a7b481fffbb056625fefdf2cc2ff17f3a6c52f6b90b4d9da94a", size = 12258856, upload-time = "2026-04-09T20:02:59.088Z" },
 ]
 
 [[package]]

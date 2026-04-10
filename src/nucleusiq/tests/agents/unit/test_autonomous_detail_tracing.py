@@ -11,6 +11,7 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 def _make_agent(**overrides):
@@ -18,7 +19,7 @@ def _make_agent(**overrides):
         name="AutoObs",
         role="tester",
         objective="test autonomous detail",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         config=AgentConfig(
             execution_mode="autonomous",
@@ -94,7 +95,7 @@ async def test_non_autonomous_mode_has_no_detail():
         name="DirectCheck",
         role="tester",
         objective="test",
-        narrative="n",
+        prompt=make_test_prompt(),
         llm=MockLLM(),
         config=AgentConfig(
             execution_mode="direct",

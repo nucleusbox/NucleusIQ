@@ -7,6 +7,14 @@ import sys
 from pathlib import Path
 
 import pytest
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
+
+
+def make_test_prompt(
+    system: str = "You are a test assistant.", user: str = "Help the user."
+) -> ZeroShotPrompt:
+    """Create a minimal ZeroShotPrompt for tests that need an Agent."""
+    return ZeroShotPrompt().configure(system=system, user=user)
 
 # Add src directory to path for imports
 src_dir = Path(__file__).parent.parent / "src"

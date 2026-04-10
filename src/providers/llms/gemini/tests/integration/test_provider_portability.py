@@ -23,6 +23,7 @@ if _nucleusiq_core not in sys.path:
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.memory.full_history import FullHistoryMemory
 from nucleusiq.tools import BaseTool
 from nucleusiq_gemini import BaseGemini
@@ -67,7 +68,7 @@ def _make_agent(**overrides) -> Agent:
         name="TestAgent",
         role="Assistant",
         objective="Help users",
-        narrative="You are a helpful assistant.",
+        prompt=ZeroShotPrompt().configure(system="You are a helpful assistant."),
         llm=BaseGemini(model_name="gemini-2.5-flash", temperature=0.0),
         config=AgentConfig(verbose=False),
     )
@@ -112,9 +113,11 @@ class TestBaseLLMContractPortability:
     async def test_tool_calling_round_trip(self):
         agent = _make_agent(
             tools=[AddTool()],
-            narrative=(
-                "You are a calculator. Use the add tool for arithmetic. "
-                "Report the result."
+            prompt=ZeroShotPrompt().configure(
+                system=(
+                    "You are a calculator. Use the add tool for arithmetic. "
+                    "Report the result."
+                )
             ),
         )
         await agent.initialize()

@@ -23,6 +23,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.tools.base_tool import BaseTool
@@ -93,6 +94,9 @@ async def demonstrate_gear_selection():
         role="Assistant",
         objective="Answer questions",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer questions clearly and concisely.",
+        ),
         config=AgentConfig(
             execution_mode=ExecutionMode.DIRECT,  # Gear 1
             verbose=False,
@@ -125,6 +129,9 @@ async def demonstrate_gear_selection():
         objective="Use tools to help users",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Use get_weather and search_database tools when they help answer the user.",
+        ),
         config=AgentConfig(
             execution_mode=ExecutionMode.STANDARD,  # Gear 2 (default)
             verbose=False,
@@ -158,6 +165,9 @@ async def demonstrate_gear_selection():
         objective="Research and analyze complex topics",
         llm=llm,
         tools=tools,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a research assistant. Break down multi-part questions and use tools to gather information step by step.",
+        ),
         config=AgentConfig(
             execution_mode=ExecutionMode.AUTONOMOUS,  # Gear 3
             max_iterations=10,

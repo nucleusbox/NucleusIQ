@@ -15,7 +15,7 @@ Safety features:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq.tools.builtin.workspace import (
@@ -170,7 +170,7 @@ class FileReadTool(BaseTool):
         )
         return header + "".join(truncated) + guidance
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,

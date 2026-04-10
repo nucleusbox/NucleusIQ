@@ -22,6 +22,7 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.llms.mock_llm import MockLLM
 
 # Try to import OpenAI LLM
@@ -57,6 +58,9 @@ async def example_task_object():
         name="TaskBot",
         role="Assistant",
         objective="Help users",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer the user's task clearly."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
     )
@@ -100,6 +104,9 @@ async def example_task_dict():
         name="DictBot",
         role="Assistant",
         objective="Help users",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer the user's task clearly."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
     )
@@ -178,6 +185,9 @@ async def example_task_with_different_modes():
         name="DirectBot",
         role="Assistant",
         objective="Answer questions",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer questions directly."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT, verbose=False),
     )
@@ -194,6 +204,9 @@ async def example_task_with_different_modes():
         name="StandardBot",
         role="Assistant",
         objective="Answer questions",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer questions; use tools if provided."
+        ),
         llm=llm,
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD, verbose=False),
     )

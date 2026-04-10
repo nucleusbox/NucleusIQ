@@ -7,6 +7,149 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.6](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.6) — 2026-04-10
+
+### Breaking Changes
+
+- **`prompt` is now mandatory on `Agent`** — `BaseAgent.prompt` changed from `Optional[BasePrompt]` (default `None`) to a required `BasePrompt` field. All agents must now be created with an explicit prompt object (e.g. `ZeroShotPrompt().configure(system="...")`). This eliminates the ambiguity between the prompt system and the role/objective/narrative fallback system.
+- **`narrative` field removed from `BaseAgent`** — the `narrative` parameter no longer exists. Any content previously placed in `narrative` should be moved to `prompt.system` (the system message for the LLM).
+- **`role` and `objective` are now labels only** — they are used for logging, sub-agent naming, and documentation. They are **not** sent to the LLM. `role` defaults to `"Agent"` and `objective` defaults to `""`. Neither is required.
+- **`MessageBuilder.build()` no longer accepts `role`, `objective`, or `narrative`** — it only accepts `prompt` for system message construction.
+- **`ZeroShotPrompt.input_variables`** — `"user"` moved from mandatory `input_variables` to `optional_variables`. Only `"system"` is now required. The task objective provides the user query; `prompt.user` is an optional preamble.
+
+### Migration Guide
+
+```python
+# Before (v0.7.5)
+agent = Agent(
+    name="MyBot",
+    role="Analyst",
+    objective="Analyze data",
+    narrative="You are a data analyst. Provide detailed analysis.",
+    llm=llm,
+)
+
+# After (v0.7.6)
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
+
+agent = Agent(
+    name="MyBot",
+    role="Analyst",              # label only — NOT sent to LLM
+    objective="Analyze data",    # label only — NOT sent to LLM
+    prompt=ZeroShotPrompt().configure(
+        system="You are a data analyst. Provide detailed analysis.",
+    ),
+    llm=llm,
+)
+```
+
+### Added — Context Window Management (13 new files)
+
+- **Context Window Management (Phase 1 + Phase 2)** — OS-inspired context hygiene system for quality, cost, and latency. Phase 1 provides overflow prevention; Phase 2 provides proactive context rot prevention:
+  - `ContextConfig` — immutable configuration with `optimal_budget` (default 50K tokens, quality-optimized), `enable_observation_masking` (default True), `cost_per_million_input` for dollar-savings telemetry, mode-aware defaults (`ContextConfig.for_mode("autonomous")`)
+  - `ContextEngine` — facade with 4-method API: `prepare()` before LLM calls, `post_response()` after LLM response (Tier 0 masking), `ingest_tool_result()` after tool execution, `checkpoint()` at task boundaries
+  - `ObservationMasker` (Tier 0) — automatically strips consumed tool results after each LLM response, replacing with slim markers. Full content preserved in `ContentStore`. Research shows this alone solves ~80% of context rot
+  - `ContextLedger` + `Region` enum — O(1) per-message token tracking grouped by region (`SYSTEM`, `MEMORY`, `USER`, `ASSISTANT`, `TOOL_RESULT`, `RESERVED`)
+  - `ContextBudget` — frozen value-object snapshots with `utilization`, `available`, `can_fit()` properties
+  - `TokenCounter` protocol + `DefaultTokenCounter` — provider-agnostic token estimation; providers inject precise implementations
+  - `ContentStore` + `ContentRef` — offloaded artifact storage with preview + rehydration markers
+  - `CompactionPipeline` — 4-tier progressive strategy chain (quality-focused thresholds against `optimal_budget`):
+    - `ObservationMasker` (Tier 0, always) — strip consumed tool results post-response
+    - `ToolResultCompactor` (@ 60%) — truncate/offload oversized tool results (Minor GC)
+    - `ConversationCompactor` (@ 75%) — remove old turns with optional structured working state summary (Major GC)
+    - `EmergencyCompactor` (@ 90%) — last-resort, keeps system + recent only (Full GC)
+  - `ContextTelemetry` — peak/final utilization, per-compaction events, region breakdown, offloaded artifacts, observations masked, tokens masked, optimal budget, estimated cost savings — all exposed in `AgentResult.context_telemetry`
+  - `SummarySchema` — contract for structured summarization
+  - `ConversationCompactor` enhanced with optional structured working state summary (goals, decisions, tool findings) when `enable_summarization=True`
+  - `BaseLLM.get_context_window()` — base method (default 128K) for ContextEngine auto-detection, with provider overrides
+
+### Added — Prompt System Refactor
+
+- **Mandatory `prompt` on Agent** — all agents must now be created with an explicit `BasePrompt` instance. This is the single source of truth for what the LLM sees.
+- **`role` and `objective` clarified as labels** — updated field descriptions, docstrings, and `ExecutionContext` protocol to make clear these are for logging/documentation only.
+- **`ZeroShotPrompt` relaxed** — `user` moved to `optional_variables`; only `system` is required. The task objective serves as the user query.
+- **Shared test helper `make_test_prompt()`** — added to `nucleusiq.tests.conftest` for consistent test agent creation.
+
+### Added — Synthesis Pass
+
+- **Synthesis pass in Standard + Streaming modes** — after multiple rounds of tool calls, the agent makes one final LLM call **without tools** and with an explicit "write the full deliverable" nudge. Breaks the "mode inertia" pattern where the model stays in tool-calling behaviour and returns a terse summary instead of the full output.
+- **`AgentConfig.enable_synthesis`** — `bool = True`. Controls whether the synthesis pass fires after multi-round tool loops.
+- **`CallPurpose.SYNTHESIS`** — new enum value for usage tracking and observability.
+
+### Added — Observability & Tracing
+
+- **Prompt strategy tracing** — `LLMCallRecord.prompt_technique` now populated automatically from the agent's prompt object in both streaming and non-streaming paths via `_extract_prompt_technique()`.
+- **`ObservabilityConfig` consolidation** — unified config with `tracing`, `verbose`, `log_level`, `log_llm_calls`, `log_tool_results`. `AgentConfig.observability` takes precedence over legacy `verbose` + `enable_tracing` fields.
+- **`AgentConfig.effective_tracing` / `effective_verbose`** — properties resolving the observability-vs-legacy precedence.
+- **Sub-agent metric rollup** — `AutonomousMode._rollup_sub_agent_metrics()` merges sub-agent LLM calls, tool calls, and context telemetry into the parent agent's tracer and `AgentResult`.
+
+### Added — Provider: OpenAI (`nucleusiq-openai` 0.6.2)
+
+- **Context window registry** — new `_CONTEXT_WINDOWS` dict in `_shared/model_config.py` with 20 models (GPT-4.1, GPT-4.1-mini/nano, GPT-5, GPT-5-mini/nano, GPT-5.4, o1/o3/o4-mini, GPT-4o, GPT-3.5-turbo, etc.). Supports exact name and prefix-matching for versioned model names (e.g. `gpt-4o-2024-08-06` matches `gpt-4o`). Default fallback: 128K.
+- **`get_context_window()`** — new function in `_shared/model_config.py` and new method override on `BaseOpenAI`, enabling `ContextEngine` to auto-detect the model's context budget.
+- **Prompt API migration** — all 20 example files updated to use `prompt=ZeroShotPrompt().configure(system=...)` (removed `narrative=`, `instructions=`). 2 test files updated (`test_openai_file_input.py`, `test_openai_file_input_integration.py`).
+
+### Added — Provider: Gemini (`nucleusiq-gemini` 0.2.4)
+
+- **`get_context_window()` method on `BaseGemini`** — new method delegating to the existing `_MODEL_REGISTRY` (7 models: gemini-2.5-pro/flash/flash-lite, 2.0-flash/flash-lite, 1.5-pro/flash, each with `context_window` in `GeminiModelInfo`). The registry and `get_context_window()` function in `_shared/model_config.py` already existed; this release wires the method onto `BaseGemini` so `ContextEngine` can call it via the `BaseLLM.get_context_window()` protocol.
+- **Prompt API migration** — all 5 example files updated to use `prompt=ZeroShotPrompt().configure(system=...)` (removed `narrative=`, `instructions=`, `model=` from config). 3 integration test files updated (`test_gemini_agent.py`, `test_mixed_tools.py`, `test_provider_portability.py`).
+
+### Added — Tests
+
+- **97 new context management unit tests** — `test_budget.py` (21), `test_counter.py` (7), `test_store.py` (9), `test_strategies.py` (11), `test_engine.py` (11), `test_config.py` (13), `test_observation_masker.py` (11), `test_engine_phase2.py` (14)
+- **4 new agent-level context integration tests** — `test_context_coverage.py`, `test_context_engine_wiring.py`, `test_context_real_world_proof.py`, `test_synthesis_and_masking.py`
+- **27 existing test files updated** for the prompt system refactor (removed `narrative=`, added `prompt=`, removed `role=`/`objective=` from `MessageBuilder.build()` calls).
+
+### Added — Notebooks & Scripts
+
+- **`context_management_tcs_deep_dive.ipynb`** — full TCS research analyst demo with context management across all 3 modes (baseline, standard-managed, autonomous-managed). Uses `timeout=300.0` for long synthesis generations.
+- **`context_window_management_showcase.ipynb`** — context management capability showcase.
+- **`scripts/demo_context_management.py`** — standalone context management demo script.
+- **`gemini_mixed_tools_showcase.ipynb`** — updated to new prompt API.
+- **`research_analyst_tcs.ipynb`** — updated to new prompt API.
+
+### Changed
+
+- `AgentConfig` gains `context: ContextConfig | None`, `observability: ObservabilityConfig | None`, and `enable_synthesis: bool` fields
+- `Agent._setup_execution()` creates `ContextEngine` per execution (when configured)
+- `Agent._build_result()` captures `ContextTelemetry` and merges sub-agent telemetries into `AgentResult.context_telemetry`
+- `BaseExecutionMode.call_llm()` calls `engine.prepare()` before LLM, `engine.post_response()` after LLM response
+- `StandardMode._process_tool_calls()`, `DirectMode._handle_tool_calls()`, and `_streaming_tool_call_loop()` call `engine.ingest_tool_result()` after every tool execution
+- `MessageBuilder.build()` simplified — always uses `prompt.system`/`prompt.user`; removed `role`/`objective`/`narrative` fallback
+- `BaseExecutionMode.build_messages()` no longer passes `role`/`objective`/`narrative` to `MessageBuilder`
+- `Decomposer._create_sub_agent()` now inherits `prompt` from parent agent and collects sub-agent results for telemetry rollup
+- `BaseAgent` docstring rewritten to clearly separate labels (`role`, `objective`) from LLM instructions (`prompt`)
+- `ReActAgent` docstring updated to reflect new prompt API
+- `ExecutionContext` protocol updated — `prompt` is now `BasePrompt` (non-optional)
+- `AgentResult.display()` enhanced with context telemetry section (compactions, regions, offloaded artifacts)
+- All 3 execution modes use `config.llm_max_output_tokens` instead of hardcoded values
+- Default compaction thresholds tuned for quality focus: 60%/75%/90%
+- `build_llm_call_record()` and `build_llm_call_record_from_stream()` accept `prompt_technique` parameter
+
+### Files Changed (92 total)
+
+| Category | Modified | New | Total |
+|----------|----------|-----|-------|
+| Core runtime | 17 | 14 | 31 |
+| Core tests | 27 | 13 | 40 |
+| Core examples | 6 | 0 | 6 |
+| OpenAI provider (runtime) | 2 | 0 | 2 |
+| OpenAI provider (tests + examples) | 22 | 0 | 22 |
+| Gemini provider (runtime) | 1 | 0 | 1 |
+| Gemini provider (tests + examples) | 8 | 0 | 8 |
+| Notebooks + scripts | 2 | 3 | 5 |
+| Docs + changelog | 1 | 0 | 1 |
+
+### Packages
+
+| Package | Version | Requires | Note |
+|---------|---------|----------|------|
+| `nucleusiq` | **0.7.6** | — | Context window management, prompt system refactor, synthesis pass, ObservabilityConfig |
+| `nucleusiq-openai` | **0.6.2** | `nucleusiq>=0.7.6` | Context window registry (30 models), prompt API migration |
+| `nucleusiq-gemini` | **0.2.4** | `nucleusiq>=0.7.6` | `get_context_window()` override, prompt API migration |
+
+---
+
 ## [0.7.5](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.5) — 2026-04-03
 
 ### Added
@@ -553,12 +696,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.5...HEAD)
+## [Unreleased](https://github.com/nucleusbox/NucleusIQ/compare/v0.7.6...HEAD)
 
-### Planned for v0.7.6+
+### Planned for v0.7.7+
 
-- Prompt strategy tracing (record which prompt template/strategy was used per LLM call)
-- Context Window Management (budget tracker, tool result compression)
+- Hyperparameter auto-tuning + adaptive API constraint handling
 - Agent Types: ReAct integration into mode system, Chain-of-Thought as config flag
 - Agent DX: String argument support for `execute()`
 - New LLM Providers: Anthropic, Ollama

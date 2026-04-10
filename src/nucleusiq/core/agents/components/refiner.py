@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -118,7 +118,7 @@ class Refiner:
         step: PlanStep,
         previous_result: Any,
         critique: CritiqueResult,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> Any:
         """Produce a corrected result for a single step.
 
@@ -177,7 +177,7 @@ class Refiner:
         agent: Agent,
         task_objective: str,
         plan: Plan,
-        results: List[Any],
+        results: list[Any],
         final_result: Any,
         critique: CritiqueResult,
     ) -> Any:
@@ -226,7 +226,7 @@ class Refiner:
         step: PlanStep,
         previous_result: Any,
         critique: CritiqueResult,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> Any:
         """Re-infer tool arguments based on critique, then re-execute."""
         assert agent.llm is not None, "agent.llm must be set for Refiner"
@@ -248,7 +248,7 @@ class Refiner:
 
         tool_specs = agent.llm.convert_tool_specs(agent.tools) if agent.tools else []
 
-        call_kwargs: Dict[str, Any] = {
+        call_kwargs: dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": prompt}],
             "tools": tool_specs if tool_specs else None,
@@ -298,7 +298,7 @@ class Refiner:
         step: PlanStep,
         previous_result: Any,
         critique: CritiqueResult,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> Any:
         """Ask the LLM to produce a corrected result from the critique."""
         self._logger.info(
@@ -328,7 +328,7 @@ class Refiner:
         step: PlanStep,
         previous_result: Any,
         critique: CritiqueResult,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         agent: Agent,
     ) -> str:
         issues_list = (
@@ -383,7 +383,7 @@ class Refiner:
         step: PlanStep,
         previous_result: Any,
         critique: CritiqueResult,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> str:
         step_details = step.details or step.action
         issues_list = (
@@ -428,7 +428,7 @@ class Refiner:
     def _build_final_revision_prompt(
         task_objective: str,
         plan: Plan,
-        results: List[Any],
+        results: list[Any],
         final_result: Any,
         critique: CritiqueResult,
     ) -> str:
@@ -477,7 +477,7 @@ class Refiner:
     @staticmethod
     async def _call_llm(agent: Agent, prompt: str) -> Any:
         assert agent.llm is not None, "agent.llm must be set for Refiner._call_llm"
-        call_kwargs: Dict[str, Any] = {
+        call_kwargs: dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": [{"role": "user", "content": prompt}],
             "max_output_tokens": getattr(
@@ -500,7 +500,7 @@ class Refiner:
         return getattr(msg, "content", None)
 
     @staticmethod
-    def _extract_tool_args(response: Any, action: str) -> Dict[str, Any] | None:
+    def _extract_tool_args(response: Any, action: str) -> dict[str, Any] | None:
         """Extract tool arguments from an LLM response for re-execution."""
         if not response or not hasattr(response, "choices") or not response.choices:
             return None

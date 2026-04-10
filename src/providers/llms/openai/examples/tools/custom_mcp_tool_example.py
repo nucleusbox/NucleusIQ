@@ -24,7 +24,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
 
@@ -225,8 +225,8 @@ async def main():
 
     # Step 3: Create prompt
     logger.info("\n3. Creating prompt...")
-    prompt = PromptFactory.create_prompt(technique=PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful assistant with access to a custom MCP client tool. Use the tool to call MCP server functions.",
+    prompt = ZeroShotPrompt().configure(
+        system="Has access to a custom MCP client tool that connects to MCP servers.",
         user="Help users by calling MCP tools when needed.",
     )
     logger.info("✅ Prompt created")
@@ -240,7 +240,6 @@ async def main():
         name="CustomMCPAgent",
         role="MCP Assistant",
         objective="Help users by calling MCP tools via custom client.",
-        narrative="Has access to a custom MCP client tool that connects to MCP servers.",
         llm=llm,
         prompt=prompt,
         tools=[custom_mcp],  # Custom BaseTool, not OpenAITool.mcp()

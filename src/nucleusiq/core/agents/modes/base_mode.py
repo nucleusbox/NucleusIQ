@@ -14,7 +14,7 @@ import json
 import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
@@ -94,6 +94,27 @@ def build_attachment_metadata(
     return {"attachments": entries}
 
 
+def _extract_prompt_technique(agent: Any) -> str | None:
+    """Safely extract the prompt technique name from an agent's prompt.
+
+    Returns None if the agent has no prompt, no technique attribute,
+    or if the technique is not a string/enum value.
+    """
+    try:
+        prompt_obj = getattr(agent, "prompt", None)
+        if prompt_obj is None:
+            return None
+        tech = getattr(prompt_obj, "technique", None)
+        if tech is None:
+            return None
+        if hasattr(tech, "value"):
+            val = tech.value
+            return str(val) if isinstance(val, str) else None
+        return str(tech) if isinstance(tech, str) else None
+    except Exception:
+        return None
+
+
 class BaseExecutionMode(ABC):
     """Strategy interface for agent execution modes.
 
@@ -151,7 +172,7 @@ class BaseExecutionMode(ABC):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def get_objective(task: Task | Dict[str, Any]) -> str:
+    def get_objective(task: Task | dict[str, Any]) -> str:
         """Extract the objective string from a Task or dict.
 
         Accepts both forms for backward compatibility with external callers,
@@ -161,7 +182,7 @@ class BaseExecutionMode(ABC):
             return task.objective
         return task.get("objective", "")
 
-    def echo_fallback(self, agent: "Agent", task: Task | Dict[str, Any]) -> str | None:
+    def echo_fallback(self, agent: "Agent", task: Task | dict[str, Any]) -> str | None:
         """Return an echo result when no LLM is configured, or ``None``."""
         if agent.llm:
             return None
@@ -173,9 +194,9 @@ class BaseExecutionMode(ABC):
     def build_messages(
         self,
         agent: "Agent",
-        task: Task | Dict[str, Any],
+        task: Task | dict[str, Any],
         plan: Any = None,
-    ) -> List[ChatMessage]:
+    ) -> list[ChatMessage]:
         """Convert task (and optional plan) into an LLM-ready message list.
 
         When agent has memory, prior conversation turns are injected
@@ -195,8 +216,6 @@ class BaseExecutionMode(ABC):
             task,
             plan,
             prompt=agent.prompt,
-            role=agent.role,
-            objective=agent.objective,
             logger=agent._logger,
             attachment_processor=processor,
         )
@@ -233,17 +252,17 @@ class BaseExecutionMode(ABC):
     def build_call_kwargs(
         self,
         agent: "Agent",
-        messages: List[ChatMessage],
-        tool_specs: List[Dict[str, Any]] | None = None,
+        messages: list[ChatMessage],
+        tool_specs: list[dict[str, Any]] | None = None,
         max_output_tokens: int | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Build the kwargs dict for ``agent.llm.call()``.
 
         Merges model name, messages, tool specs, max_output_tokens,
         per-execute LLM overrides, and structured-output kwargs.
         """
         output_config = agent._resolve_response_format()
-        call_kwargs: Dict[str, Any] = {
+        call_kwargs: dict[str, Any] = {
             "model": getattr(agent.llm, "model_name", "default"),
             "messages": messages_to_dicts(messages),
             "tools": tool_specs if tool_specs else None,
@@ -279,7 +298,7 @@ class BaseExecutionMode(ABC):
         if isinstance(raw, str) and raw.strip():
             return raw
         if isinstance(raw, list):
-            parts: List[str] = []
+            parts: list[str] = []
             for part in raw:
                 if isinstance(part, dict) and part.get("type") == "text":
                     t = part.get("text")
@@ -343,9 +362,9 @@ class BaseExecutionMode(ABC):
     async def call_llm(
         self,
         agent: "Agent",
-        call_kwargs: Dict[str, Any],
-        messages: List[ChatMessage] | None = None,
-        tool_specs: List[Dict[str, Any]] | None = None,
+        call_kwargs: dict[str, Any],
+        messages: list[ChatMessage] | None = None,
+        tool_specs: list[dict[str, Any]] | None = None,
         *,
         purpose: CallPurpose = CallPurpose.MAIN,
     ) -> Any:
@@ -360,6 +379,19 @@ class BaseExecutionMode(ABC):
         assert agent.llm is not None, "agent.llm must be set before calling call_llm"
         pm = getattr(agent, "_plugin_manager", None)
 
+        # Keep reference to the caller's list so post_response always
+        # updates it, even when prepare() returns a new compacted list.
+        caller_messages = messages
+
+        # Context window management: prepare messages before LLM call
+        engine = getattr(agent, "_context_engine", None)
+        if engine is not None and messages is not None:
+            try:
+                messages = await engine.prepare(messages)
+                call_kwargs["messages"] = messages_to_dicts(messages)
+            except Exception:
+                pass
+
         t0 = time.perf_counter()
         if pm is None or not pm.has_plugins():
             response = await agent.llm.call(**call_kwargs)
@@ -369,7 +401,9 @@ class BaseExecutionMode(ABC):
 
             request = ModelRequest(
                 model=call_kwargs.get("model", "default"),
-                messages=messages or [],
+                messages=messages
+                if messages is not None
+                else call_kwargs.get("messages", []),
                 tools=tool_specs,
                 max_output_tokens=call_kwargs.get("max_output_tokens", 1024),
                 call_count=pm.increment_model_calls(),
@@ -383,6 +417,16 @@ class BaseExecutionMode(ABC):
 
         duration_ms = (time.perf_counter() - t0) * 1000
 
+        # Post-response hook: observation masking (Tier 0)
+        # Always target the *caller's* list so masking is applied
+        # consistently regardless of whether prepare() compacted.
+        if engine is not None and caller_messages is not None:
+            try:
+                masked = engine.post_response(caller_messages)
+                caller_messages[:] = masked
+            except Exception:
+                pass
+
         tracker = getattr(agent, "_usage_tracker", None)
         if tracker is not None:
             tracker.record_from_response(purpose, response)
@@ -390,6 +434,7 @@ class BaseExecutionMode(ABC):
         tracer = getattr(agent, "_tracer", None)
         if tracer is not None:
             model = call_kwargs.get("model") or getattr(response, "model", None)
+            prompt_tech = _extract_prompt_technique(agent)
             tracer.record_llm_call(
                 build_llm_call_record(
                     response,
@@ -397,6 +442,7 @@ class BaseExecutionMode(ABC):
                     purpose=purpose.value,
                     duration_ms=duration_ms,
                     model=model,
+                    prompt_technique=prompt_tech,
                 )
             )
 
@@ -419,7 +465,7 @@ class BaseExecutionMode(ABC):
         )
         pm = getattr(agent, "_plugin_manager", None)
 
-        tool_args: Dict[str, Any] = {}
+        tool_args: dict[str, Any] = {}
         try:
             tool_args = json.loads(tc.arguments) if tc.arguments else {}
         except (json.JSONDecodeError, TypeError):
@@ -479,7 +525,7 @@ class BaseExecutionMode(ABC):
     async def call_llm_stream(
         self,
         agent: "Agent",
-        call_kwargs: Dict[str, Any],
+        call_kwargs: dict[str, Any],
     ) -> AsyncGenerator[StreamEvent, None]:
         """Invoke ``agent.llm.call_stream()`` yielding ``StreamEvent`` objects.
 
@@ -495,8 +541,8 @@ class BaseExecutionMode(ABC):
     async def _streaming_tool_call_loop(
         self,
         agent: "Agent",
-        messages: List[ChatMessage],
-        tool_specs: List[Dict[str, Any]] | None,
+        messages: list[ChatMessage],
+        tool_specs: list[dict[str, Any]] | None,
         *,
         max_tool_calls: int = 30,
         max_output_tokens: int = 2048,
@@ -520,14 +566,33 @@ class BaseExecutionMode(ABC):
         call_round = 0
         empty_retries = 1
         tracker = getattr(agent, "_usage_tracker", None)
+        pre_synth_snapshot: list[ChatMessage] | None = None
 
         while tool_call_count < max_tool_calls:
             call_round += 1
+
+            # Snapshot messages *before* masking may compress data.
+            # Synthesis needs the full, unmasked context.
+            if (
+                getattr(agent.config, "enable_synthesis", True)
+                and tool_call_count > 0
+                and call_round > 2
+            ):
+                pre_synth_snapshot = list(messages)
+
             current_purpose = purpose if call_round == 1 else CallPurpose.TOOL_LOOP
             yield StreamEvent.llm_start_event(call_round)
 
+            engine = getattr(agent, "_context_engine", None)
+            prepared = messages
+            if engine is not None:
+                try:
+                    prepared = await engine.prepare(messages)
+                except Exception:
+                    prepared = messages
+
             call_kwargs = self.build_call_kwargs(
-                agent, messages, tool_specs, max_output_tokens=max_output_tokens
+                agent, prepared, tool_specs, max_output_tokens=max_output_tokens
             )
 
             complete_event: StreamEvent | None = None
@@ -572,6 +637,7 @@ class BaseExecutionMode(ABC):
                         purpose=current_purpose.value,
                         duration_ms=stream_duration_ms,
                         model=call_kwargs.get("model"),
+                        prompt_technique=_extract_prompt_technique(agent),
                     )
                 )
 
@@ -612,6 +678,12 @@ class BaseExecutionMode(ABC):
                             if not isinstance(result, str)
                             else result
                         )
+
+                        # Context window management: compress large tool results
+                        engine = getattr(agent, "_context_engine", None)
+                        if engine is not None:
+                            result_str = engine.ingest_tool_result(result_str, tc.name)
+
                         messages.append(
                             ChatMessage(
                                 role="tool",
@@ -626,10 +698,96 @@ class BaseExecutionMode(ABC):
                         yield StreamEvent.error_event(f"Tool '{tc.name}' failed: {e}")
                         return
 
+                # Post-response hook: observation masking (Tier 0) for streaming path
+                # Runs after assistant + tool results are in messages, before next LLM call
+                engine = getattr(agent, "_context_engine", None)
+                if engine is not None:
+                    try:
+                        masked = engine.post_response(messages)
+                        messages[:] = masked
+                    except Exception:
+                        pass
+
                 continue
 
-            # --- Content returned, no tools → done ---
+            # --- Content returned, no tools → synthesis or done ---
             if full_content.strip():
+                if pre_synth_snapshot is not None:
+                    agent._logger.info(
+                        "Synthesis pass (stream): %d tool calls over %d rounds",
+                        tool_call_count,
+                        call_round - 1,
+                    )
+                    call_round += 1
+                    yield StreamEvent.llm_start_event(call_round)
+
+                    synth_msgs = list(pre_synth_snapshot)
+                    synth_msgs.append(
+                        ChatMessage(
+                            role="user",
+                            content=(
+                                "All data gathering is complete. "
+                                "Now produce the COMPLETE, FULL-LENGTH "
+                                "deliverable exactly as described in your "
+                                "instructions. Do not summarize — write "
+                                "the entire output."
+                            ),
+                        )
+                    )
+
+                    engine = getattr(agent, "_context_engine", None)
+                    if engine is not None:
+                        try:
+                            synth_msgs = await engine.prepare(synth_msgs)
+                        except Exception:
+                            pass
+
+                    synth_kwargs = self.build_call_kwargs(
+                        agent,
+                        synth_msgs,
+                        None,
+                        max_output_tokens=max_output_tokens,
+                    )
+                    synth_event: StreamEvent | None = None
+                    synth_t0 = time.perf_counter()
+                    async for ev in self.call_llm_stream(agent, synth_kwargs):
+                        if ev.type == StreamEventType.TOKEN:
+                            yield ev
+                        elif ev.type == StreamEventType.COMPLETE:
+                            synth_event = ev
+                        elif ev.type == StreamEventType.ERROR:
+                            yield StreamEvent.llm_end_event(call_round)
+                            yield ev
+                            return
+
+                    synth_dur = (time.perf_counter() - synth_t0) * 1000
+                    yield StreamEvent.llm_end_event(call_round)
+
+                    if synth_event is not None:
+                        if tracker is not None:
+                            tracker.record_from_stream_metadata(
+                                CallPurpose.SYNTHESIS,
+                                synth_event.metadata,
+                                call_round=call_round,
+                            )
+                        synth_tracer = getattr(agent, "_tracer", None)
+                        if synth_tracer is not None:
+                            synth_tracer.record_llm_call(
+                                build_llm_call_record_from_stream(
+                                    synth_event.metadata,
+                                    call_round=call_round,
+                                    purpose=CallPurpose.SYNTHESIS.value,
+                                    duration_ms=synth_dur,
+                                    model=synth_kwargs.get("model"),
+                                    prompt_technique=_extract_prompt_technique(agent),
+                                )
+                            )
+                        yield StreamEvent.complete_event(
+                            synth_event.content or "",
+                            metadata=synth_event.metadata,
+                        )
+                        return
+
                 yield StreamEvent.complete_event(
                     full_content, metadata=complete_event.metadata
                 )

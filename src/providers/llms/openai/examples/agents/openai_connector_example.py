@@ -16,7 +16,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 
 logging.basicConfig(
@@ -91,8 +91,8 @@ async def main():
 
     # Step 3: Create prompt
     logger.info("\n3. Creating prompt...")
-    prompt = PromptFactory.create_prompt(technique=PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful assistant with access to Google Calendar. Use the calendar connector to help users manage their schedule.",
+    prompt = ZeroShotPrompt().configure(
+        system="Has access to Google Calendar via OpenAI connector.",
         user="Help users with calendar-related requests.",
     )
     logger.info("✅ Prompt created")
@@ -103,7 +103,6 @@ async def main():
         name="CalendarAgent",
         role="Calendar Assistant",
         objective="Help users manage their Google Calendar.",
-        narrative="Has access to Google Calendar via OpenAI connector.",
         llm=llm,
         prompt=prompt,
         tools=[calendar_connector],

@@ -26,17 +26,18 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from nucleusiq.plugins.base import BasePlugin, ToolHandler, ToolRequest
 from nucleusiq.plugins.errors import PluginError
 
 logger = logging.getLogger(__name__)
 
-DenyHandler = Callable[[str, Dict[str, Any]], str]
+DenyHandler = Callable[[str, dict[str, Any]], str]
 
 
-def _default_deny_message(tool_name: str, tool_args: Dict[str, Any]) -> str:
+def _default_deny_message(tool_name: str, tool_args: dict[str, Any]) -> str:
     return f"Tool '{tool_name}' is blocked by security policy."
 
 

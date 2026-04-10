@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Any, Dict
+from typing import Any
 
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq.tools.builtin.workspace import (
@@ -211,7 +211,7 @@ class FileSearchTool(BaseTool):
                     continue
                 self._search_file(fpath, pattern, compiled, matches, limit)
 
-    def get_spec(self) -> Dict[str, Any]:
+    def get_spec(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,

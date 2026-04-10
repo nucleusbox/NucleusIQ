@@ -16,7 +16,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
-from nucleusiq.prompts.factory import PromptFactory, PromptTechnique
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq_openai import BaseOpenAI, OpenAITool
 
 logging.basicConfig(
@@ -91,8 +91,8 @@ async def main():
 
     # Step 3: Create prompt
     logger.info("\n3. Creating prompt...")
-    prompt = PromptFactory.create_prompt(technique=PromptTechnique.ZERO_SHOT).configure(
-        system="You are a helpful assistant with access to a D&D dice rolling server. Use the MCP server to roll dice when requested.",
+    prompt = ZeroShotPrompt().configure(
+        system="Has access to a D&D dice rolling MCP server.",
         user="Help users with dice rolling requests.",
     )
     logger.info("✅ Prompt created")
@@ -103,7 +103,6 @@ async def main():
         name="MCPAgent",
         role="D&D Assistant",
         objective="Help users with dice rolling using the MCP server.",
-        narrative="Has access to a D&D dice rolling MCP server.",
         llm=llm,
         prompt=prompt,
         tools=[mcp_tool],  # MCP tool

@@ -33,6 +33,7 @@ sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
 from nucleusiq.plugins.builtin import (
     ContextWindowPlugin,
@@ -119,6 +120,9 @@ async def demo_pii_and_tool_guard():
         objective="Search contacts safely",
         llm=llm,
         tools=[search_tool, delete_tool, add_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a secure assistant. Use search_contacts for lookups; do not use blocked tools. Summarize contact info accurately.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             PIIGuardPlugin(
@@ -164,6 +168,9 @@ async def demo_model_fallback():
         role="Resilient assistant",
         objective="Answer questions with fallback protection",
         llm=llm,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Answer clearly and concisely.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         plugins=[
             ModelFallbackPlugin(
@@ -213,6 +220,9 @@ async def demo_human_approval():
         objective="Do math with approval",
         llm=llm,
         tools=[add_tool, mul_tool, delete_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a calculator assistant. Use add and multiply for arithmetic when appropriate.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             HumanApprovalPlugin(
@@ -256,6 +266,9 @@ async def demo_context_window():
         objective="Chat with managed context window",
         llm=llm,
         memory=memory,
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant. Use prior turns in the conversation when answering follow-ups.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         plugins=[
             ContextWindowPlugin(
@@ -315,6 +328,9 @@ async def demo_all_combined():
         llm=llm,
         memory=memory,
         tools=[add_tool, mul_tool, search_tool, delete_tool],
+        prompt=ZeroShotPrompt().configure(
+            system="You are a versatile assistant. Use math tools for calculations and search_contacts for people; follow tool and safety constraints.",
+        ),
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         plugins=[
             ModelCallLimitPlugin(max_calls=15),

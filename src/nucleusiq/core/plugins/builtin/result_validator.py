@@ -23,7 +23,7 @@ Usage::
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from nucleusiq.plugins.base import BasePlugin
 
@@ -41,8 +41,8 @@ class ResultValidatorPlugin(BasePlugin):
     async def validate_result(
         self,
         result: Any,
-        context: Dict[str, Any],
-    ) -> Tuple[bool, str]:
+        context: dict[str, Any],
+    ) -> tuple[bool, str]:
         """Validate an execution result.
 
         Args:

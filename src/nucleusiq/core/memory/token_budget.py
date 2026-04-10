@@ -11,7 +11,8 @@ Pass a custom ``token_counter`` callable for accurate counts.
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 from nucleusiq.memory.base import BaseMemory
 from pydantic import ConfigDict, Field
@@ -52,7 +53,7 @@ class TokenBudgetMemory(BaseMemory):
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         tokens = self.token_counter(content)
-        entry: Dict[str, Any] = {"role": role, "content": content}
+        entry: dict[str, Any] = {"role": role, "content": content}
         if "metadata" in kwargs:
             entry["metadata"] = kwargs["metadata"]
         self._messages.append(entry)
@@ -62,7 +63,7 @@ class TokenBudgetMemory(BaseMemory):
 
     def get_context(
         self, query: str | None = None, **kwargs: Any
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         return list(self._messages)
 
     def clear(self) -> None:
@@ -70,14 +71,14 @@ class TokenBudgetMemory(BaseMemory):
         self._token_counts.clear()
         self._total_tokens = 0
 
-    def export_state(self) -> Dict[str, Any]:
+    def export_state(self) -> dict[str, Any]:
         return {
             "messages": list(self._messages),
             "token_counts": list(self._token_counts),
             "max_tokens": self.max_tokens,
         }
 
-    def import_state(self, state: Dict[str, Any]) -> None:
+    def import_state(self, state: dict[str, Any]) -> None:
         self._messages = deque(state.get("messages", []))
         self._token_counts = deque(state.get("token_counts", []))
         self._total_tokens = sum(self._token_counts)
