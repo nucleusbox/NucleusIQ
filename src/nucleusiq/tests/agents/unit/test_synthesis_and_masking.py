@@ -79,9 +79,7 @@ def _build_messages_with_tool_results(n_tool_rounds=3, content_per_result=500):
     ]
     for i in range(n_tool_rounds):
         tc = ToolCallRequest(id=f"tc_{i}", name=f"tool_{i}", arguments="{}")
-        msgs.append(
-            ChatMessage(role="assistant", content=None, tool_calls=[tc])
-        )
+        msgs.append(ChatMessage(role="assistant", content=None, tool_calls=[tc]))
         msgs.append(
             ChatMessage(
                 role="tool",
@@ -117,18 +115,17 @@ class TestCallLlmMaskingConsistency:
         )
         agent._context_engine = engine
 
-        msgs = _build_messages_with_tool_results(n_tool_rounds=3, content_per_result=500)
-        original_tool_contents = [
-            m.content for m in msgs if m.role == "tool"
-        ]
+        msgs = _build_messages_with_tool_results(
+            n_tool_rounds=3, content_per_result=500
+        )
+        original_tool_contents = [m.content for m in msgs if m.role == "tool"]
 
         mode = StandardMode()
         await mode.call_llm(agent, {"model": "m", "messages": []}, msgs, None)
 
         masked_tool_contents = [m.content for m in msgs if m.role == "tool"]
         masked_count = sum(
-            1 for c in masked_tool_contents
-            if c.startswith("[observation consumed")
+            1 for c in masked_tool_contents if c.startswith("[observation consumed")
         )
 
         assert masked_count > 0, (
@@ -159,14 +156,17 @@ class TestCallLlmMaskingConsistency:
         )
         agent._context_engine = engine
 
-        msgs = _build_messages_with_tool_results(n_tool_rounds=3, content_per_result=500)
+        msgs = _build_messages_with_tool_results(
+            n_tool_rounds=3, content_per_result=500
+        )
 
         mode = StandardMode()
         await mode.call_llm(agent, {"model": "m", "messages": []}, msgs, None)
 
         tool_contents = [m.content for m in msgs if m.role == "tool"]
         masked_count = sum(
-            1 for c in tool_contents
+            1
+            for c in tool_contents
             if isinstance(c, str) and c.startswith("[observation consumed")
         )
 
@@ -267,12 +267,15 @@ class TestSynthesisSnapshot:
         mode = StandardMode()
 
         from nucleusiq.agents.components.executor import Executor
+
         agent._executor = Executor(agent.llm, agent.tools)
 
         task = Task.from_dict({"id": "t1", "objective": "Analyze"})
 
         with patch.object(StandardMode, "_synthesis_pass", capture_synthesis):
-            await mode._tool_call_loop(agent, task, mode.build_messages(agent, task), [])
+            await mode._tool_call_loop(
+                agent, task, mode.build_messages(agent, task), []
+            )
 
         assert captured_snapshot is not None, "Synthesis pass must have been called"
 
@@ -290,8 +293,7 @@ class TestSynthesisSnapshot:
         )
 
         unmasked_count = sum(
-            1 for m in tool_msgs
-            if not m.content.startswith("[observation consumed")
+            1 for m in tool_msgs if not m.content.startswith("[observation consumed")
         )
         assert unmasked_count >= 1, (
             "Snapshot must have at least one unmasked tool result"
@@ -337,6 +339,7 @@ class TestSynthesisSnapshot:
         agent.tools = [t1, t2, t3]
 
         from nucleusiq.agents.components.executor import Executor
+
         agent._executor = Executor(agent.llm, agent.tools)
 
         mode = StandardMode()
@@ -381,6 +384,7 @@ class TestSynthesisSnapshot:
         agent.tools = [t1]
 
         from nucleusiq.agents.components.executor import Executor
+
         agent._executor = Executor(agent.llm, agent.tools)
 
         mode = StandardMode()
@@ -444,6 +448,7 @@ class TestSynthesisE2E:
         agent.tools = [t1, t2, t3]
 
         from nucleusiq.agents.components.executor import Executor
+
         agent._executor = Executor(agent.llm, agent.tools)
 
         mode = StandardMode()
@@ -535,6 +540,7 @@ class TestStreamingSynthesisSnapshot:
         agent.tools = [tool_1, tool_2, tool_3]
 
         from nucleusiq.agents.components.executor import Executor
+
         agent._executor = Executor(agent.llm, agent.tools)
 
         original_build = StandardMode.build_call_kwargs
@@ -562,16 +568,15 @@ class TestStreamingSynthesisSnapshot:
         assert complete_events[0].content == "SYNTHESIZED REPORT"
 
         if synth_messages_captured is not None:
-            tool_msgs = [
-                m for m in synth_messages_captured if m.role == "tool"
-            ]
+            tool_msgs = [m for m in synth_messages_captured if m.role == "tool"]
             assert len(tool_msgs) > 0
             last_tool = tool_msgs[-1]
             assert not last_tool.content.startswith("[observation consumed"), (
                 "Most recent tool result in streaming snapshot must NOT be masked"
             )
             unmasked = sum(
-                1 for m in tool_msgs
+                1
+                for m in tool_msgs
                 if not m.content.startswith("[observation consumed")
             )
             assert unmasked >= 1, (
@@ -636,6 +641,7 @@ class TestStreamingSynthesisSnapshot:
         agent.tools = [tool_a]
 
         from nucleusiq.agents.components.executor import Executor
+
         agent._executor = Executor(agent.llm, agent.tools)
 
         mode = StandardMode()

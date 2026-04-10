@@ -379,7 +379,9 @@ async def main():
     logger.info("1. DIRECT mode - Fast, simple, no tools")
     logger.info("2. STANDARD mode - Tool-enabled, linear execution")
     logger.info("3. AUTONOMOUS mode - Full reasoning loop (falls back to standard)")
-    logger.info("4. Explicit prompts — role/objective are labels; system message drives behavior")
+    logger.info(
+        "4. Explicit prompts — role/objective are labels; system message drives behavior"
+    )
     logger.info("5. Auto-initialization - no need to call initialize() manually")
     logger.info("\n" + "=" * 80)
 

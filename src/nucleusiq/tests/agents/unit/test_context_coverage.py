@@ -162,7 +162,9 @@ class TestConversationCompactor:
 
         assert result.tokens_freed > 0
         assert result.entries_removed > 0
-        assert any("compacted" in m.content for m in result.messages if m.role == "system")
+        assert any(
+            "compacted" in m.content for m in result.messages if m.role == "system"
+        )
 
     @pytest.mark.asyncio
     async def test_summarization_mode_builds_working_state(self):
@@ -179,7 +181,8 @@ class TestConversationCompactor:
         assert result.tokens_freed > 0
         assert result.summaries_inserted == 1
         summary_msgs = [
-            m for m in result.messages
+            m
+            for m in result.messages
             if m.role == "system" and "WORKING STATE SUMMARY" in (m.content or "")
         ]
         assert len(summary_msgs) == 1
@@ -194,7 +197,9 @@ class TestConversationCompactor:
             ChatMessage(role="system", content="sys"),
             ChatMessage(role="user", content="search for X"),
             ChatMessage(role="assistant", content=None, tool_calls=[tc]),
-            ChatMessage(role="tool", name="search", tool_call_id="tc1", content="result"),
+            ChatMessage(
+                role="tool", name="search", tool_call_id="tc1", content="result"
+            ),
             ChatMessage(role="user", content="follow up"),
             ChatMessage(role="assistant", content="final answer"),
         ]
@@ -210,7 +215,9 @@ class TestConversationCompactor:
         evicted = [
             ChatMessage(role="user", content="What is the revenue?"),
             ChatMessage(role="assistant", content="Let me check the data."),
-            ChatMessage(role="tool", name="db_query", content="Revenue: $10M\nGrowth: 15%"),
+            ChatMessage(
+                role="tool", name="db_query", content="Revenue: $10M\nGrowth: 15%"
+            ),
             ChatMessage(role="assistant", content="Revenue is $10M with 15% growth."),
         ]
         summary = ConversationCompactor._build_structured_summary(evicted, 500)
@@ -249,14 +256,20 @@ class TestEmergencyCompactor:
             ChatMessage(role="assistant", content=f"thinking {filler}"),
             ChatMessage(role="user", content=f"more {filler}"),
             ChatMessage(role="assistant", content=None, tool_calls=[tc]),
-            ChatMessage(role="tool", name="tool", tool_call_id="tc1", content=f"result {filler}"),
+            ChatMessage(
+                role="tool", name="tool", tool_call_id="tc1", content=f"result {filler}"
+            ),
         ]
         budget = _budget(allocated=5000, max_tokens=5000, reserve=500)
         result = await ec.compact(msgs, budget, ContextConfig(), _counter, None)
 
         assert result.tokens_freed > 0
         assert result.entries_removed > 0
-        assert any("CONTEXT COMPACTED" in m.content for m in result.messages if m.role == "system")
+        assert any(
+            "CONTEXT COMPACTED" in m.content
+            for m in result.messages
+            if m.role == "system"
+        )
         assert any("Emergency compaction" in w for w in result.warnings)
 
     @pytest.mark.asyncio
@@ -434,7 +447,8 @@ class TestContextEngineExtended:
         result = engine.post_response(msgs)
         assert all(
             not m.content.startswith("[observation consumed")
-            for m in result if m.role == "tool"
+            for m in result
+            if m.role == "tool"
         )
 
     def test_checkpoint_recorded(self):
@@ -503,7 +517,9 @@ class TestObservationMaskerEdgeCases:
         masker = ObservationMasker()
         store = ContentStore()
         msgs = [
-            ChatMessage(role="tool", name="t", content="[observation consumed — 500 tokens]"),
+            ChatMessage(
+                role="tool", name="t", content="[observation consumed — 500 tokens]"
+            ),
             ChatMessage(role="assistant", content="ok"),
         ]
         result, count, freed = masker.mask(msgs, _counter, store)
@@ -563,12 +579,18 @@ class TestContextLedger:
     def test_allocate_and_snapshot(self):
         ledger = ContextLedger(max_tokens=1000, response_reserve=100)
         ledger.allocate(
-            msg_id="m1", tokens=50, region=Region.SYSTEM,
-            source_type="system", importance=1.0,
+            msg_id="m1",
+            tokens=50,
+            region=Region.SYSTEM,
+            source_type="system",
+            importance=1.0,
         )
         ledger.allocate(
-            msg_id="m2", tokens=200, region=Region.USER,
-            source_type="user", importance=0.5,
+            msg_id="m2",
+            tokens=200,
+            region=Region.USER,
+            source_type="user",
+            importance=0.5,
         )
         snapshot = ledger.snapshot()
         assert snapshot.allocated == 250
@@ -579,8 +601,11 @@ class TestContextLedger:
     def test_reset(self):
         ledger = ContextLedger(max_tokens=1000, response_reserve=100)
         ledger.allocate(
-            msg_id="m1", tokens=500, region=Region.SYSTEM,
-            source_type="system", importance=1.0,
+            msg_id="m1",
+            tokens=500,
+            region=Region.SYSTEM,
+            source_type="system",
+            importance=1.0,
         )
         ledger.reset()
         snapshot = ledger.snapshot()
@@ -588,8 +613,13 @@ class TestContextLedger:
 
     def test_deallocate(self):
         ledger = ContextLedger(max_tokens=1000, response_reserve=100)
-        ledger.allocate(msg_id="m1", tokens=200, region=Region.USER,
-                        source_type="user", importance=0.5)
+        ledger.allocate(
+            msg_id="m1",
+            tokens=200,
+            region=Region.USER,
+            source_type="user",
+            importance=0.5,
+        )
         freed = ledger.deallocate("m1")
         assert freed == 200
         assert ledger.total_allocated == 0
@@ -601,16 +631,19 @@ class TestContextLedger:
 
     def test_reallocate_replaces_existing(self):
         ledger = ContextLedger(max_tokens=1000, response_reserve=100)
-        ledger.allocate(msg_id="m1", tokens=100, region=Region.USER,
-                        source_type="user")
-        ledger.allocate(msg_id="m1", tokens=50, region=Region.USER,
-                        source_type="user")
+        ledger.allocate(msg_id="m1", tokens=100, region=Region.USER, source_type="user")
+        ledger.allocate(msg_id="m1", tokens=50, region=Region.USER, source_type="user")
         assert ledger.total_allocated == 50
 
     def test_get_entry(self):
         ledger = ContextLedger(max_tokens=1000, response_reserve=100)
-        ledger.allocate(msg_id="m1", tokens=100, region=Region.SYSTEM,
-                        source_type="system", importance=1.0)
+        ledger.allocate(
+            msg_id="m1",
+            tokens=100,
+            region=Region.SYSTEM,
+            source_type="system",
+            importance=1.0,
+        )
         entry = ledger.get_entry("m1")
         assert entry is not None
         assert entry.tokens == 100
@@ -618,20 +651,20 @@ class TestContextLedger:
 
     def test_entries_by_region(self):
         ledger = ContextLedger(max_tokens=1000, response_reserve=100)
-        ledger.allocate(msg_id="m1", tokens=100, region=Region.SYSTEM,
-                        source_type="system")
-        ledger.allocate(msg_id="m2", tokens=200, region=Region.USER,
-                        source_type="user")
-        ledger.allocate(msg_id="m3", tokens=300, region=Region.USER,
-                        source_type="user")
+        ledger.allocate(
+            msg_id="m1", tokens=100, region=Region.SYSTEM, source_type="system"
+        )
+        ledger.allocate(msg_id="m2", tokens=200, region=Region.USER, source_type="user")
+        ledger.allocate(msg_id="m3", tokens=300, region=Region.USER, source_type="user")
         user_entries = ledger.entries_by_region(Region.USER)
         assert len(user_entries) == 2
 
     def test_entry_count(self):
         ledger = ContextLedger(max_tokens=1000, response_reserve=100)
         assert ledger.entry_count == 0
-        ledger.allocate(msg_id="m1", tokens=100, region=Region.SYSTEM,
-                        source_type="system")
+        ledger.allocate(
+            msg_id="m1", tokens=100, region=Region.SYSTEM, source_type="system"
+        )
         assert ledger.entry_count == 1
 
 
@@ -643,25 +676,37 @@ class TestContextLedger:
 class TestContextBudgetEdgeCases:
     def test_utilization_when_effective_limit_zero(self):
         budget = ContextBudget(
-            max_tokens=100, response_reserve=100, allocated=50, by_region={},
+            max_tokens=100,
+            response_reserve=100,
+            allocated=50,
+            by_region={},
         )
         assert budget.utilization == 1.0
 
     def test_effective_limit(self):
         budget = ContextBudget(
-            max_tokens=1000, response_reserve=200, allocated=0, by_region={},
+            max_tokens=1000,
+            response_reserve=200,
+            allocated=0,
+            by_region={},
         )
         assert budget.effective_limit == 800
 
     def test_available(self):
         budget = ContextBudget(
-            max_tokens=1000, response_reserve=200, allocated=500, by_region={},
+            max_tokens=1000,
+            response_reserve=200,
+            allocated=500,
+            by_region={},
         )
         assert budget.available == 300
 
     def test_can_fit(self):
         budget = ContextBudget(
-            max_tokens=1000, response_reserve=200, allocated=500, by_region={},
+            max_tokens=1000,
+            response_reserve=200,
+            allocated=500,
+            by_region={},
         )
         assert budget.can_fit(200) is True
         assert budget.can_fit(500) is False
@@ -704,25 +749,38 @@ class TestContentStoreExtended:
 class TestCompactionPipelineEdgeCases:
     def test_tier_count(self):
         from nucleusiq.agents.context.pipeline import CompactionPipeline
-        p = CompactionPipeline([
-            (0.7, ToolResultCompactor()),
-            (0.95, EmergencyCompactor()),
-        ])
+
+        p = CompactionPipeline(
+            [
+                (0.7, ToolResultCompactor()),
+                (0.95, EmergencyCompactor()),
+            ]
+        )
         assert p.tier_count == 2
 
     @pytest.mark.asyncio
     async def test_zero_effective_limit_sets_util_to_one(self):
         from nucleusiq.agents.context.pipeline import CompactionPipeline
+
         budget = ContextBudget(
-            max_tokens=100, response_reserve=100, allocated=50, by_region={},
+            max_tokens=100,
+            response_reserve=100,
+            allocated=50,
+            by_region={},
         )
         config = ContextConfig(tool_compaction_trigger=0.0)
-        pipeline = CompactionPipeline([
-            (0.0, ToolResultCompactor()),
-        ])
+        pipeline = CompactionPipeline(
+            [
+                (0.0, ToolResultCompactor()),
+            ]
+        )
         msgs = [ChatMessage(role="tool", name="t", content="x")]
         result_msgs, events = await pipeline.run(
-            msgs, budget, config, _counter, None,
+            msgs,
+            budget,
+            config,
+            _counter,
+            None,
         )
         assert len(events) > 0
 

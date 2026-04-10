@@ -443,7 +443,9 @@ class TestMixedToolsAgentDirectMode:
             name="IntegrationDirect",
             role="Research assistant",
             objective="Answer questions using search and calculator",
-            prompt=ZeroShotPrompt().configure(system="Use google_search for live data."),
+            prompt=ZeroShotPrompt().configure(
+                system="Use google_search for live data."
+            ),
             llm=BaseGemini(model_name="gemini-2.5-flash", temperature=0.0),
             tools=[search, calc],
             config=AgentConfig(

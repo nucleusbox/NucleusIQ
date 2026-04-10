@@ -16,6 +16,7 @@ def make_test_prompt(
     """Create a minimal ZeroShotPrompt for tests that need an Agent."""
     return ZeroShotPrompt().configure(system=system, user=user)
 
+
 # Add src directory to path for imports
 src_dir = Path(__file__).parent.parent / "src"
 if str(src_dir) not in sys.path:
