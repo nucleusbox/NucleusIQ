@@ -34,8 +34,8 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode
 from nucleusiq.agents.plan import Plan, PlanStep
-from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.agents.task import Task
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
 

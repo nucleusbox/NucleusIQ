@@ -26,8 +26,9 @@ from nucleusiq.memory.full_history import FullHistoryMemory
 from nucleusiq.plugins.base import BasePlugin
 from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.streaming.events import StreamEvent
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fixtures

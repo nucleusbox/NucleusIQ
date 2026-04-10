@@ -16,8 +16,9 @@ from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 class _CalcTool(BaseTool):

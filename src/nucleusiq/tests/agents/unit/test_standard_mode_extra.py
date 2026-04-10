@@ -8,8 +8,9 @@ from nucleusiq.agents.errors import AgentExecutionError
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools.base_tool import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 def _make_agent(**overrides):

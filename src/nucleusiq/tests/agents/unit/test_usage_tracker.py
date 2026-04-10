@@ -7,7 +7,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.agents.usage.usage_tracker import (
     PURPOSE_ORIGIN_MAP,
     BucketStats,
@@ -18,6 +17,8 @@ from nucleusiq.agents.usage.usage_tracker import (
     UsageSummary,
     UsageTracker,
 )
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 # ================================================================== #
 # CallPurpose enum                                                     #

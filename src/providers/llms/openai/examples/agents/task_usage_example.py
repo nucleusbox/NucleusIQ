@@ -22,8 +22,8 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
-from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 
 # Try to import OpenAI LLM
 try:

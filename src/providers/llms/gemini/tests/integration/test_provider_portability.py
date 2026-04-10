@@ -23,8 +23,8 @@ if _nucleusiq_core not in sys.path:
 
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
-from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.memory.full_history import FullHistoryMemory
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_gemini import BaseGemini
 

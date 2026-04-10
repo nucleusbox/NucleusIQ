@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 from nucleusiq.agents.agent import Agent
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.modes.base_mode import (
@@ -25,6 +24,8 @@ from nucleusiq.memory import (
     SummaryWindowMemory,
     TokenBudgetMemory,
 )
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 # ================================================================== #
 # Helper utilities                                                     #

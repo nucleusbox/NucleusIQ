@@ -34,11 +34,12 @@ if _openai_dir not in sys.path:
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig
 from nucleusiq.memory.full_history import FullHistoryMemory
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.memory.sliding_window import SlidingWindowMemory
 from nucleusiq.memory.summary import SummaryMemory
 from nucleusiq.memory.summary_window import SummaryWindowMemory
 from nucleusiq.memory.token_budget import TokenBudgetMemory
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 _HAS_KEY = bool(os.getenv("OPENAI_API_KEY"))
 

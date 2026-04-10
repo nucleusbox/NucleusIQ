@@ -35,7 +35,6 @@ sys.path.insert(0, _src_dir)
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.memory.factory import MemoryFactory, MemoryStrategy
-from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.plugins import (
     AgentContext,
     BasePlugin,
@@ -48,6 +47,7 @@ from nucleusiq.plugins import (
     wrap_tool_call,
 )
 from nucleusiq.plugins.builtin import ModelCallLimitPlugin
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.tools import BaseTool
 from nucleusiq_openai import BaseOpenAI
 

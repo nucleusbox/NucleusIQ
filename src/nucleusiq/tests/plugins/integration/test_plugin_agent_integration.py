@@ -7,7 +7,6 @@ from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config.agent_config import AgentConfig
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.plugins.base import (
     AgentContext,
     BasePlugin,
@@ -25,6 +24,8 @@ from nucleusiq.plugins.decorators import (
 )
 from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.tools.base_tool import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 # ------------------------------------------------------------------ #
 # Helpers                                                              #

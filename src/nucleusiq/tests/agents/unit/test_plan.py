@@ -21,9 +21,10 @@ if str(src_dir) not in sys.path:
 
 import pytest
 from nucleusiq.agents.plan import Plan, PlanStep
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.agents.task import Task
 from pydantic import ValidationError
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 class TestPlanStepCreation:

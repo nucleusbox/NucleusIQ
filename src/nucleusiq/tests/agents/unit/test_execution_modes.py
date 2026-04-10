@@ -23,10 +23,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.tools import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 class MockCalculatorTool(BaseTool):

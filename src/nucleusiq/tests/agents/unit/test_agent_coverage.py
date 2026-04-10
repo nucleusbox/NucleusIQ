@@ -26,9 +26,10 @@ from nucleusiq.agents.messaging.message_builder import MessageBuilder
 from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
 from nucleusiq.tools.errors import ToolNotFoundError
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 # --------------------------------------------------------------------------- #
 # Mock Tools                                                                  #

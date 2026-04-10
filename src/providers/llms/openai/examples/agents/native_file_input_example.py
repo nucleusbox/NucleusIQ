@@ -43,9 +43,9 @@ _src_dir = os.path.join(os.path.dirname(__file__), "../..")
 sys.path.insert(0, _src_dir)
 
 from nucleusiq.agents import Agent, Attachment, AttachmentType, Task
-from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq_openai import BaseOpenAI
 
 logging.basicConfig(level=logging.INFO, format="%(name)s - %(levelname)s - %(message)s")

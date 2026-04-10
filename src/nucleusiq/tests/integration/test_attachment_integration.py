@@ -27,6 +27,7 @@ from nucleusiq.agents.attachments import Attachment, AttachmentType
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
+
 from nucleusiq.tests.conftest import make_test_prompt
 
 # ================================================================== #

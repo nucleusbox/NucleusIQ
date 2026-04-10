@@ -26,9 +26,10 @@ from nucleusiq.agents.config import AgentConfig, AgentState, ExecutionMode
 from nucleusiq.llms.llm_params import LLMParams
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.streaming.events import StreamEvent
 from nucleusiq.tools import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Shared fixtures

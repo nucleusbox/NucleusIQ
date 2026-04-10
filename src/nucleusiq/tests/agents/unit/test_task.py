@@ -21,8 +21,9 @@ import uuid
 
 import pytest
 from nucleusiq.agents.task import Task
-from nucleusiq.tests.conftest import make_test_prompt
 from pydantic import ValidationError
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 class TestTaskCreation:

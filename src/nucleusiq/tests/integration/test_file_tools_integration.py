@@ -20,13 +20,14 @@ from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools.builtin import (
     DirectoryListTool,
     FileExtractTool,
     FileReadTool,
     FileSearchTool,
 )
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 class FileToolMockLLM(MockLLM):
