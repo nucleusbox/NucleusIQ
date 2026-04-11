@@ -184,3 +184,9 @@ docs/
 
 # Internal integration test (not for release)
 integration_test/
+
+# Internal scripts (dev demos, build verification — not for release)
+scripts/
+
+# Research workspace (experiments, drafts, raw data — not for release)
+research/
