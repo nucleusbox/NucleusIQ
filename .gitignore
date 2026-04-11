@@ -185,8 +185,8 @@ docs/
 # Internal integration test (not for release)
 integration_test/
 
-# Internal scripts (dev demos, build verification — not for release)
-scripts/
+# Internal demo scripts (CI scripts like verify_core_package_layout.py stay tracked)
+scripts/demo_*.py
 
 # Research workspace (experiments, drafts, raw data — not for release)
 research/
