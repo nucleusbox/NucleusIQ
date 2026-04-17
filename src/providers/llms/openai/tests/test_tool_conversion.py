@@ -309,19 +309,34 @@ class TestMessagesToResponsesInput:
         assert items[1].content == "Hello!"
 
     def test_tool_results_on_first_call(self):
-        """Tool results on first call convert to function_call_output."""
+        """Tool results on first call convert to function_call_output.
+
+        A valid conversation must have a matching assistant function_call
+        for every tool result — otherwise the Responses API rejects the
+        request with a 400 'No tool call found ...' error.
+        """
         messages = [
             {"role": "user", "content": "Add 2+3"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_abc", "name": "add", "arguments": "{}"},
+                ],
+            },
             {"role": "tool", "tool_call_id": "call_abc", "content": "5"},
         ]
         instructions, items = messages_to_responses_input(messages, None)
 
-        assert len(items) == 2
+        assert len(items) == 4
         assert items[0].role == "user"
         assert items[0].content == "Add 2+3"
-        assert items[1].type == "function_call_output"
-        assert items[1].call_id == "call_abc"
-        assert items[1].output == "5"
+        assert items[1].role == "assistant"
+        assert items[2].type == "function_call"
+        assert items[2].call_id == "call_abc"
+        assert items[3].type == "function_call_output"
+        assert items[3].call_id == "call_abc"
+        assert items[3].output == "5"
 
     def test_continuation_only_sends_tool_results(self):
         """When last_response_id is set, only tool results are sent."""

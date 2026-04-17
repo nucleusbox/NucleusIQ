@@ -138,6 +138,7 @@ class BaseGemini(BaseLLM):
         api_key: str | None = None,
         temperature: float = 0.7,
         top_k: int | None = None,
+        max_retries: int = 3,
     ) -> None:
         """Initialize Gemini client with sensible defaults.
 
@@ -146,12 +147,14 @@ class BaseGemini(BaseLLM):
             api_key: Gemini API key (falls back to ``GEMINI_API_KEY`` env var).
             temperature: Default sampling temperature.
             top_k: Default Top-K sampling value.
+            max_retries: Maximum retries for transient errors per API call.
         """
         super().__init__()
         self.model_name = model_name
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.temperature = temperature
         self.top_k = top_k
+        self.max_retries = max_retries
         self._logger = logging.getLogger("BaseGemini")
 
         if not self.api_key:
@@ -162,7 +165,7 @@ class BaseGemini(BaseLLM):
                 "or pass it to the constructor."
             )
 
-        self._client = GeminiClient(api_key=self.api_key)
+        self._client = GeminiClient(api_key=self.api_key, max_retries=self.max_retries)
 
     # ================================================================== #
     # Tool spec conversion                                                #
@@ -593,3 +596,10 @@ class BaseGemini(BaseLLM):
     def get_context_window(self) -> int:
         """Return context window size from the Gemini model registry."""
         return get_context_window(self.model_name)
+
+    @property
+    def is_reasoning_model(self) -> bool:
+        """Gemini thinking models (with thinking_config) are not reasoning
+        models in the OpenAI sense — they don't share output budget with
+        internal reasoning. Defaults to False."""
+        return False

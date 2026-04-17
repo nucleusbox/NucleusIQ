@@ -39,7 +39,7 @@ class TestModelRequest:
         assert req.model == "default"
         assert req.messages == []
         assert req.tools is None
-        assert req.max_output_tokens == 1024
+        assert req.max_output_tokens == 2048
         assert req.call_count == 0
         assert req.metadata == {}
         assert req.extra_kwargs == {}

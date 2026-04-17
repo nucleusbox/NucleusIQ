@@ -117,7 +117,7 @@ class ModelRequest(BaseModel):
     tools: list[dict[str, Any]] | None = Field(
         default=None, description="LLM-formatted tool specifications"
     )
-    max_output_tokens: int = 1024
+    max_output_tokens: int = 2048
     call_count: int = Field(
         default=0, description="Number of LLM calls so far in this execution"
     )

@@ -13,9 +13,9 @@ from pydantic import BaseModel, Field
 class ExecutionMode(str, Enum):
     """Execution modes (Gearbox Strategy) for agent execution."""
 
-    DIRECT = "direct"  # Gear 1: Fast, optional tools (max 5)
-    STANDARD = "standard"  # Gear 2: Tool-enabled loop (max 30) — default
-    AUTONOMOUS = "autonomous"  # Gear 3: Orchestration + Critic/Refiner (max 100)
+    DIRECT = "direct"  # Gear 1: Fast, optional tools (max 25)
+    STANDARD = "standard"  # Gear 2: Tool-enabled loop (max 80) — default
+    AUTONOMOUS = "autonomous"  # Gear 3: Orchestration + Critic/Refiner (max 300)
 
 
 class AgentConfig(BaseModel):
@@ -104,7 +104,7 @@ class AgentConfig(BaseModel):
         default=None,
         description=(
             "Maximum tool calls per execution. If None, uses mode defaults: "
-            "DIRECT=5, STANDARD=30, AUTONOMOUS=100."
+            "DIRECT=25, STANDARD=80, AUTONOMOUS=300."
         ),
     )
 
@@ -116,6 +116,15 @@ class AgentConfig(BaseModel):
             "without tools to produce the synthesized output. Prevents "
             "mode inertia where the model stays in tool-calling behaviour "
             "and returns a terse summary instead of the full deliverable."
+        ),
+    )
+    synthesis_word_threshold: int = Field(
+        default=500,
+        description=(
+            "Minimum word count below which the synthesis pass fires. "
+            "If the model already produced content above this threshold, "
+            "synthesis is skipped (the output is already substantial). "
+            "Set to 0 to always synthesize when enable_synthesis is True."
         ),
     )
 
@@ -155,7 +164,7 @@ class AgentConfig(BaseModel):
         ),
     )
 
-    _MODE_TOOL_DEFAULTS: dict = {"direct": 5, "standard": 30, "autonomous": 100}
+    _MODE_TOOL_DEFAULTS: dict = {"direct": 25, "standard": 80, "autonomous": 300}
 
     @property
     def effective_tracing(self) -> bool:
@@ -175,8 +184,8 @@ class AgentConfig(BaseModel):
         """Return the effective tool call limit for the current execution mode.
 
         If ``max_tool_calls`` is explicitly set, that value is used.
-        Otherwise the mode default is returned (DIRECT=5, STANDARD=30,
-        AUTONOMOUS=100).
+        Otherwise the mode default is returned (DIRECT=25, STANDARD=80,
+        AUTONOMOUS=300).
         """
         if self.max_tool_calls is not None:
             return self.max_tool_calls
@@ -185,7 +194,7 @@ class AgentConfig(BaseModel):
             if hasattr(self.execution_mode, "value")
             else str(self.execution_mode)
         )
-        return self._MODE_TOOL_DEFAULTS.get(mode_val, 30)
+        return self._MODE_TOOL_DEFAULTS.get(mode_val, 80)
 
 
 class AgentMetrics(BaseModel):

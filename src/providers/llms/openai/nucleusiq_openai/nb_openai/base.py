@@ -478,7 +478,12 @@ class BaseOpenAI(BaseLLM):
         """Estimate the number of tokens in a text string."""
         import tiktoken
 
-        enc = tiktoken.encoding_for_model(self.model_name)
+        try:
+            enc = tiktoken.encoding_for_model(self.model_name)
+        except KeyError:
+            # New OpenAI model IDs can arrive before tiktoken adds explicit mapping.
+            # Fall back to the modern general-purpose encoding used by recent models.
+            enc = tiktoken.get_encoding("o200k_base")
         return len(enc.encode(text))
 
     def get_context_window(self) -> int:
@@ -486,6 +491,12 @@ class BaseOpenAI(BaseLLM):
         from nucleusiq_openai._shared.model_config import get_context_window
 
         return get_context_window(self.model_name)
+
+    @property
+    def is_reasoning_model(self) -> bool:
+        """OpenAI reasoning models share max_completion_tokens between
+        internal chain-of-thought and visible output."""
+        return uses_max_completion_tokens(self.model_name)
 
     # Delegate model quirk checks for external use
     def _uses_max_completion_tokens(self, model: str) -> bool:
@@ -712,6 +723,11 @@ class BaseOpenAI(BaseLLM):
         **extra: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Build payload and delegate to the Chat Completions streaming adapter."""
+        from nucleusiq_openai.nb_openai.chat_completions import (
+            _ensure_openai_tool_calls,
+        )
+
+        messages = _ensure_openai_tool_calls(messages)
         payload_model = ChatCompletionsPayload.build(
             model=model,
             messages=messages,
@@ -777,6 +793,9 @@ class BaseOpenAI(BaseLLM):
             ):
                 yield event
             return
+
+        if self._last_response_id and messages and messages[-1].get("role") != "tool":
+            self._last_response_id = None
 
         instructions, input_items = messages_to_responses_input(
             messages, self._last_response_id
@@ -870,7 +889,11 @@ class BaseOpenAI(BaseLLM):
             top_p=top_p,
             stream=stream,
             response_format=response_format,
-            last_response_id=self._last_response_id,
+            last_response_id=(
+                self._last_response_id
+                if messages and messages[-1].get("role") == "tool"
+                else None
+            ),
             max_retries=self.max_retries,
             async_mode=self.async_mode,
             logger=self._logger,

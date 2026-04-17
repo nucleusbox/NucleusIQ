@@ -1,11 +1,6 @@
 """
 Refiner Component — The Reviser SubAgent in the Generate → Verify → Revise loop.
 
-The Refiner acts as part of the Reviser subagent.  It translates the Critic's
-structured feedback into a targeted correction, which the Generator then
-executes with full tool access.  Together (Refiner message + Generator re-run)
-they form the Reviser subagent — capable of multiple LLM calls and tool use.
-
 Architecture:
     Critic (Verifier SubAgent) produces CritiqueResult(verdict=FAIL, ...)
         ↓
@@ -18,7 +13,8 @@ Architecture:
 Revision strategies:
     1. Conversation injection (autonomous mode) — the Refiner builds a
        correction message that gets injected into the Generator's conversation.
-       The Generator re-runs with full tool access to fix the error.
+       The message explicitly asks the model to re-synthesize from existing
+       tool data rather than re-executing tools from scratch.
     2. Tool re-execution (plan-step mode) — the Refiner asks the LLM to
        infer better arguments and re-executes the tool.
     3. LLM revision (plan-step mode) — the Refiner asks the LLM to produce
@@ -27,8 +23,10 @@ Revision strategies:
 Design Principles:
     1. Directed revision — uses Critic's specific feedback, not blind retry
     2. Builds on previous attempt — doesn't start from scratch
-    3. Strategy selection — picks the right revision approach automatically
-    4. Graceful fallback — returns original result if revision fails
+    3. Re-synthesize, not re-explore — tool data is already in the conversation;
+       the Reviser should fix the *answer*, not re-gather evidence
+    4. Strategy selection — picks the right revision approach automatically
+    5. Graceful fallback — returns original result if revision fails
 """
 
 from __future__ import annotations
@@ -96,18 +94,23 @@ class Refiner:
         )
 
         msg = (
-            "VERIFICATION FOUND A SPECIFIC ERROR in your answer.\n\n"
-            f"Issues identified:\n{issues}\n"
+            f"VERIFICATION RESULT: {critique.verdict.value} "
+            f"(score: {critique.score:.2f})\n\n"
         )
+        if critique.feedback:
+            msg += f"Assessment: {critique.feedback}\n\n"
+        msg += f"Issues identified:\n{issues}\n"
         if suggestions:
             msg += f"\nSuggested fixes:\n{suggestions}\n"
         msg += (
             "\nREVISION INSTRUCTIONS:\n"
             "- Fix ONLY the specific error(s) listed above.\n"
             "- Do NOT redo work that was already correct.\n"
-            "- Re-check against the tool results in the conversation above.\n"
-            "- If you need to re-call a tool with different arguments, do so.\n"
-            "- Provide your corrected final answer."
+            "- Your previous answer is in the conversation above — "
+            "revise it to address the issues.\n"
+            "- Do NOT re-call tools unless the verification specifically "
+            "identified MISSING data that requires a new tool call.\n"
+            "- Provide your corrected COMPLETE final answer."
         )
         return msg
 
@@ -515,13 +518,21 @@ class Refiner:
 
         for tc in tool_calls:
             if isinstance(tc, dict):
-                fn = tc.get("function", {})
-                fn_name = fn.get("name") if isinstance(fn, dict) else None
-                fn_args = fn.get("arguments", "{}") if isinstance(fn, dict) else "{}"
+                fn = tc.get("function")
+                if isinstance(fn, dict):
+                    fn_name = fn.get("name")
+                    fn_args = fn.get("arguments", "{}")
+                else:
+                    fn_name = tc.get("name")
+                    fn_args = tc.get("arguments", "{}")
             else:
                 fn_info = getattr(tc, "function", None)
-                fn_name = getattr(fn_info, "name", None) if fn_info else None
-                fn_args = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
+                if fn_info is not None:
+                    fn_name = getattr(fn_info, "name", None)
+                    fn_args = getattr(fn_info, "arguments", "{}")
+                else:
+                    fn_name = getattr(tc, "name", None)
+                    fn_args = getattr(tc, "arguments", "{}")
 
             if fn_name == action:
                 try:

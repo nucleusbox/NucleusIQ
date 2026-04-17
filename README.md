@@ -87,7 +87,7 @@ NucleusIQ agents use the **Gearbox Strategy** — three execution modes that sca
 |---|---|---|---|
 | Memory | Yes | Yes | Yes |
 | Plugins | Yes | Yes | Yes |
-| Tools | Yes (max 5) | Yes (max 30) | Yes (max 100) |
+| Tools | Yes (max 25) | Yes (max 80) | Yes (max 300) |
 | Tool loop | Yes | Yes | Yes |
 | Task decomposition | No | No | Yes |
 | Independent verification (Critic) | No | No | Yes |
@@ -97,13 +97,13 @@ NucleusIQ agents use the **Gearbox Strategy** — three execution modes that sca
 Tool limits are configurable via `AgentConfig(max_tool_calls=N)`. The framework validates tool count at agent creation and raises a clear error if the limit is exceeded.
 
 ```python
-# Direct: fast Q&A, simple lookups (max 5 tool calls)
+# Direct: fast Q&A, simple lookups (max 25 tool calls)
 AgentConfig(execution_mode=ExecutionMode.DIRECT)
 
-# Standard: multi-step tool workflows (max 30 tool calls) — default
+# Standard: multi-step tool workflows (max 80 tool calls) — default
 AgentConfig(execution_mode=ExecutionMode.STANDARD)
 
-# Autonomous: orchestration + Critic/Refiner verification (max 100 tool calls)
+# Autonomous: orchestration + Critic/Refiner verification (max 300 tool calls)
 AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS)
 ```
 

@@ -23,6 +23,8 @@ Design Principles:
     4. Three-way verdict — PASS / FAIL / UNCERTAIN
     5. Structured feedback — specific issues + actionable suggestions
     6. No raw loops — the framework's tool loop + plugin system handles limits
+    7. Configurable context limits — ``CriticLimits`` controls how much of the
+       Generator's output the Verifier sees; auto-scales for reasoning models
 """
 
 from __future__ import annotations
@@ -43,6 +45,103 @@ from nucleusiq.agents.plan import Plan, PlanStep
 # ------------------------------------------------------------------ #
 # Data models                                                         #
 # ------------------------------------------------------------------ #
+
+
+class CriticLimits(BaseModel):
+    """Configurable truncation limits for the Critic's verification prompts.
+
+    Controls how much of the Generator's output the Verifier can see.
+    Two presets are provided: ``STANDARD_LIMITS`` for traditional models
+    and ``REASONING_LIMITS`` for reasoning models that produce longer,
+    more detailed outputs.
+
+    The orchestrator (``AutonomousMode``) selects the appropriate preset
+    based on ``agent.llm.is_reasoning_model``.
+    """
+
+    claimed_answer: int = Field(
+        description="Max chars of the Generator's final answer shown to Verifier",
+    )
+    tool_result: int = Field(
+        description="Max chars per tool result entry in the execution trace",
+    )
+    assistant_content: int = Field(
+        description="Max chars per assistant message in the execution trace",
+    )
+    tool_args: int = Field(
+        description="Max chars for tool call arguments in the trace",
+    )
+    trace_lines: int = Field(
+        description="Max lines in the execution trace before head/tail truncation",
+    )
+    evidence_total: int = Field(
+        description="Max chars for the full evidence block (legacy path)",
+    )
+    reasoning_total: int = Field(
+        description="Max chars for the reasoning summary (legacy path)",
+    )
+    step_result: int = Field(
+        default=2000,
+        description="Max chars for step-level review result",
+    )
+    step_context_value: int = Field(
+        default=300,
+        description="Max chars per context value in step review",
+    )
+    plan_step_result: int = Field(
+        default=500,
+        description="Max chars per step result in plan-based review",
+    )
+    final_review_result: int = Field(
+        default=2000,
+        description="Max chars for the final result in plan-based review",
+    )
+
+
+STANDARD_LIMITS = CriticLimits(
+    claimed_answer=20_000,
+    tool_result=3_000,
+    assistant_content=2_000,
+    tool_args=600,
+    trace_lines=120,
+    evidence_total=20_000,
+    reasoning_total=8_000,
+)
+"""Limits for traditional (non-reasoning) models.
+
+Calibrated against real benchmark data:
+- FileReadTool returns up to 500 lines (~15-20K chars)
+- PDF excerpt tools return up to 10K chars
+- Web fetch tools return up to 12K chars
+- gpt-4.1 reports average ~13K chars (1700 words)
+- Typical autonomous tasks: 15-60 tool calls + 10-27 LLM turns
+
+At tool_result=3000, the Critic sees ~20-30% of large file reads and
+~25-100% of API/PDF results — enough to verify data was correctly used.
+Total Critic prompt stays under 25K tokens (~20% of 128K context).
+"""
+
+REASONING_LIMITS = CriticLimits(
+    claimed_answer=50_000,
+    tool_result=5_000,
+    assistant_content=4_000,
+    tool_args=1_000,
+    trace_lines=200,
+    evidence_total=40_000,
+    reasoning_total=16_000,
+)
+"""Limits for reasoning models that produce longer chain-of-thought output.
+
+Calibrated against real benchmark data:
+- gpt-5.1 reports average ~30K chars (3900 words), max observed ~50K
+- Reasoning models make more tool calls with longer intermediate analysis
+- gpt-5.1 Task B: 60 tool calls, 27 LLM turns = 87+ trace lines
+
+At tool_result=5000, the Critic sees ~33-50% of large file reads and
+~42-100% of API/PDF results. claimed_answer=50K covers even the longest
+observed reasoning model output in full.
+Total Critic prompt stays under 40K tokens (~31% of 128K context).
+"""
 
 
 class Verdict(str, Enum):
@@ -127,8 +226,13 @@ class Critic:
     pipeline degrades gracefully (execute → done, no verification).
     """
 
-    def __init__(self, logger: logging.Logger | None = None) -> None:
+    def __init__(
+        self,
+        logger: logging.Logger | None = None,
+        limits: CriticLimits | None = None,
+    ) -> None:
         self._logger = logger or logging.getLogger(__name__)
+        self._limits = limits or STANDARD_LIMITS
 
     # ------------------------------------------------------------------ #
     # Public API — New (used by AutonomousMode)                           #
@@ -139,17 +243,25 @@ class Critic:
         task_objective: str,
         final_result: Any,
         generator_messages: list[Any] | None = None,
+        *,
+        allow_tool_instructions: bool = True,
     ) -> str:
         """Build an adaptive verification prompt for the Verifier Agent.
 
         Automatically detects whether the Generator used tools and
         dispatches to the appropriate verification strategy:
 
-        - **Tool verification**: When tools were called, the Verifier
-          spot-checks the critical step by calling 1-3 tools itself.
-        - **Reasoning verification**: When no tools were used, the
-          Verifier reviews logical consistency, completeness, and
+        - **Tool verification**: When tools were called AND the caller
+          can provide tool access, the Verifier is instructed to
+          spot-check by calling tools itself.
+        - **Reasoning verification**: When no tools were used, OR the
+          caller cannot provide tools (``allow_tool_instructions=False``),
+          the Verifier reviews logical consistency, completeness, and
           whether the answer addresses all parts of the task.
+
+        When ``allow_tool_instructions`` is ``False`` (e.g. a single
+        LLM call without tools), the reasoning strategy is always used
+        to avoid instructing the model to call non-existent tools.
 
         Both strategies share the same JSON response format so the
         ``parse_result_text`` parser works uniformly.
@@ -158,23 +270,29 @@ class Critic:
             task_objective: The user's original task text.
             final_result: The Generator's answer to verify.
             generator_messages: The Generator's conversation (optional).
+            allow_tool_instructions: Whether the verification call will
+                have tool access.  ``False`` forces reasoning-only
+                verification regardless of generator behaviour.
 
         Returns:
             Prompt string to use as the Verifier Agent's task objective.
         """
-        trace = self._extract_reasoning_trace(generator_messages)
+        lim = self._limits
+        trace = self._extract_reasoning_trace(generator_messages, lim)
         used_tools = bool(trace and "[Tool Call]" in trace)
 
-        if used_tools:
+        if used_tools and allow_tool_instructions:
             return self._build_tool_verification(
                 task_objective,
                 final_result,
                 trace,
+                lim,
             )
         return self._build_reasoning_verification(
             task_objective,
             final_result,
             trace,
+            lim,
         )
 
     # ------------------------------------------------------------------ #
@@ -186,6 +304,7 @@ class Critic:
         task_objective: str,
         final_result: Any,
         trace: str,
+        limits: CriticLimits,
     ) -> str:
         """Verification strategy for tool-based tasks.
 
@@ -198,7 +317,7 @@ class Critic:
             "VERIFY whether the following answer is correct.\n\n"
             f"## ORIGINAL TASK\n{task_objective}\n\n"
             f"## GENERATOR'S EXECUTION TRACE\n{trace}\n\n"
-            f"## CLAIMED ANSWER\n{_truncate(str(final_result), 3000)}\n\n"
+            f"## CLAIMED ANSWER\n{_truncate(str(final_result), limits.claimed_answer)}\n\n"
             "## YOUR JOB — MANDATORY STEPS IN ORDER\n"
             "1. READ the execution trace to understand the intermediate "
             "values and the approach used.\n"
@@ -228,48 +347,82 @@ class Critic:
         task_objective: str,
         final_result: Any,
         trace: str,
+        limits: CriticLimits,
     ) -> str:
-        """Verification strategy for reasoning-only tasks (no tools).
+        """Universal verification strategy for any task type.
 
-        The Verifier reviews the output for logical consistency,
-        completeness, factual plausibility, and task alignment.
-        No tool calls required.
+        Assesses the answer on dimensions the Verifier CAN reliably
+        evaluate from the available evidence: task alignment,
+        completeness, internal consistency, and output quality.
+
+        Explicitly instructs the Verifier that truncated trace data
+        is NOT evidence of error — preventing false-fails when the
+        Generator used tools and the trace was compressed.
         """
+        trace_section = ""
+        if trace:
+            trace_section = (
+                "## EXECUTION TRACE (partial — may be truncated)\n"
+                + trace
+                + "\n\n"
+                "Note: This trace shows the agent's tool calls and "
+                "intermediate results. It may be incomplete. Do NOT "
+                "treat missing trace data as evidence of an error.\n\n"
+            )
+
         return (
-            "VERIFY whether the following answer is correct and complete.\n\n"
-            f"## ORIGINAL TASK\n{task_objective}\n\n"
-            + (f"## GENERATOR'S RESPONSE\n{trace}\n\n" if trace else "")
-            + f"## CLAIMED ANSWER\n{_truncate(str(final_result), 3000)}\n\n"
-            "## YOUR JOB\n"
-            "Review the answer for quality across these dimensions:\n\n"
-            "1. **Logical Consistency** — Does the reasoning chain make sense? "
-            "Are there contradictions or unsupported leaps?\n"
-            "2. **Completeness** — Does the answer address ALL parts of the "
-            "task? If the task asks for multiple things, are all covered?\n"
-            "3. **Factual Plausibility** — Are claims reasonable and "
-            "consistent with general knowledge? Any obvious errors?\n"
-            "4. **Task Alignment** — Does the answer actually answer what "
-            "was asked? Is the format/unit correct?\n\n"
-            "## RULES\n"
+            "You are an independent Verifier. Assess whether the "
+            "answer below adequately addresses the task.\n\n"
+            f"## TASK\n{task_objective}\n\n"
+            + trace_section
+            + f"## ANSWER TO VERIFY\n"
+            f"{_truncate(str(final_result), limits.claimed_answer)}\n\n"
+            "## ASSESSMENT CRITERIA\n\n"
+            "1. **Task Alignment** — Does the answer directly address "
+            "what was asked? Is the output in the correct format?\n"
+            "2. **Completeness** — Does the answer cover ALL parts of "
+            "the task? If the task asks for multiple things, are all "
+            "addressed?\n"
+            "3. **Internal Consistency** — Is the answer self-consistent? "
+            "Are there contradictions within the answer itself?\n"
+            "4. **Quality** — Is the answer well-structured, clear, and "
+            "at an appropriate level of detail for the task?\n\n"
+            "## VERDICT RULES\n\n"
+            "- **PASS** (score 0.7–1.0): The answer addresses the task "
+            "adequately. Minor improvements are possible but not "
+            "required.\n"
+            "- **UNCERTAIN** (score 0.4–0.69): You cannot fully assess "
+            "quality, OR the answer only partially addresses the task.\n"
+            "- **FAIL** (score 0.0–0.39): You found a SPECIFIC, "
+            "CONCRETE error: wrong answer, missing REQUIRED section, "
+            "internal contradiction, or answer is completely "
+            "off-topic.\n\n"
+            "CRITICAL RULES:\n"
+            "- FAIL requires citing a specific error IN THE ANSWER "
+            "ITSELF.\n"
+            "- Truncated or missing trace data is NOT grounds for "
+            "FAIL.\n"
             "- Do NOT fail for style or formatting preferences.\n"
-            "- Do NOT fail because a different approach could also work.\n"
-            "- Only FAIL when you can point to a SPECIFIC, CONCRETE error "
-            "or missing requirement.\n"
-            '- Major error (wrong answer, missed requirement) → "fail", '
-            "score < 0.3.\n"
-            '- Minor issue (could be better) → "pass", score 0.6-0.8.\n'
-            '- Cannot determine quality → "uncertain".\n\n' + _VERDICT_FORMAT
+            "- Do NOT fail because a different approach could also "
+            "work.\n"
+            "- If the answer is reasonable and addresses the task, "
+            "verdict is PASS even if you would have written it "
+            "differently.\n"
+            "- When in doubt between FAIL and UNCERTAIN, choose "
+            "UNCERTAIN.\n\n" + _VERDICT_FORMAT
         )
 
     @staticmethod
-    def _extract_reasoning_trace(messages: list[Any] | None) -> str:
+    def _extract_reasoning_trace(
+        messages: list[Any] | None,
+        limits: CriticLimits | None = None,
+    ) -> str:
         """Extract the Generator's execution trace from its conversation.
 
         Captures the full sequence of what the Generator did:
         - Tool calls (function name + arguments)
-        - Tool results (return values, truncated for size)
-        - Assistant text (explanations, if any — many models return
-          None for content during tool-calling turns)
+        - Tool results (return values, truncated per ``limits``)
+        - Assistant text (explanations, truncated per ``limits``)
 
         Skips system and user messages (the Verifier already has the task).
         The Verifier uses this trace to understand WHAT was done and
@@ -277,6 +430,8 @@ class Critic:
         """
         if not messages:
             return ""
+        if limits is None:
+            limits = STANDARD_LIMITS
         lines: list[str] = []
         for msg in messages:
             role = msg.role if hasattr(msg, "role") else msg.get("role", "?")
@@ -294,25 +449,24 @@ class Critic:
 
             if role == "assistant":
                 if content.strip():
-                    lines.append(f"[Assistant] {_truncate(content, 500)}")
+                    lines.append(
+                        f"[Assistant] {_truncate(content, limits.assistant_content)}"
+                    )
                 if tool_calls:
                     for tc in tool_calls:
-                        name = (
-                            tc.name
-                            if hasattr(tc, "name")
-                            else tc.get("function", {}).get("name", "?")
+                        name = _extract_tc_field(tc, "name", "?")
+                        args = _extract_tc_field(tc, "arguments", "")
+                        lines.append(
+                            f"[Tool Call] {name}({_truncate(str(args), limits.tool_args)})"
                         )
-                        args = (
-                            tc.arguments
-                            if hasattr(tc, "arguments")
-                            else tc.get("function", {}).get("arguments", "")
-                        )
-                        lines.append(f"[Tool Call] {name}({_truncate(str(args), 200)})")
             elif role == "tool":
-                lines.append(f"[Tool Result] {_truncate(content, 300)}")
+                lines.append(f"[Tool Result] {_truncate(content, limits.tool_result)}")
 
-        if len(lines) > 50:
-            lines = lines[:10] + ["  ... (middle steps omitted) ..."] + lines[-30:]
+        max_lines = limits.trace_lines
+        if len(lines) > max_lines:
+            head = max(max_lines // 5, 10)
+            tail = max_lines - head - 1
+            lines = lines[:head] + ["  ... (middle steps omitted) ..."] + lines[-tail:]
         return "\n".join(lines)
 
     def parse_result_text(self, text: str) -> CritiqueResult:
@@ -442,13 +596,14 @@ class Critic:
     # Prompt construction                                                 #
     # ------------------------------------------------------------------ #
 
-    @staticmethod
     def _build_step_review_prompt(
+        self,
         task_objective: str,
         step: PlanStep,
         result: Any,
         context: dict[str, Any],
     ) -> str:
+        lim = self._limits
         step_details = f"\nStep Details: {step.details}" if step.details else ""
         ctx_summary = ""
         if context:
@@ -456,7 +611,9 @@ class Critic:
             for k, v in context.items():
                 if k.endswith("_action"):
                     continue
-                ctx_lines.append(f"  - {k}: {_truncate(str(v), 300)}")
+                ctx_lines.append(
+                    f"  - {k}: {_truncate(str(v), lim.step_context_value)}"
+                )
             if ctx_lines:
                 ctx_summary = "\n\nPrevious Steps Results:\n" + "\n".join(ctx_lines)
 
@@ -467,7 +624,7 @@ class Critic:
             f"## Original Task\n{task_objective}\n\n"
             f"## Step Being Reviewed\n"
             f"Step {step.step}: {step.action}{step_details}\n\n"
-            f"## Step Result\n{_truncate(str(result), 2000)}\n"
+            f"## Step Result\n{_truncate(str(result), lim.step_result)}\n"
             f"{ctx_summary}\n\n"
             "## Review Instructions\n"
             "Evaluate the step result. Consider:\n"
@@ -490,8 +647,8 @@ class Critic:
             "- Be specific in issues and suggestions\n"
         )
 
-    @staticmethod
     def _build_conversation_review_prompt(
+        self,
         task_objective: str,
         final_result: Any,
         messages: list[Any],
@@ -504,6 +661,7 @@ class Critic:
         3. Reasoning validity — is the logic sound?
         4. Self-consistency — no internal contradictions?
         """
+        lim = self._limits
         tool_evidence: list[str] = []
         assistant_reasoning: list[str] = []
         for msg in messages:
@@ -520,21 +678,17 @@ class Critic:
 
             if role == "assistant" and tool_calls:
                 for tc in tool_calls:
-                    name = (
-                        tc.name
-                        if hasattr(tc, "name")
-                        else tc.get("function", {}).get("name", "?")
+                    name = _extract_tc_field(tc, "name", "?")
+                    args = _extract_tc_field(tc, "arguments", "")
+                    tool_evidence.append(
+                        f"  CALL: {name}({_truncate(str(args), lim.tool_args)})"
                     )
-                    args = (
-                        tc.arguments
-                        if hasattr(tc, "arguments")
-                        else tc.get("function", {}).get("arguments", "")
-                    )
-                    tool_evidence.append(f"  CALL: {name}({_truncate(str(args), 400)})")
             elif role == "tool":
-                tool_evidence.append(f"  RESULT: {_truncate(str(content), 600)}")
+                tool_evidence.append(
+                    f"  RESULT: {_truncate(str(content), lim.tool_result)}"
+                )
             elif role == "assistant" and content:
-                assistant_reasoning.append(_truncate(content, 500))
+                assistant_reasoning.append(_truncate(content, lim.assistant_content))
 
         evidence = "\n".join(tool_evidence) if tool_evidence else "(no tools called)"
         reasoning = (
@@ -583,11 +737,11 @@ class Critic:
             "use score < 0.3.\n\n"
             f"## Task\n{task_objective}\n\n"
             f"## What the Agent Did (tool calls and results)\n"
-            f"{_truncate(evidence, 4000)}\n\n"
+            f"{_truncate(evidence, lim.evidence_total)}\n\n"
             f"## Agent's Reasoning (last steps)\n"
-            f"{_truncate(reasoning, 2000)}\n\n"
+            f"{_truncate(reasoning, lim.reasoning_total)}\n\n"
             f"## Agent's Final Answer\n"
-            f"{_truncate(str(final_result), 2000)}\n\n"
+            f"{_truncate(str(final_result), lim.claimed_answer)}\n\n"
             "## Your Verification\n"
             "1. Re-read the task. What EXACTLY is being asked?\n"
             "2. If anything looks suspicious, call the tools to verify.\n"
@@ -603,13 +757,14 @@ class Critic:
             "}\n"
         )
 
-    @staticmethod
     def _build_final_review_prompt(
+        self,
         task_objective: str,
         plan: Plan,
         results: list[Any],
         final_result: Any,
     ) -> str:
+        lim = self._limits
         plan_lines = []
         for s in plan.steps:
             detail = f" — {s.details}" if s.details else ""
@@ -618,7 +773,9 @@ class Critic:
 
         results_lines = []
         for i, r in enumerate(results, 1):
-            results_lines.append(f"  Step {i} result: {_truncate(str(r), 500)}")
+            results_lines.append(
+                f"  Step {i} result: {_truncate(str(r), lim.plan_step_result)}"
+            )
         results_summary = "\n".join(results_lines)
 
         return (
@@ -628,7 +785,7 @@ class Critic:
             f"## Original Task\n{task_objective}\n\n"
             f"## Execution Plan\n{plan_summary}\n\n"
             f"## Step Results\n{results_summary}\n\n"
-            f"## Final Result\n{_truncate(str(final_result), 2000)}\n\n"
+            f"## Final Result\n{_truncate(str(final_result), lim.final_review_result)}\n\n"
             "## Review Instructions\n"
             "Evaluate whether the final result satisfies the original task:\n"
             "1. **Task Completion**: Does the result answer the task?\n"
@@ -665,7 +822,9 @@ class Critic:
             call_kwargs = {
                 "model": getattr(agent.llm, "model_name", "default"),
                 "messages": [{"role": "user", "content": prompt}],
-                "max_output_tokens": 1024,
+                "max_output_tokens": getattr(
+                    agent.config, "llm_max_output_tokens", 2048
+                ),
             }
             call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
             response = await agent.llm.call(**call_kwargs)
@@ -769,6 +928,22 @@ class Critic:
 # ------------------------------------------------------------------ #
 
 
+def _extract_tc_field(tc: Any, field: str, default: str = "") -> str:
+    """Extract a field from a tool-call that may be a dict or SDK object.
+
+    Handles both the flat canonical format ``{"name": ..., "arguments": ...}``
+    and SDK objects with a nested ``function`` attribute.
+    """
+    if hasattr(tc, field):
+        return getattr(tc, field) or default
+    if isinstance(tc, dict):
+        fn = tc.get("function")
+        if isinstance(fn, dict):
+            return fn.get(field, default)
+        return tc.get(field, default)
+    return default
+
+
 def _truncate(text: str, max_len: int) -> str:
     """Truncate text for prompt inclusion."""
     if len(text) <= max_len:
@@ -782,9 +957,9 @@ _VERDICT_FORMAT = (
     "{\n"
     '  "verdict": "pass" | "fail" | "uncertain",\n'
     '  "score": 0.0 to 1.0,\n'
-    '  "verifier_answer": "YOUR independently computed answer (number, text, etc.)",\n'
     '  "feedback": "what you checked and your conclusion",\n'
     '  "issues": ["specific problem if any"],\n'
-    '  "suggestions": ["specific fix: replace X with Y"]\n'
+    '  "suggestions": ["specific fix: replace X with Y"],\n'
+    '  "verifier_answer": "your independent answer if applicable, or null"\n'
     "}\n"
 )

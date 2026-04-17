@@ -59,6 +59,15 @@ class MessageInputItem(BaseModel):
     content: str | list[dict[str, Any]]
 
 
+class FunctionCallInput(BaseModel):
+    """Function call emitted by the assistant, used in full-replay input."""
+
+    type: str = "function_call"
+    call_id: str
+    name: str
+    arguments: str
+
+
 class FunctionCallOutput(BaseModel):
     """Tool result sent back to the Responses API."""
 

@@ -1,13 +1,13 @@
 """
 DirectMode — Gear 1: Fast, simple, optional tools.
 
-Logic: Input -> LLM (with optional tools, max 5 calls) -> Output
+Logic: Input -> LLM (with optional tools, max 25 calls) -> Output
 
 Use Cases: Chatbots, creative writing, quick lookups, simple Q&A
 
 Characteristics:
 - Minimal overhead (usually 1-2 LLM calls)
-- Optional tool access (up to 5 tool calls by default)
+- Optional tool access (up to 25 tool calls by default)
 - No retry logic on empty responses
 """
 
@@ -28,7 +28,7 @@ from nucleusiq.streaming.events import StreamEvent
 
 
 class DirectMode(BaseExecutionMode):
-    """Gear 1: Direct mode — fast, optional tools (max 5 by default)."""
+    """Gear 1: Direct mode — fast, optional tools (max 25 by default)."""
 
     async def run(self, agent: "Agent", task: Task) -> Any:
         """Execute a task with minimal LLM calls and optional tool support."""
@@ -51,7 +51,7 @@ class DirectMode(BaseExecutionMode):
                 agent,
                 messages,
                 tool_specs,
-                max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 1024),
+                max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 2048),
             )
             response = await self.call_llm(agent, call_kwargs, messages, tool_specs)
 
@@ -133,7 +133,7 @@ class DirectMode(BaseExecutionMode):
                 messages,
                 tool_specs,
                 max_tool_calls=max_tool_calls,
-                max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 1024),
+                max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 2048),
             ):
                 yield event
 
@@ -213,7 +213,7 @@ class DirectMode(BaseExecutionMode):
             agent,
             messages,
             tool_specs,
-            max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 1024),
+            max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 2048),
         )
         response = await self.call_llm(agent, call_kwargs, messages, tool_specs)
 

@@ -48,9 +48,9 @@ class Agent(BaseAgent):
     (DirectMode, StandardMode, AutonomousMode) via a pluggable registry.
 
     Execution Modes (Gearbox Strategy):
-    - "direct": Fast, optional tools, max 5 tool calls (Gear 1)
-    - "standard": Tool-enabled loop, max 30 tool calls (Gear 2) - default
-    - "autonomous": Orchestration + Critic/Refiner, max 100 tool calls (Gear 3)
+    - "direct": Fast, optional tools, max 25 tool calls (Gear 1)
+    - "standard": Tool-enabled loop, max 80 tool calls (Gear 2) - default
+    - "autonomous": Orchestration + Critic/Refiner, max 300 tool calls (Gear 3)
 
     Prompt (required):
     - ``prompt`` — a ``BasePrompt`` instance defining the system message
@@ -422,9 +422,9 @@ class Agent(BaseAgent):
         """Execute a task using the agent's capabilities.
 
         Execution Flow (Gearbox Strategy):
-        - Direct mode: Fast, optional tools (max 5 tool calls)
-        - Standard mode: Tool-enabled loop (max 30 tool calls) — default
-        - Autonomous mode: Orchestration + Critic/Refiner (max 100 tool calls)
+        - Direct mode: Fast, optional tools (max 25 tool calls)
+        - Standard mode: Tool-enabled loop (max 80 tool calls) — default
+        - Autonomous mode: Orchestration + Critic/Refiner (max 300 tool calls)
 
         Args:
             task: Task instance or dictionary with 'id' and 'objective' keys

@@ -86,7 +86,7 @@ async def example_1_direct_mode():
     task = {"id": "task1", "objective": "What is 5 + 3?"}
 
     logger.info(f"\nTask: {task['objective']}")
-    logger.info("Mode: DIRECT (max 5 tool calls)")
+    logger.info("Mode: DIRECT (max 25 tool calls)")
     logger.info("\nExecuting...")
 
     result = await agent.execute(task)
@@ -119,7 +119,7 @@ async def example_2_standard_mode():
     task = {"id": "task2", "objective": "What is 15 + 27?"}
 
     logger.info(f"\nTask: {task['objective']}")
-    logger.info("Mode: STANDARD (max 30 tool calls)")
+    logger.info("Mode: STANDARD (max 80 tool calls)")
     logger.info("\nExecuting...")
 
     result = await agent.execute(task)
@@ -185,7 +185,7 @@ async def example_4_autonomous_mode():
     task = {"id": "task4", "objective": "What is 25 + 35?"}
 
     logger.info(f"\nTask: {task['objective']}")
-    logger.info("Mode: AUTONOMOUS (max 100 tool calls, Critic + Refiner)")
+    logger.info("Mode: AUTONOMOUS (max 300 tool calls, Critic + Refiner)")
     logger.info("\nExecuting...")
 
     result = await agent.execute(task)

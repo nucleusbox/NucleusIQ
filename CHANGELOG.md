@@ -11,11 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
-- **`prompt` is now mandatory on `Agent`** — `BaseAgent.prompt` changed from `Optional[BasePrompt]` (default `None`) to a required `BasePrompt` field. All agents must now be created with an explicit prompt object (e.g. `ZeroShotPrompt().configure(system="...")`). This eliminates the ambiguity between the prompt system and the role/objective/narrative fallback system.
-- **`narrative` field removed from `BaseAgent`** — the `narrative` parameter no longer exists. Any content previously placed in `narrative` should be moved to `prompt.system` (the system message for the LLM).
-- **`role` and `objective` are now labels only** — they are used for logging, sub-agent naming, and documentation. They are **not** sent to the LLM. `role` defaults to `"Agent"` and `objective` defaults to `""`. Neither is required.
-- **`MessageBuilder.build()` no longer accepts `role`, `objective`, or `narrative`** — it only accepts `prompt` for system message construction.
-- **`ZeroShotPrompt.input_variables`** — `"user"` moved from mandatory `input_variables` to `optional_variables`. Only `"system"` is now required. The task objective provides the user query; `prompt.user` is an optional preamble.
+- `**prompt` is now mandatory on `Agent**` — `BaseAgent.prompt` changed from `Optional[BasePrompt]` (default `None`) to a required `BasePrompt` field. All agents must now be created with an explicit prompt object (e.g. `ZeroShotPrompt().configure(system="...")`). This eliminates the ambiguity between the prompt system and the role/objective/narrative fallback system.
+- `**narrative` field removed from `BaseAgent**` — the `narrative` parameter no longer exists. Any content previously placed in `narrative` should be moved to `prompt.system` (the system message for the LLM).
+- `**role` and `objective` are now labels only** — they are used for logging, sub-agent naming, and documentation. They are **not** sent to the LLM. `role` defaults to `"Agent"` and `objective` defaults to `""`. Neither is required.
+- `**MessageBuilder.build()` no longer accepts `role`, `objective`, or `narrative`** — it only accepts `prompt` for system message construction.
+- `**ZeroShotPrompt.input_variables**` — `"user"` moved from mandatory `input_variables` to `optional_variables`. Only `"system"` is now required. The task objective provides the user query; `prompt.user` is an optional preamble.
 
 ### Migration Guide
 
@@ -66,32 +66,32 @@ agent = Agent(
 ### Added — Prompt System Refactor
 
 - **Mandatory `prompt` on Agent** — all agents must now be created with an explicit `BasePrompt` instance. This is the single source of truth for what the LLM sees.
-- **`role` and `objective` clarified as labels** — updated field descriptions, docstrings, and `ExecutionContext` protocol to make clear these are for logging/documentation only.
-- **`ZeroShotPrompt` relaxed** — `user` moved to `optional_variables`; only `system` is required. The task objective serves as the user query.
+- `**role` and `objective` clarified as labels** — updated field descriptions, docstrings, and `ExecutionContext` protocol to make clear these are for logging/documentation only.
+- `**ZeroShotPrompt` relaxed** — `user` moved to `optional_variables`; only `system` is required. The task objective serves as the user query.
 - **Shared test helper `make_test_prompt()`** — added to `nucleusiq.tests.conftest` for consistent test agent creation.
 
 ### Added — Synthesis Pass
 
 - **Synthesis pass in Standard + Streaming modes** — after multiple rounds of tool calls, the agent makes one final LLM call **without tools** and with an explicit "write the full deliverable" nudge. Breaks the "mode inertia" pattern where the model stays in tool-calling behaviour and returns a terse summary instead of the full output.
-- **`AgentConfig.enable_synthesis`** — `bool = True`. Controls whether the synthesis pass fires after multi-round tool loops.
-- **`CallPurpose.SYNTHESIS`** — new enum value for usage tracking and observability.
+- `**AgentConfig.enable_synthesis`** — `bool = True`. Controls whether the synthesis pass fires after multi-round tool loops.
+- `**CallPurpose.SYNTHESIS**` — new enum value for usage tracking and observability.
 
 ### Added — Observability & Tracing
 
 - **Prompt strategy tracing** — `LLMCallRecord.prompt_technique` now populated automatically from the agent's prompt object in both streaming and non-streaming paths via `_extract_prompt_technique()`.
-- **`ObservabilityConfig` consolidation** — unified config with `tracing`, `verbose`, `log_level`, `log_llm_calls`, `log_tool_results`. `AgentConfig.observability` takes precedence over legacy `verbose` + `enable_tracing` fields.
-- **`AgentConfig.effective_tracing` / `effective_verbose`** — properties resolving the observability-vs-legacy precedence.
+- `**ObservabilityConfig` consolidation** — unified config with `tracing`, `verbose`, `log_level`, `log_llm_calls`, `log_tool_results`. `AgentConfig.observability` takes precedence over legacy `verbose` + `enable_tracing` fields.
+- `**AgentConfig.effective_tracing` / `effective_verbose`** — properties resolving the observability-vs-legacy precedence.
 - **Sub-agent metric rollup** — `AutonomousMode._rollup_sub_agent_metrics()` merges sub-agent LLM calls, tool calls, and context telemetry into the parent agent's tracer and `AgentResult`.
 
 ### Added — Provider: OpenAI (`nucleusiq-openai` 0.6.2)
 
 - **Context window registry** — new `_CONTEXT_WINDOWS` dict in `_shared/model_config.py` with 20 models (GPT-4.1, GPT-4.1-mini/nano, GPT-5, GPT-5-mini/nano, GPT-5.4, o1/o3/o4-mini, GPT-4o, GPT-3.5-turbo, etc.). Supports exact name and prefix-matching for versioned model names (e.g. `gpt-4o-2024-08-06` matches `gpt-4o`). Default fallback: 128K.
-- **`get_context_window()`** — new function in `_shared/model_config.py` and new method override on `BaseOpenAI`, enabling `ContextEngine` to auto-detect the model's context budget.
+- `**get_context_window()`** — new function in `_shared/model_config.py` and new method override on `BaseOpenAI`, enabling `ContextEngine` to auto-detect the model's context budget.
 - **Prompt API migration** — all 20 example files updated to use `prompt=ZeroShotPrompt().configure(system=...)` (removed `narrative=`, `instructions=`). 2 test files updated (`test_openai_file_input.py`, `test_openai_file_input_integration.py`).
 
 ### Added — Provider: Gemini (`nucleusiq-gemini` 0.2.4)
 
-- **`get_context_window()` method on `BaseGemini`** — new method delegating to the existing `_MODEL_REGISTRY` (7 models: gemini-2.5-pro/flash/flash-lite, 2.0-flash/flash-lite, 1.5-pro/flash, each with `context_window` in `GeminiModelInfo`). The registry and `get_context_window()` function in `_shared/model_config.py` already existed; this release wires the method onto `BaseGemini` so `ContextEngine` can call it via the `BaseLLM.get_context_window()` protocol.
+- `**get_context_window()` method on `BaseGemini`** — new method delegating to the existing `_MODEL_REGISTRY` (7 models: gemini-2.5-pro/flash/flash-lite, 2.0-flash/flash-lite, 1.5-pro/flash, each with `context_window` in `GeminiModelInfo`). The registry and `get_context_window()` function in `_shared/model_config.py` already existed; this release wires the method onto `BaseGemini` so `ContextEngine` can call it via the `BaseLLM.get_context_window()` protocol.
 - **Prompt API migration** — all 5 example files updated to use `prompt=ZeroShotPrompt().configure(system=...)` (removed `narrative=`, `instructions=`, `model=` from config). 3 integration test files updated (`test_gemini_agent.py`, `test_mixed_tools.py`, `test_provider_portability.py`).
 
 ### Added — Tests
@@ -102,11 +102,11 @@ agent = Agent(
 
 ### Added — Notebooks & Scripts
 
-- **`context_management_tcs_deep_dive.ipynb`** — full TCS research analyst demo with context management across all 3 modes (baseline, standard-managed, autonomous-managed). Uses `timeout=300.0` for long synthesis generations.
-- **`context_window_management_showcase.ipynb`** — context management capability showcase.
-- **`scripts/demo_context_management.py`** — standalone context management demo script.
-- **`gemini_mixed_tools_showcase.ipynb`** — updated to new prompt API.
-- **`research_analyst_tcs.ipynb`** — updated to new prompt API.
+- `**context_management_tcs_deep_dive.ipynb`** — full TCS research analyst demo with context management across all 3 modes (baseline, standard-managed, autonomous-managed). Uses `timeout=300.0` for long synthesis generations.
+- `**context_window_management_showcase.ipynb**` — context management capability showcase.
+- `**scripts/demo_context_management.py**` — standalone context management demo script.
+- `**gemini_mixed_tools_showcase.ipynb**` — updated to new prompt API.
+- `**research_analyst_tcs.ipynb**` — updated to new prompt API.
 
 ### Changed
 
@@ -128,25 +128,29 @@ agent = Agent(
 
 ### Files Changed (92 total)
 
-| Category | Modified | New | Total |
-|----------|----------|-----|-------|
-| Core runtime | 17 | 14 | 31 |
-| Core tests | 27 | 13 | 40 |
-| Core examples | 6 | 0 | 6 |
-| OpenAI provider (runtime) | 2 | 0 | 2 |
-| OpenAI provider (tests + examples) | 22 | 0 | 22 |
-| Gemini provider (runtime) | 1 | 0 | 1 |
-| Gemini provider (tests + examples) | 8 | 0 | 8 |
-| Notebooks + scripts | 2 | 3 | 5 |
-| Docs + changelog | 1 | 0 | 1 |
+
+| Category                           | Modified | New | Total |
+| ---------------------------------- | -------- | --- | ----- |
+| Core runtime                       | 17       | 14  | 31    |
+| Core tests                         | 27       | 13  | 40    |
+| Core examples                      | 6        | 0   | 6     |
+| OpenAI provider (runtime)          | 2        | 0   | 2     |
+| OpenAI provider (tests + examples) | 22       | 0   | 22    |
+| Gemini provider (runtime)          | 1        | 0   | 1     |
+| Gemini provider (tests + examples) | 8        | 0   | 8     |
+| Notebooks + scripts                | 2        | 3   | 5     |
+| Docs + changelog                   | 1        | 0   | 1     |
+
 
 ### Packages
 
-| Package | Version | Requires | Note |
-|---------|---------|----------|------|
-| `nucleusiq` | **0.7.6** | — | Context window management, prompt system refactor, synthesis pass, ObservabilityConfig |
-| `nucleusiq-openai` | **0.6.2** | `nucleusiq>=0.7.6` | Context window registry (30 models), prompt API migration |
-| `nucleusiq-gemini` | **0.2.4** | `nucleusiq>=0.7.6` | `get_context_window()` override, prompt API migration |
+
+| Package            | Version   | Requires           | Note                                                                                   |
+| ------------------ | --------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `nucleusiq`        | **0.7.6** | —                  | Context window management, prompt system refactor, synthesis pass, ObservabilityConfig |
+| `nucleusiq-openai` | **0.6.2** | `nucleusiq>=0.7.6` | Context window registry (30 models), prompt API migration                              |
+| `nucleusiq-gemini` | **0.2.4** | `nucleusiq>=0.7.6` | `get_context_window()` override, prompt API migration                                  |
+
 
 ---
 
@@ -161,12 +165,12 @@ agent = Agent(
   - Defense-in-depth warning in `build_tools_payload()` if mixed declarations are detected
   - **Zero core framework changes** — works across `DirectMode`, `StandardMode`, `AutonomousMode` via existing `BaseLLM.convert_tool_specs()` hook
 - **Full observability wiring** — all `AgentResult` trace fields now populated when `enable_tracing=True`:
-  - **`PluginEvent` audit trail** — `PluginManager` records timing and metadata for all 6 plugin hooks (`before_agent`, `after_agent`, `before_model`, `after_model`, `execute_model_call`, `execute_tool_call`) via tracer
-  - **`AutonomousDetail`** — autonomous mode populates `attempts`, `max_attempts`, `complexity` ("simple" / "complex"), `sub_tasks` (for complex decomposition), `refined`, and `validations` (tuple of `ValidationRecord`)
-  - **`MemorySnapshot`** — `Agent._build_result()` captures memory strategy name, message count, token count, and last 10 messages (truncated to 200 chars) when a tracer and memory are present
+  - `**PluginEvent` audit trail** — `PluginManager` records timing and metadata for all 6 plugin hooks (`before_agent`, `after_agent`, `before_model`, `after_model`, `execute_model_call`, `execute_tool_call`) via tracer
+  - `**AutonomousDetail`** — autonomous mode populates `attempts`, `max_attempts`, `complexity` ("simple" / "complex"), `sub_tasks` (for complex decomposition), `refined`, and `validations` (tuple of `ValidationRecord`)
+  - `**MemorySnapshot**` — `Agent._build_result()` captures memory strategy name, message count, token count, and last 10 messages (truncated to 200 chars) when a tracer and memory are present
   - **Decomposer tracing** — `Decomposer.analyze()` now records its direct `agent.llm.call()` on the tracer manually, closing the bypass gap noted in v0.7.4
-  - **`AgentResult.display()` enhanced** — rich human-readable output now includes plugin events, memory snapshot summary, and autonomous execution details
-  - **`LLMCallRecord.prompt_technique`** — optional field added for future prompt strategy tracing
+  - `**AgentResult.display()` enhanced** — rich human-readable output now includes plugin events, memory snapshot summary, and autonomous execution details
+  - `**LLMCallRecord.prompt_technique`** — optional field added for future prompt strategy tracing
 - **59 Gemini proxy pattern tests** — `test_tool_splitter.py`, `test_native_tool_proxy.py`, `test_convert_tool_specs_mixed.py` (unit) + `test_mixed_tools.py` (integration)
 - **17 observability tests** — `test_plugin_event_tracing.py` (7), `test_autonomous_detail_tracing.py` (5), `test_memory_snapshot.py` (5)
 
@@ -179,11 +183,13 @@ agent = Agent(
 
 ### Packages
 
-| Package | Version | Note |
-|---------|---------|------|
-| `nucleusiq` | **0.7.5** | Full observability wiring, proxy pattern support in core result model |
-| `nucleusiq-openai` | 0.6.1 | No change |
+
+| Package            | Version   | Note                                                                        |
+| ------------------ | --------- | --------------------------------------------------------------------------- |
+| `nucleusiq`        | **0.7.5** | Full observability wiring, proxy pattern support in core result model       |
+| `nucleusiq-openai` | 0.6.1     | No change                                                                   |
 | `nucleusiq-gemini` | **0.2.3** | Native + Custom tool mixing via proxy pattern (requires `nucleusiq>=0.7.4`) |
+
 
 ---
 
@@ -191,7 +197,7 @@ agent = Agent(
 
 ### Added
 
-- **`observability` package** — dedicated `nucleusiq.agents.observability` package with SRP file layout:
+- `**observability` package** — dedicated `nucleusiq.agents.observability` package with SRP file layout:
   - `protocol.py` — `ExecutionTracerProtocol` (`@runtime_checkable`)
   - `default_tracer.py` — `DefaultExecutionTracer` (in-memory, `__slots__` optimised)
   - `noop_tracer.py` — `NoOpTracer` (Null Object, zero overhead)
@@ -200,8 +206,8 @@ agent = Agent(
 - **Agent wiring** — each `execute()` / `execute_stream()` run resets a fresh `DefaultExecutionTracer` on the agent; `BaseExecutionMode.call_llm` / `call_tool` / `_streaming_tool_call_loop` record timings and outcomes; `AgentResult` now receives `tool_calls`, `llm_calls`, `plugin_events`, `memory_snapshot`, `autonomous`, and `warnings` from the tracer where populated.
 - **All 3 execution modes traced** — Direct, Standard, and Autonomous (including Critic LLM calls with `purpose="critic"`). Known gap: `Decomposer.analyze()` bypasses the tracer (will be wired in v0.7.6).
 - **Tests** — `tests/unit/test_execution_tracer.py`, `tests/agents/unit/test_agent_tracer_integration.py`, `tests/agents/unit/test_autonomous_tracer_integration.py`.
-- **`integration_test/run_integration.py`** — version check for `0.7.4` plus tracer smoke assertions.
-- **`AgentConfig.enable_tracing`** — `bool = False`. When off (default), `AgentResult` trace fields are empty tuples with zero overhead. When on, `DefaultExecutionTracer` captures all LLM/tool calls, durations, and warnings.
+- `**integration_test/run_integration.py`** — version check for `0.7.4` plus tracer smoke assertions.
+- `**AgentConfig.enable_tracing**` — `bool = False`. When off (default), `AgentResult` trace fields are empty tuples with zero overhead. When on, `DefaultExecutionTracer` captures all LLM/tool calls, durations, and warnings.
 - **Pyrefly static type checking (Meta, MIT)** — integrated across all packages as Python's "compile-time" safety layer:
   - `[tool.pyrefly]` config in `pyproject.toml` for core, OpenAI, and Gemini.
   - All **121 type errors** fixed across core (71), OpenAI (33), Gemini (17) — null safety guards, undeclared dynamic attributes, type annotation corrections, override signature fixes.
@@ -210,8 +216,8 @@ agent = Agent(
   - Fixed `build_call_kwargs` return type, `responses_api` tuple types, `ChatCompletionsPayload` construction.
   - Pyrefly added to `dependency-groups.lint` (dev-only, not shipped in wheel).
   - CI `type-check` job gates the build: installs with `editable_mode=strict` then runs `pyrefly check` for all 3 packages.
-- **`core/errors/` package** — converted from single `errors.py` to a proper package: `base.py` defines `NucleusIQError` (cycle-free), `__init__.py` provides lazy `__getattr__` re-exports of all 40+ error types. All 9 subsystem error modules updated to import from `nucleusiq.errors.base`. Backward-compatible: `from nucleusiq.errors import NucleusIQError` still works.
-- **`core/agents/usage/` package** — extracted `usage_tracker.py` and `pricing.py` from `components/` into a dedicated `usage/` package with public `__init__.py` re-exports. Old shim files deleted (no backward-compatibility wrappers — clean break).
+- `**core/errors/` package** — converted from single `errors.py` to a proper package: `base.py` defines `NucleusIQError` (cycle-free), `__init__.py` provides lazy `__getattr__` re-exports of all 40+ error types. All 9 subsystem error modules updated to import from `nucleusiq.errors.base`. Backward-compatible: `from nucleusiq.errors import NucleusIQError` still works.
+- `**core/agents/usage/` package** — extracted `usage_tracker.py` and `pricing.py` from `components/` into a dedicated `usage/` package with public `__init__.py` re-exports. Old shim files deleted (no backward-compatibility wrappers — clean break).
 - **Exhaustive error wiring** — every `raise ValueError` / `raise RuntimeError` in production code audited and replaced with proper custom error types:
   - **Agent modes**: `AgentExecutionError` in `standard_mode.run()`, `direct_mode.run()` (replaces bare `except Exception` string returns)
   - **Agent lifecycle**: `AgentExecutionError` and `AgentTimeoutError` in `base_agent.py` retry loop (replaces `RuntimeError`)
@@ -227,7 +233,7 @@ agent = Agent(
 
 ### Changed
 
-- **`_setup_execution`** — usage tracker and execution tracer are reset immediately after plugin counter reset (before `BEFORE_AGENT`), so halted or failed setups do not leak prior-run tracer data. Tracer creation gated on `AgentConfig.enable_tracing`.
+- `**_setup_execution`** — usage tracker and execution tracer are reset immediately after plugin counter reset (before `BEFORE_AGENT`), so halted or failed setups do not leak prior-run tracer data. Tracer creation gated on `AgentConfig.enable_tracing`.
 - All internal imports updated to canonical paths (`nucleusiq.agents.usage.*`, `nucleusiq.errors.base`).
 - `components/usage_tracker.py` and `components/pricing.py` shim files **deleted** — all imports now use canonical `nucleusiq.agents.usage.*` paths.
 - `standard_mode.run()` and `direct_mode.run()` now raise `AgentExecutionError` with mode context instead of returning error strings.
@@ -238,14 +244,14 @@ agent = Agent(
 ### Removed
 
 - **Dead GPT-2 tokenizer code** — removed `get_tokenizer()`, `_get_token_ids_default_method()`, `get_token_ids()`, `get_num_tokens()`, and `custom_get_token_ids` from `BaseLanguageModel`. The GPT-2 tokenizer was never called by the framework and is inaccurate for modern models (GPT-4 uses `cl100k_base`/`o200k_base`; Gemini has its own tokenizer). The `tokenizers` library dependency is no longer needed.
-- **`BaseLanguageModel` no longer extends `ABC`** — it is now a plain mixin providing the `metadata` field. `BaseLLM` remains the abstract base class with `@abstractmethod call()`.
+- `**BaseLanguageModel` no longer extends `ABC`** — it is now a plain mixin providing the `metadata` field. `BaseLLM` remains the abstract base class with `@abstractmethod call()`.
 
 ### Token Estimation (new contract)
 
-- **`BaseLLM.estimate_tokens(text)`** — new base method using `len(text) // 4` heuristic as a zero-dependency, cross-provider default. Providers override with precise implementations:
+- `**BaseLLM.estimate_tokens(text)**` — new base method using `len(text) // 4` heuristic as a zero-dependency, cross-provider default. Providers override with precise implementations:
   - **OpenAI**: uses `tiktoken.encoding_for_model()` (already shipped)
   - **Gemini**: uses `len(text) // 4` (Gemini `count_tokens` API available for precise counts)
-- **`ContextWindowPlugin`** and **`TokenBudgetMemory`** accept `token_counter` callbacks — users can wire `llm.estimate_tokens` for provider-accurate counting:
+- `**ContextWindowPlugin`** and `**TokenBudgetMemory**` accept `token_counter` callbacks — users can wire `llm.estimate_tokens` for provider-accurate counting:
   ```python
   ContextWindowPlugin(max_tokens=8000, token_counter=llm.estimate_tokens)
   ```
@@ -254,18 +260,20 @@ agent = Agent(
 ### Developer Support
 
 - **Pyrefly type checking** — CI pipeline now includes a `type-check` job using [Pyrefly](https://pyrefly.org/) (Meta, MIT license, Rust-based, 1.85M lines/sec). Catches undefined names, null safety violations, type mismatches, and override signature inconsistencies at "compile time" — before tests or deployment.
-  - CI flow: `ruff check` → `ruff format` → **`pyrefly check`** → `pytest` → `import-check` → `security` → `build`
+  - CI flow: `ruff check` → `ruff format` → `**pyrefly check`** → `pytest` → `import-check` → `security` → `build`
   - Added to `dependency-groups.lint` alongside `ruff` (dev-only, not in wheel).
   - Requires `editable_mode=strict` install for `setuptools` `package-dir` mapping resolution.
   - Provider configs use `ignore-missing-imports` for cross-package deps (`nucleusiq.*`, `google.*`) — these resolve at CI time when all packages are installed; locally they gracefully fall back to `Any`.
 
 ### Packages
 
-| Package | Version | Note |
-|---------|---------|------|
-| `nucleusiq` | **0.7.4** | ExecutionTracer, configurable tracing, error/usage package restructure, exhaustive error wiring |
-| `nucleusiq-openai` | **0.6.1** | Custom error types wired, ContentFilter/ContextLength mapped (requires `nucleusiq>=0.7.4`) |
-| `nucleusiq-gemini` | **0.2.2** | Custom error types wired, ContentFilter/ContextLength mapped (requires `nucleusiq>=0.7.4`) |
+
+| Package            | Version   | Note                                                                                            |
+| ------------------ | --------- | ----------------------------------------------------------------------------------------------- |
+| `nucleusiq`        | **0.7.4** | ExecutionTracer, configurable tracing, error/usage package restructure, exhaustive error wiring |
+| `nucleusiq-openai` | **0.6.1** | Custom error types wired, ContentFilter/ContextLength mapped (requires `nucleusiq>=0.7.4`)      |
+| `nucleusiq-gemini` | **0.2.2** | Custom error types wired, ContentFilter/ContextLength mapped (requires `nucleusiq>=0.7.4`)      |
+
 
 ---
 
@@ -281,7 +289,7 @@ agent = Agent(
 ### Added
 
 - **Tools + structured output guard** — `BaseGemini.call()` detects when both `tools` and `response_format` are set, logs a warning, and drops JSON schema mode. Gemini API rejects `response_mime_type: application/json` combined with function calling; this guard prevents the 400 error.
-- **`OutputSchema` tuple handling** — `BaseGemini.call()` now unpacks the `(provider_format, schema)` tuple from core's `StructuredOutputHandler`, matching the OpenAI provider's behavior.
+- `**OutputSchema` tuple handling** — `BaseGemini.call()` now unpacks the `(provider_format, schema)` tuple from core's `StructuredOutputHandler`, matching the OpenAI provider's behavior.
 - **Gemini integration tests: `test_gemini_tool_round_trip.py`** — full multi-turn tool loop with tools resent on second call, JSON string content round-trip, multiple tool calls, structured output + tools guard test.
 - **OpenAI integration test scaffold** — `tests/integration/` directory created with `conftest.py` + `test_openai_tool_round_trip.py` mirroring Gemini's integration test structure. Uses `@pytest.mark.integration` (previously defined but never applied in OpenAI tests).
 - **Nested Pydantic model unit tests** — `test_nested_pydantic_model_refs_inlined` and `test_deeply_nested_refs_inlined` verify `$ref` inlining works for 2+ levels of model nesting.
@@ -292,11 +300,13 @@ agent = Agent(
 
 ### Packages
 
-| Package | Version | Note |
-|---------|---------|------|
-| `nucleusiq` | **0.7.3** | Tool message `name` field fix |
-| `nucleusiq-openai` | 0.6.0 | No change |
+
+| Package            | Version   | Note                                                 |
+| ------------------ | --------- | ---------------------------------------------------- |
+| `nucleusiq`        | **0.7.3** | Tool message `name` field fix                        |
+| `nucleusiq-openai` | 0.6.0     | No change                                            |
 | `nucleusiq-gemini` | **0.2.1** | All Gemini fixes above (requires `nucleusiq>=0.7.3`) |
+
 
 ---
 
@@ -313,7 +323,7 @@ agent = Agent(
   - `StreamingError` (StreamInterruptedError, StreamOrchestrationError)
   - `ContextLengthError` added to LLMError hierarchy
   - `PluginExecutionError` added to PluginError hierarchy
-- **`AgentResult` response contract** — `Agent.execute()` now returns a typed, immutable `AgentResult` (Pydantic `BaseModel`, `frozen=True`) instead of raw `Any`. Includes: `output`, `status` (SUCCESS/ERROR/HALTED), `error`, `error_type`, `duration_ms`, `agent_id`, `agent_name`, `task_id`, `mode`, `model`, `created_at`, `usage`, and extension fields for future observability (`tool_calls`, `llm_calls`, `plugin_events`, etc.).
+- `**AgentResult` response contract** — `Agent.execute()` now returns a typed, immutable `AgentResult` (Pydantic `BaseModel`, `frozen=True`) instead of raw `Any`. Includes: `output`, `status` (SUCCESS/ERROR/HALTED), `error`, `error_type`, `duration_ms`, `agent_id`, `agent_name`, `task_id`, `mode`, `model`, `created_at`, `usage`, and extension fields for future observability (`tool_calls`, `llm_calls`, `plugin_events`, etc.).
 - **Backward compatible** — `str(result)` returns the output text, `bool(result)` returns `True` on success. Existing `print(result)` and `if result:` patterns continue to work.
 
 ### Changed
@@ -325,11 +335,13 @@ agent = Agent(
 
 ### Packages
 
-| Package | Version | Note |
-|---------|---------|------|
-| `nucleusiq` | **0.7.2** | Exception hierarchy + AgentResult |
-| `nucleusiq-openai` | 0.6.0 | No change |
-| `nucleusiq-gemini` | 0.2.0 | No change |
+
+| Package            | Version   | Note                              |
+| ------------------ | --------- | --------------------------------- |
+| `nucleusiq`        | **0.7.2** | Exception hierarchy + AgentResult |
+| `nucleusiq-openai` | 0.6.0     | No change                         |
+| `nucleusiq-gemini` | 0.2.0     | No change                         |
+
 
 ---
 
@@ -337,15 +349,17 @@ agent = Agent(
 
 ### Fixed
 
-- **`.env` loading broken for pip-installed consumers** — `core/__init__.py` used a hard-coded `Path(__file__).parents[2]` to locate `.env`, which resolved into `site-packages/` for anyone who `pip install nucleusiq`. Replaced with `load_dotenv(override=False)` (no path argument), which uses `python-dotenv`'s built-in `find_dotenv()` to search from the caller's **working directory** upward. Any project with a `.env` in its root now works out of the box.
+- `**.env` loading broken for pip-installed consumers** — `core/__init__.py` used a hard-coded `Path(__file__).parents[2]` to locate `.env`, which resolved into `site-packages/` for anyone who `pip install nucleusiq`. Replaced with `load_dotenv(override=False)` (no path argument), which uses `python-dotenv`'s built-in `find_dotenv()` to search from the caller's **working directory** upward. Any project with a `.env` in its root now works out of the box.
 
 ### Packages
 
-| Package | Version | Note |
-|---------|---------|------|
-| `nucleusiq` | **0.7.1** | Patch fix for `.env` loading |
-| `nucleusiq-openai` | 0.6.0 | No change (requires `nucleusiq>=0.7.0`, accepts 0.7.1) |
-| `nucleusiq-gemini` | 0.2.0 | No change (requires `nucleusiq>=0.7.0`, accepts 0.7.1) |
+
+| Package            | Version   | Note                                                   |
+| ------------------ | --------- | ------------------------------------------------------ |
+| `nucleusiq`        | **0.7.1** | Patch fix for `.env` loading                           |
+| `nucleusiq-openai` | 0.6.0     | No change (requires `nucleusiq>=0.7.0`, accepts 0.7.1) |
+| `nucleusiq-gemini` | 0.2.0     | No change (requires `nucleusiq>=0.7.0`, accepts 0.7.1) |
+
 
 ---
 
@@ -353,12 +367,12 @@ agent = Agent(
 
 ### Security
 
-- **`requests`** — minimum raised to `>=2.33.0` (CVE-2026-25645: insecure temp-file reuse in `extract_zipped_paths()`). Lockfiles refreshed for all transitive and dev dependencies.
-- **`pygments`** (transitive, dev/test) — constrained to `>=2.20.0` via `[tool.uv] constraint-dependencies` to avoid **CVE-2026-4539** (ReDoS in `AdlLexer`). Lockfiles updated to `2.20.0`.
+- `**requests`** — minimum raised to `>=2.33.0` (CVE-2026-25645: insecure temp-file reuse in `extract_zipped_paths()`). Lockfiles refreshed for all transitive and dev dependencies.
+- `**pygments**` (transitive, dev/test) — constrained to `>=2.20.0` via `[tool.uv] constraint-dependencies` to avoid **CVE-2026-4539** (ReDoS in `AdlLexer`). Lockfiles updated to `2.20.0`.
 
 ### Breaking changes
 
-- **Provider packages** — `nucleusiq-openai` is now **0.6.0** and `nucleusiq-gemini` is **0.2.0**, both requiring **`nucleusiq>=0.7.0`**. Pin or upgrade core and providers together.
+- **Provider packages** — `nucleusiq-openai` is now **0.6.0** and `nucleusiq-gemini` is **0.2.0**, both requiring `**nucleusiq>=0.7.0`**. Pin or upgrade core and providers together.
 
 ### Fixed
 
@@ -366,12 +380,12 @@ agent = Agent(
 
 ### Added
 
-- **`scripts/verify_core_package_layout.py`** — fails CI if any `core/**/__init__.py` package is missing from `pyproject.toml` (prevents recurrence).
+- `**scripts/verify_core_package_layout.py`** — fails CI if any `core/**/__init__.py` package is missing from `pyproject.toml` (prevents recurrence).
 - **CI: wheel smoke test** — after building the core wheel, install only from `dist/*.whl` in a clean venv and import `nucleusiq.tools.builtin` (catches wheel-only failures; editable installs always masked this).
 
 ### CI
 
-- **`actions/upload-artifact`** — v6 → v7 (workflow maintenance).
+- `**actions/upload-artifact`** — v6 → v7 (workflow maintenance).
 
 ### Dependencies (lockfile refresh)
 
@@ -384,11 +398,13 @@ agent = Agent(
 
 ### Packages
 
-| Package | Version | Requires |
-|---------|---------|----------|
-| `nucleusiq` | **0.7.0** | — |
+
+| Package            | Version   | Requires           |
+| ------------------ | --------- | ------------------ |
+| `nucleusiq`        | **0.7.0** | —                  |
 | `nucleusiq-openai` | **0.6.0** | `nucleusiq>=0.7.0` |
 | `nucleusiq-gemini` | **0.2.0** | `nucleusiq>=0.7.0` |
+
 
 ---
 
@@ -545,7 +561,7 @@ agent = Agent(
 
 - **End-to-end streaming** via `Agent.execute_stream()` — async generator yielding `StreamEvent` objects with real-time token-by-token output across all 3 execution modes
 - `**StreamEvent` + `StreamEventType`** data model (`core/streaming/events.py`) — 8 event types: `TOKEN`, `TOOL_CALL_START`, `TOOL_CALL_END`, `LLM_CALL_START`, `LLM_CALL_END`, `THINKING`, `COMPLETE`, `ERROR`
-- `**BaseLLM.call_stream()**` — abstract streaming contract with non-streaming fallback; `MockLLM.call_stream()` for testing
+- `**BaseLLM.call_stream()`** — abstract streaming contract with non-streaming fallback; `MockLLM.call_stream()` for testing
 - `**BaseOpenAI.call_stream()**` — OpenAI provider streaming for both Chat Completions and Responses API backends
 - `**stream_adapters.py**` — adapter layer converting raw OpenAI SDK chunks/SSE events into framework `StreamEvent` objects
 - **Streaming in all execution modes** — `DirectMode.run_stream()`, `StandardMode.run_stream()`, `AutonomousMode.run_stream()` with reusable `_streaming_tool_call_loop()` in base mode
@@ -597,7 +613,7 @@ agent = Agent(
 
 - Migrated repository to `nucleusbox` GitHub organization
 - Simplified branching strategy to GitHub Flow (single `main` branch)
-- Upgraded issue templates to YAML forms (bug report, feature request, question)
+- Upgraded issue templates to YAML forms (bug report, feature request, question)mode
 - Added CONTRIBUTING.md with full development guide
 - Streamlined RELEASE.md and removed obsolete FIRST_RELEASE_TODO.md
 - StandardMode now uses `AgentConfig.get_effective_max_tool_calls()` (default 30) instead of internal constant
@@ -642,7 +658,7 @@ agent = Agent(
 
 ### Tool System
 
-- `**BaseTool**` — LLM-agnostic tool interface with JSON schema generation
+- `**BaseTool`** — LLM-agnostic tool interface with JSON schema generation
 - `**BaseTool.from_function()**` — create tools from plain Python functions
 - **OpenAI native tools**: `function`, `code_interpreter`, `file_search`, `web_search`, `mcp`, `connector` (via `OpenAITool`)
 
@@ -658,7 +674,7 @@ agent = Agent(
 ### Plugin System
 
 - `**BasePlugin`** ABC with typed request models (`ModelRequest`, `ToolRequest`, `AgentContext`)
-- `**PluginManager**` — chain-of-responsibility hook pipeline
+- `**PluginManager`** — chain-of-responsibility hook pipeline
 - **Decorator API** — `@before_agent`, `@after_agent`, `@before_model`, `@after_model`, `@wrap_model_call`, `@wrap_tool_call`
 - **9 Built-in Plugins**:
 

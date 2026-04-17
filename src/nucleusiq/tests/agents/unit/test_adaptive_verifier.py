@@ -14,6 +14,7 @@ from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.critic import (
     Critic,
     CritiqueResult,
+    STANDARD_LIMITS,
     Verdict,
 )
 
@@ -78,7 +79,7 @@ class TestBuildVerificationPromptDispatch:
             final_result="Some explanation",
             generator_messages=_reasoning_messages(),
         )
-        assert "Logical Consistency" in prompt
+        assert "Internal Consistency" in prompt
         assert "Completeness" in prompt
 
     def test_dispatches_to_reasoning_when_no_messages(self):
@@ -88,7 +89,7 @@ class TestBuildVerificationPromptDispatch:
             final_result="42",
             generator_messages=None,
         )
-        assert "Logical Consistency" in prompt
+        assert "Internal Consistency" in prompt
 
     def test_dispatches_to_reasoning_when_empty_messages(self):
         critic = Critic()
@@ -97,7 +98,7 @@ class TestBuildVerificationPromptDispatch:
             final_result="42",
             generator_messages=[],
         )
-        assert "Logical Consistency" in prompt
+        assert "Internal Consistency" in prompt
 
 
 # ================================================================== #
@@ -111,6 +112,7 @@ class TestToolVerification:
             "Calculate WACC",
             "0.12",
             "[Tool Call] calculate_wacc({...})\n[Tool Result] 0.12",
+            STANDARD_LIMITS,
         )
         assert "EXECUTION TRACE" in prompt
         assert "calculate_wacc" in prompt
@@ -120,6 +122,7 @@ class TestToolVerification:
             "Task",
             "Result",
             "[Tool Call] foo()\n[Tool Result] bar",
+            STANDARD_LIMITS,
         )
         assert "MUST call tools" in prompt
         assert "RE-DERIVE THE FINAL ANSWER" in prompt
@@ -129,6 +132,7 @@ class TestToolVerification:
             "Task",
             "Result",
             "[Tool Call] x()\n[Tool Result] y",
+            STANDARD_LIMITS,
         )
         assert '"verdict"' in prompt
         assert '"score"' in prompt
@@ -138,6 +142,7 @@ class TestToolVerification:
             "Calculate ROI for Project Alpha",
             "15%",
             "trace",
+            STANDARD_LIMITS,
         )
         assert "Calculate ROI for Project Alpha" in prompt
 
@@ -146,6 +151,7 @@ class TestToolVerification:
             "Task",
             "The answer is 42",
             "trace",
+            STANDARD_LIMITS,
         )
         assert "The answer is 42" in prompt
 
@@ -161,6 +167,7 @@ class TestReasoningVerification:
             "Explain gravity",
             "Gravity is a force...",
             "Some reasoning",
+            STANDARD_LIMITS,
         )
         assert "Call 1-3 tools" not in prompt
 
@@ -169,19 +176,21 @@ class TestReasoningVerification:
             "Task",
             "Answer",
             "Trace",
+            STANDARD_LIMITS,
         )
-        assert "Logical Consistency" in prompt
-        assert "Completeness" in prompt
-        assert "Factual Plausibility" in prompt
         assert "Task Alignment" in prompt
+        assert "Completeness" in prompt
+        assert "Internal Consistency" in prompt
+        assert "Quality" in prompt
 
     def test_includes_trace_when_present(self):
         prompt = Critic._build_reasoning_verification(
             "Task",
             "Answer",
             "The agent reasoned step by step...",
+            STANDARD_LIMITS,
         )
-        assert "GENERATOR'S RESPONSE" in prompt
+        assert "EXECUTION TRACE" in prompt
         assert "step by step" in prompt
 
     def test_skips_trace_when_empty(self):
@@ -189,17 +198,29 @@ class TestReasoningVerification:
             "Task",
             "Answer",
             "",
+            STANDARD_LIMITS,
         )
-        assert "GENERATOR'S RESPONSE" not in prompt
+        assert "EXECUTION TRACE" not in prompt
 
     def test_includes_verdict_format(self):
         prompt = Critic._build_reasoning_verification(
             "Task",
             "Result",
             "",
+            STANDARD_LIMITS,
         )
         assert '"verdict"' in prompt
         assert '"score"' in prompt
+
+    def test_truncation_warning(self):
+        prompt = Critic._build_reasoning_verification(
+            "Task",
+            "Answer",
+            "Some trace data",
+            STANDARD_LIMITS,
+        )
+        assert "may be truncated" in prompt
+        assert "NOT treat missing trace data as evidence" in prompt
 
 
 # ================================================================== #
@@ -240,7 +261,7 @@ class TestExtractReasoningTrace:
 
     def test_truncates_long_traces(self):
         msgs = []
-        for i in range(60):
+        for i in range(150):
             msgs.append(ChatMessage(role="assistant", content=f"Step {i}"))
         trace = Critic._extract_reasoning_trace(msgs)
         assert "middle steps omitted" in trace
@@ -333,6 +354,7 @@ class TestVerifierAnswerField:
             "Calculate X",
             "42",
             "[Tool Call] calc()\n[Tool Result] 42",
+            STANDARD_LIMITS,
         )
         assert "verifier_answer" in prompt
         assert "RE-DERIVE THE FINAL ANSWER" in prompt
@@ -342,5 +364,6 @@ class TestVerifierAnswerField:
             "Explain X",
             "answer",
             "",
+            STANDARD_LIMITS,
         )
         assert "verifier_answer" in prompt

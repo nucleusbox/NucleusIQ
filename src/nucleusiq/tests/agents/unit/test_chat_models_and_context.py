@@ -90,7 +90,12 @@ def test_chat_message_roundtrip_and_messages_to_dicts():
     )
     as_dict = msg.to_dict()
     assert as_dict["role"] == "assistant"
-    assert as_dict["tool_calls"][0]["function"]["name"] == "add"
+    # Core serialises tool_calls in the provider-agnostic flat format
+    # ``{"id", "name", "arguments"}``.  Provider layers convert to their
+    # own wire format (OpenAI nested, Gemini function_call, etc.).
+    assert as_dict["tool_calls"][0]["id"] == "c1"
+    assert as_dict["tool_calls"][0]["name"] == "add"
+    assert as_dict["tool_calls"][0]["arguments"] == "{}"
 
     parsed = ChatMessage.from_dict(as_dict)
     assert parsed.role == "assistant"

@@ -1,6 +1,20 @@
 """
 AutonomousMode — Gear 3: Structured orchestration over Standard mode.
 
+Implements a Generator → Verifier → Reviser loop:
+
+1. **Explicit verification separation** — the Verifier (Critic) runs
+   independently from the Generator so it can catch errors the Generator
+   cannot self-detect.
+2. **Rich context for the Verifier** — the Critic receives context
+   limits that auto-scale for reasoning models (via ``CriticLimits``).
+3. **Targeted revision** — the Reviser (Refiner) corrects only what the
+   Verifier flagged, re-synthesizing from existing tool data rather than
+   re-exploring from scratch.
+4. **Self-abstention** — when the Verifier is uncertain and the score is
+   below the acceptance threshold, the result is treated as a failure and
+   retried rather than accepted blindly.
+
 Adds capabilities Standard mode cannot provide alone:
 - **Parallel execution** via isolated sub-agents (for independent sub-tasks)
 - **Plugin-based validation** with structured retry
@@ -11,7 +25,8 @@ Adds capabilities Standard mode cannot provide alone:
 Task routing (via Decomposer's 3-gate checklist):
 
 **Simple tasks** -> Standard mode + validate + Critic/Refiner loop
-**Parallel tasks** -> Decompose -> parallel Standard agents -> synthesize + validate + Critic/Refiner loop
+**Parallel tasks** -> Decompose -> parallel Standard agents -> synthesize
+                      + validate + Critic/Refiner loop
 
 Validation + Verification pipeline:
     Layer 1: Tool output checks (free, deterministic)
@@ -30,7 +45,14 @@ if TYPE_CHECKING:
 
 from nucleusiq.agents.agent_result import ValidationRecord
 from nucleusiq.agents.chat_models import ChatMessage
-from nucleusiq.agents.components.critic import Critic, CritiqueResult, Verdict
+from nucleusiq.agents.components.critic import (
+    Critic,
+    CriticLimits,
+    CritiqueResult,
+    REASONING_LIMITS,
+    STANDARD_LIMITS,
+    Verdict,
+)
 from nucleusiq.agents.components.decomposer import Decomposer, TaskAnalysis
 from nucleusiq.agents.components.progress import ExecutionProgress
 from nucleusiq.agents.components.refiner import Refiner
@@ -43,6 +65,7 @@ from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
 _UNCERTAIN_ACCEPT_THRESHOLD = 0.7
+_UNCERTAIN_RETRY_THRESHOLD = 0.3
 
 
 class AutonomousMode(BaseExecutionMode):
@@ -53,6 +76,12 @@ class AutonomousMode(BaseExecutionMode):
     All paths: Layer 1+2 validation, then Critic for independent verification,
     and Refiner for targeted correction on failure.
     """
+
+    @staticmethod
+    def _select_critic_limits(agent: Agent) -> CriticLimits:
+        """Pick REASONING or STANDARD limits based on the agent's LLM."""
+        is_reasoning = getattr(getattr(agent, "llm", None), "is_reasoning_model", False)
+        return REASONING_LIMITS if is_reasoning else STANDARD_LIMITS
 
     async def run(self, agent: Agent, task: Any) -> Any:
         if isinstance(task, dict):
@@ -137,7 +166,7 @@ class AutonomousMode(BaseExecutionMode):
         """Stream the simple path: tool loop → validate → critic → refine."""
         max_retries = getattr(agent.config, "max_retries", 3)
         validation = ValidationPipeline(logger=agent._logger)
-        critic = Critic(logger=agent._logger)
+        critic = Critic(logger=agent._logger, limits=self._select_critic_limits(agent))
         refiner = Refiner(logger=agent._logger)
         progress = ExecutionProgress(task_id=task.id)
         std_mode = StandardMode()
@@ -187,9 +216,28 @@ class AutonomousMode(BaseExecutionMode):
             agent._last_messages = messages
 
             if self._is_error(final_content):
-                step.mark_failed(str(final_content))
-                agent.state = AgentState.COMPLETED
-                return
+                agent._logger.warning(
+                    "Attempt %d/%d: Generator returned error — treating as "
+                    "FAIL for retry (not bailing out). Error: %s",
+                    attempt + 1,
+                    max_retries,
+                    str(final_content)[:200],
+                )
+                if attempt < max_retries - 1:
+                    yield StreamEvent.thinking_event(
+                        "Generator error — retrying with fresh prompt…"
+                    )
+                    messages.append(
+                        ChatMessage(
+                            role="user",
+                            content=(
+                                "Your previous attempt produced an error or "
+                                "empty response. Please try again from scratch "
+                                "and provide a complete answer to the task."
+                            ),
+                        )
+                    )
+                continue
 
             # Layer 1+2: deterministic + plugin validation
             vr = await validation.validate(agent, final_content, messages)
@@ -202,15 +250,31 @@ class AutonomousMode(BaseExecutionMode):
                     messages.append(ChatMessage(role="user", content=retry_msg))
                 continue
 
+            # On final attempt (after at least one prior try), accept
+            # any non-error result without another Critic call.
+            if (
+                attempt > 0
+                and attempt == max_retries - 1
+                and not self._is_error(final_content)
+            ):
+                step.mark_completed(str(final_content))
+                agent.state = AgentState.COMPLETED
+                agent._execution_progress = progress
+                return
+
             # Critic: independent verification
             yield StreamEvent.thinking_event("Verifying result with Critic…")
             critique = await self._run_critic(
                 agent, critic, task.objective, final_content, messages
             )
 
+            accept_threshold = (
+                _UNCERTAIN_ACCEPT_THRESHOLD if attempt == 0
+                else _UNCERTAIN_RETRY_THRESHOLD
+            )
             if critique.verdict == Verdict.PASS or (
                 critique.verdict == Verdict.UNCERTAIN
-                and critique.score >= _UNCERTAIN_ACCEPT_THRESHOLD
+                and critique.score >= accept_threshold
             ):
                 step.mark_completed(str(final_content))
                 agent.state = AgentState.COMPLETED
@@ -244,7 +308,7 @@ class AutonomousMode(BaseExecutionMode):
         max_sub = getattr(agent.config, "max_sub_agents", 5)
         max_retries = getattr(agent.config, "max_retries", 3)
         validation = ValidationPipeline(logger=agent._logger)
-        critic = Critic(logger=agent._logger)
+        critic = Critic(logger=agent._logger, limits=self._select_critic_limits(agent))
         refiner = Refiner(logger=agent._logger)
         progress = ExecutionProgress(task_id=task.id)
         std_mode = StandardMode()
@@ -324,14 +388,27 @@ class AutonomousMode(BaseExecutionMode):
                     messages.append(ChatMessage(role="user", content=retry_msg))
                 continue
 
+            if (
+                attempt > 0
+                and attempt == max_retries - 1
+                and not self._is_error(final_content)
+            ):
+                agent.state = AgentState.COMPLETED
+                agent._execution_progress = progress
+                return
+
             yield StreamEvent.thinking_event("Verifying synthesis with Critic…")
             critique = await self._run_critic(
                 agent, critic, task.objective, final_content, messages
             )
 
+            accept_threshold = (
+                _UNCERTAIN_ACCEPT_THRESHOLD if attempt == 0
+                else _UNCERTAIN_RETRY_THRESHOLD
+            )
             if critique.verdict == Verdict.PASS or (
                 critique.verdict == Verdict.UNCERTAIN
-                and critique.score >= _UNCERTAIN_ACCEPT_THRESHOLD
+                and critique.score >= accept_threshold
             ):
                 agent.state = AgentState.COMPLETED
                 agent._execution_progress = progress
@@ -355,7 +432,7 @@ class AutonomousMode(BaseExecutionMode):
         """Execute via Standard mode with validation, Critic, and Refiner."""
         max_retries = getattr(agent.config, "max_retries", 3)
         validation = ValidationPipeline(logger=agent._logger)
-        critic = Critic(logger=agent._logger)
+        critic = Critic(logger=agent._logger, limits=self._select_critic_limits(agent))
         refiner = Refiner(logger=agent._logger)
         progress = ExecutionProgress(task_id=task.id)
         std_mode = StandardMode()
@@ -397,9 +474,25 @@ class AutonomousMode(BaseExecutionMode):
             agent._last_messages = messages
 
             if self._is_error(result):
-                step.mark_failed(str(result))
-                agent.state = AgentState.COMPLETED
-                return result
+                agent._logger.warning(
+                    "Attempt %d/%d: Generator returned error — treating as "
+                    "FAIL for retry (not bailing out). Error: %s",
+                    attempt + 1,
+                    max_retries,
+                    str(result)[:200],
+                )
+                if attempt < max_retries - 1:
+                    messages.append(
+                        ChatMessage(
+                            role="user",
+                            content=(
+                                "Your previous attempt produced an error or "
+                                "empty response. Please try again from scratch "
+                                "and provide a complete answer to the task."
+                            ),
+                        )
+                    )
+                continue
 
             # Layer 1+2: Deterministic + plugin validation
             vr = await validation.validate(agent, result, messages)
@@ -417,6 +510,31 @@ class AutonomousMode(BaseExecutionMode):
                     retry_msg = self._build_validation_retry(vr)
                     messages.append(ChatMessage(role="user", content=retry_msg))
                 continue
+
+            # On final attempt (after at least one prior try), accept
+            # any non-error result without spending another Critic call.
+            if (
+                attempt > 0
+                and attempt == max_retries - 1
+                and not self._is_error(result)
+            ):
+                agent._logger.info(
+                    "Attempt %d/%d [FINAL]: accepting non-error result "
+                    "without Critic check",
+                    attempt + 1,
+                    max_retries,
+                )
+                step.mark_completed(str(result))
+                agent.state = AgentState.COMPLETED
+                agent._execution_progress = progress
+                self._set_autonomous_detail(
+                    agent,
+                    attempts=attempt + 1,
+                    max_attempts=max_retries,
+                    complexity="simple",
+                    refined=True,
+                )
+                return result
 
             # Critic: Independent verification
             critique = await self._run_critic(
@@ -448,16 +566,21 @@ class AutonomousMode(BaseExecutionMode):
                 )
                 return result
 
+            # Diminishing strictness: lower threshold on retries
+            accept_threshold = (
+                _UNCERTAIN_ACCEPT_THRESHOLD if attempt == 0
+                else _UNCERTAIN_RETRY_THRESHOLD
+            )
             if (
                 critique.verdict == Verdict.UNCERTAIN
-                and critique.score >= _UNCERTAIN_ACCEPT_THRESHOLD
+                and critique.score >= accept_threshold
             ):
                 agent._logger.info(
                     "Attempt %d/%d [CRITIC]: UNCERTAIN but score=%.2f >= %.2f — accepting",
                     attempt + 1,
                     max_retries,
                     critique.score,
-                    _UNCERTAIN_ACCEPT_THRESHOLD,
+                    accept_threshold,
                 )
                 step.mark_completed(str(result))
                 agent.state = AgentState.COMPLETED
@@ -511,7 +634,7 @@ class AutonomousMode(BaseExecutionMode):
         max_sub = getattr(agent.config, "max_sub_agents", 5)
         max_retries = getattr(agent.config, "max_retries", 3)
         validation = ValidationPipeline(logger=agent._logger)
-        critic = Critic(logger=agent._logger)
+        critic = Critic(logger=agent._logger, limits=self._select_critic_limits(agent))
         refiner = Refiner(logger=agent._logger)
         progress = ExecutionProgress(task_id=task.id)
         std_mode = StandardMode()
@@ -599,6 +722,30 @@ class AutonomousMode(BaseExecutionMode):
                     messages.append(ChatMessage(role="user", content=retry_msg))
                 continue
 
+            if (
+                attempt > 0
+                and attempt == max_retries - 1
+                and not self._is_error(result)
+            ):
+                agent._logger.info(
+                    "Synthesis attempt %d/%d [FINAL]: accepting non-error "
+                    "result without Critic check",
+                    attempt + 1,
+                    max_retries,
+                )
+                synth_step.mark_completed(str(result))
+                agent.state = AgentState.COMPLETED
+                agent._execution_progress = progress
+                self._set_autonomous_detail(
+                    agent,
+                    attempts=attempt + 1,
+                    max_attempts=max_retries,
+                    sub_tasks=sub_task_names,
+                    complexity="complex",
+                    refined=True,
+                )
+                return result
+
             # Critic verification
             critique = await self._run_critic(
                 agent, critic, task.objective, result, messages
@@ -624,9 +771,13 @@ class AutonomousMode(BaseExecutionMode):
                 )
                 return result
 
+            accept_threshold = (
+                _UNCERTAIN_ACCEPT_THRESHOLD if attempt == 0
+                else _UNCERTAIN_RETRY_THRESHOLD
+            )
             if (
                 critique.verdict == Verdict.UNCERTAIN
-                and critique.score >= _UNCERTAIN_ACCEPT_THRESHOLD
+                and critique.score >= accept_threshold
             ):
                 synth_step.mark_completed(str(result))
                 agent.state = AgentState.COMPLETED
@@ -685,6 +836,13 @@ class AutonomousMode(BaseExecutionMode):
 
         Routes through ``self.call_llm()`` so the call is recorded
         in the UsageTracker under ``CallPurpose.CRITIC``.
+
+        Token budget uses the same ``llm_max_output_tokens`` that the
+        agent uses for all LLM calls — no separate config needed.
+
+        Since this is a single LLM call without tool access, we always
+        use the reasoning-verification prompt (no "call tools" instruction)
+        to avoid confusing models that take instructions literally.
         """
         from nucleusiq.agents.usage.usage_tracker import CallPurpose
 
@@ -693,13 +851,18 @@ class AutonomousMode(BaseExecutionMode):
                 task_objective=task_objective,
                 final_result=result,
                 generator_messages=messages,
+                allow_tool_instructions=False,
             )
 
+            model_name = getattr(agent.llm, "model_name", "default")
+            token_budget = agent.config.llm_max_output_tokens
+
             call_kwargs = {
-                "model": getattr(agent.llm, "model_name", "default"),
+                "model": model_name,
                 "messages": [{"role": "user", "content": verification_prompt}],
-                "max_output_tokens": 1024,
+                "max_output_tokens": token_budget,
             }
+            call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
             response = await self.call_llm(
                 agent, call_kwargs, purpose=CallPurpose.CRITIC
             )

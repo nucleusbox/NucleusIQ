@@ -181,7 +181,7 @@ class TestStreamingToolCallLoop:
 
     @pytest.mark.asyncio
     async def test_empty_response_retries_once(self):
-        """Empty LLM response → retry once → then error."""
+        """Empty LLM response → retry twice → then error."""
         agent = _make_agent()
         mode = DirectMode()
 
@@ -199,7 +199,7 @@ class TestStreamingToolCallLoop:
             mode._streaming_tool_call_loop(agent, messages, None, max_tool_calls=5)
         )
 
-        assert call_count == 2  # original + one retry
+        assert call_count == 3  # original + two retries
         assert events[-1].type == "error"
 
     @pytest.mark.asyncio

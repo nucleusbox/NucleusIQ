@@ -560,8 +560,8 @@ class TestToolLimitValidation:
     """Test that tool count is validated against mode limits."""
 
     @pytest.mark.asyncio
-    async def test_direct_mode_rejects_6_tools(self):
-        """Direct mode allows max 5 tools — 6 should return error."""
+    async def test_direct_mode_rejects_excess_tools(self):
+        """Direct mode allows max 25 tools — 26 should return error."""
         llm = MockLLM()
         agent = Agent(
             name="Test",
@@ -569,16 +569,16 @@ class TestToolLimitValidation:
             objective="B",
             llm=llm,
             prompt=make_test_prompt(),
-            tools=_make_tools(6),
+            tools=_make_tools(26),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
         result = await agent.execute(Task(id="t1", objective="Hi"))
         assert result.is_error
-        assert "DIRECT mode allows max 5" in result.error
+        assert "DIRECT mode allows max 25" in result.error
 
     @pytest.mark.asyncio
-    async def test_direct_mode_accepts_5_tools(self):
-        """Direct mode allows exactly 5 tools."""
+    async def test_direct_mode_accepts_25_tools(self):
+        """Direct mode allows exactly 25 tools."""
         llm = MockLLM()
         agent = Agent(
             name="Test",
@@ -586,15 +586,15 @@ class TestToolLimitValidation:
             objective="B",
             llm=llm,
             prompt=make_test_prompt(),
-            tools=_make_tools(5),
+            tools=_make_tools(25),
             config=AgentConfig(execution_mode=ExecutionMode.DIRECT),
         )
         result = await agent.execute(Task(id="t1", objective="Hi"))
         assert result is not None
 
     @pytest.mark.asyncio
-    async def test_standard_mode_rejects_31_tools(self):
-        """Standard mode allows max 30 tools — 31 should return error."""
+    async def test_standard_mode_rejects_excess_tools(self):
+        """Standard mode allows max 80 tools — 81 should return error."""
         llm = MockLLM()
         agent = Agent(
             name="Test",
@@ -602,16 +602,16 @@ class TestToolLimitValidation:
             objective="B",
             llm=llm,
             prompt=make_test_prompt(),
-            tools=_make_tools(31),
+            tools=_make_tools(81),
             config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
         )
         result = await agent.execute(Task(id="t1", objective="Hi"))
         assert result.is_error
-        assert "STANDARD mode allows max 30" in result.error
+        assert "STANDARD mode allows max 80" in result.error
 
     @pytest.mark.asyncio
-    async def test_autonomous_mode_rejects_101_tools(self):
-        """Autonomous mode allows max 100 tools — 101 should return error."""
+    async def test_autonomous_mode_rejects_excess_tools(self):
+        """Autonomous mode allows max 300 tools — 301 should return error."""
         llm = MockLLM()
         agent = Agent(
             name="Test",
@@ -619,12 +619,12 @@ class TestToolLimitValidation:
             objective="B",
             llm=llm,
             prompt=make_test_prompt(),
-            tools=_make_tools(101),
+            tools=_make_tools(301),
             config=AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS),
         )
         result = await agent.execute(Task(id="t1", objective="Hi"))
         assert result.is_error
-        assert "AUTONOMOUS mode allows max 100" in result.error
+        assert "AUTONOMOUS mode allows max 300" in result.error
 
     @pytest.mark.asyncio
     async def test_custom_max_tool_calls_overrides_default(self):
@@ -671,19 +671,19 @@ class TestToolLimitValidation:
             AgentConfig(
                 execution_mode=ExecutionMode.DIRECT
             ).get_effective_max_tool_calls()
-            == 5
+            == 25
         )
         assert (
             AgentConfig(
                 execution_mode=ExecutionMode.STANDARD
             ).get_effective_max_tool_calls()
-            == 30
+            == 80
         )
         assert (
             AgentConfig(
                 execution_mode=ExecutionMode.AUTONOMOUS
             ).get_effective_max_tool_calls()
-            == 100
+            == 300
         )
 
     def test_get_effective_max_tool_calls_custom(self):

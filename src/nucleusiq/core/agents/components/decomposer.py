@@ -102,12 +102,14 @@ class Decomposer:
             '{"id": "sub1", "objective": "..."}, ...]}\n'
         )
         assert agent.llm is not None, "agent.llm must be set for Decomposer"
+        model_name = getattr(agent.llm, "model_name", "default")
+        token_budget = agent.config.llm_max_output_tokens
         t0 = _time.perf_counter()
         try:
             response = await agent.llm.call(
-                model=getattr(agent.llm, "model_name", "default"),
+                model=model_name,
                 messages=[{"role": "user", "content": prompt}],
-                max_output_tokens=512,
+                max_output_tokens=token_budget,
             )
             self._record_llm_call(agent, t0, response, purpose="decomposer")
             return self._parse_analysis(response)

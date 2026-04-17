@@ -443,7 +443,7 @@ class TestCriticParsing:
 class TestCriticPromptConstruction:
     def test_step_review_prompt_structure(self):
         step = _make_step(1, "add", "Add two numbers")
-        prompt = Critic._build_step_review_prompt(
+        prompt = Critic()._build_step_review_prompt(
             "Calculate 2+3",
             step,
             "5",
@@ -458,7 +458,7 @@ class TestCriticPromptConstruction:
     def test_step_review_prompt_with_context(self):
         step = _make_step(2, "multiply", "Multiply result")
         ctx = {"step_1": "5", "step_1_action": "add"}
-        prompt = Critic._build_step_review_prompt(
+        prompt = Critic()._build_step_review_prompt(
             "task",
             step,
             "25",
@@ -474,7 +474,7 @@ class TestCriticPromptConstruction:
                 _make_step(2, "format", "Format result"),
             ]
         )
-        prompt = Critic._build_final_review_prompt(
+        prompt = Critic()._build_final_review_prompt(
             "Calculate and format",
             plan,
             ["5", "Result: 5"],
@@ -960,7 +960,7 @@ class TestAutonomousModeFull:
         )
         msg = refiner.build_revision_message(critique)
 
-        assert "VERIFICATION FOUND A SPECIFIC ERROR" in msg
+        assert "VERIFICATION RESULT: fail" in msg
         assert "Tool returned 50 but you said 42" in msg
         assert "Use 50 from the tool result" in msg
         assert "Fix ONLY the specific error" in msg
@@ -991,7 +991,7 @@ class TestAutonomousModeFull:
         assert len(messages) == original_len + 1
         fix_msg = messages[-1]
         assert fix_msg.role == "user"
-        assert "VERIFICATION FOUND A SPECIFIC ERROR" in fix_msg.content
+        assert "VERIFICATION RESULT: fail" in fix_msg.content
         assert "Tool returned 50 but you said 42" in fix_msg.content
 
 

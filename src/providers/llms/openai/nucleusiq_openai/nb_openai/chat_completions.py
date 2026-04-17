@@ -152,6 +152,35 @@ def _sdk_message_to_assistant(raw: dict[str, Any]) -> AssistantMessage:
     )
 
 
+def _ensure_openai_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert flat canonical tool_calls to the nested format Chat Completions expects.
+
+    The framework's canonical format is ``{"id", "name", "arguments"}``.
+    Chat Completions requires ``{"id", "type": "function", "function": {"name", "arguments"}}``.
+    Messages that already use the nested format pass through unchanged.
+    """
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        tcs = msg.get("tool_calls")
+        if tcs and msg.get("role") == "assistant":
+            converted = []
+            for tc in tcs:
+                if "function" in tc:
+                    converted.append(tc)
+                else:
+                    converted.append({
+                        "id": tc.get("id"),
+                        "type": "function",
+                        "function": {
+                            "name": tc.get("name", ""),
+                            "arguments": tc.get("arguments", "{}"),
+                        },
+                    })
+            msg = {**msg, "tool_calls": converted}
+        out.append(msg)
+    return out
+
+
 async def call_chat_completions(
     client: Any,
     *,
@@ -180,6 +209,7 @@ async def call_chat_completions(
         Normalised ``_LLMResponse`` with the first choice.
     """
     _log = logger or logging.getLogger(__name__)
+    messages = _ensure_openai_tool_calls(messages)
 
     payload_model = ChatCompletionsPayload.build(
         model=model,

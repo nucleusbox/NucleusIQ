@@ -202,16 +202,23 @@ def _build_content_parts(msg: dict[str, Any]) -> list[dict[str, Any]]:
     tool_calls = msg.get("tool_calls")
     if tool_calls:
         for tc in tool_calls:
-            fn = tc.get("function", {})
-            args = fn.get("arguments", "{}")
-            if isinstance(args, str):
+            fn = tc.get("function")
+            if isinstance(fn, dict):
+                tc_name = fn.get("name", "")
+                raw_args = fn.get("arguments", "{}")
+            else:
+                tc_name = tc.get("name", "")
+                raw_args = tc.get("arguments", "{}")
+            if isinstance(raw_args, str):
                 try:
-                    args = json.loads(args)
+                    args = json.loads(raw_args)
                 except json.JSONDecodeError:
                     args = {}
+            else:
+                args = raw_args
             part: dict[str, Any] = {
                 "function_call": {
-                    "name": fn.get("name", ""),
+                    "name": tc_name,
                     "args": args,
                 }
             }

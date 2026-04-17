@@ -31,7 +31,7 @@ from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
 
 class StandardMode(BaseExecutionMode):
-    """Gear 2: Standard mode — tool-enabled, linear execution (max 30 by default)."""
+    """Gear 2: Standard mode — tool-enabled, linear execution (max 80 by default)."""
 
     async def run(self, agent: "Agent", task: Task) -> Any:
         """Execute a task with tool-calling loop."""
@@ -160,7 +160,7 @@ class StandardMode(BaseExecutionMode):
         max_tool_calls = agent.config.get_effective_max_tool_calls()
         tool_call_count = 0
         call_round = 0
-        empty_retries_remaining = 1
+        empty_retries_remaining = 2
         pre_synth_snapshot: list[ChatMessage] | None = None
 
         while tool_call_count < max_tool_calls:
@@ -208,15 +208,26 @@ class StandardMode(BaseExecutionMode):
                 continue
 
             if content:
-                if pre_synth_snapshot is not None:
+                synth_threshold = getattr(
+                    agent.config, "synthesis_word_threshold", 500
+                )
+                if (
+                    pre_synth_snapshot is not None
+                    and len(content.split()) < synth_threshold
+                ):
                     agent._logger.info(
                         "Synthesis pass: %d tool calls over %d rounds — "
                         "re-calling LLM without tools for final output",
                         tool_call_count,
                         call_round - 1,
                     )
-                    content = await self._synthesis_pass(agent, pre_synth_snapshot)
+                    synth = await self._synthesis_pass(agent, pre_synth_snapshot)
+                    if synth.strip():
+                        content = synth
 
+                messages.append(
+                    ChatMessage(role="assistant", content=content)
+                )
                 agent.state = AgentState.COMPLETED
                 await self._store_in_memory(agent, task, content)
                 return content
@@ -338,19 +349,29 @@ class StandardMode(BaseExecutionMode):
     def _parse_tool_call(
         tool_call: Any,
     ) -> tuple:
-        """Parse a single tool call into ``(id, name, arguments_str)``."""
+        """Parse a single tool call into ``(id, name, arguments_str)``.
+
+        Accepts both the flat canonical format ``{"id", "name", "arguments"}``
+        and SDK objects with ``function`` attribute.
+        """
         if isinstance(tool_call, dict):
             tc_id = tool_call.get("id")
-            fn_info = tool_call.get("function", {})
-            fn_name = fn_info.get("name") if isinstance(fn_info, dict) else None
-            fn_args_str = (
-                fn_info.get("arguments", "{}") if isinstance(fn_info, dict) else "{}"
-            )
+            fn_info = tool_call.get("function")
+            if isinstance(fn_info, dict):
+                fn_name = fn_info.get("name")
+                fn_args_str = fn_info.get("arguments", "{}")
+            else:
+                fn_name = tool_call.get("name")
+                fn_args_str = tool_call.get("arguments", "{}")
         else:
             tc_id = getattr(tool_call, "id", None)
             fn_info = getattr(tool_call, "function", None)
-            fn_name = getattr(fn_info, "name", None) if fn_info else None
-            fn_args_str = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
+            if fn_info is not None:
+                fn_name = getattr(fn_info, "name", None)
+                fn_args_str = getattr(fn_info, "arguments", "{}")
+            else:
+                fn_name = getattr(tool_call, "name", None)
+                fn_args_str = getattr(tool_call, "arguments", "{}")
         return tc_id, fn_name, fn_args_str
 
     async def _synthesis_pass(
@@ -393,7 +414,12 @@ class StandardMode(BaseExecutionMode):
             purpose=CallPurpose.SYNTHESIS,
         )
         self.validate_response(response)
-        return self.extract_content(response.choices[0].message) or ""
+        synth_content = self.extract_content(response.choices[0].message) or ""
+        if not synth_content.strip():
+            agent._logger.warning(
+                "Synthesis pass returned empty — preserving pre-synthesis content"
+            )
+        return synth_content
 
     async def _store_in_memory(self, agent: "Agent", task: Any, content: str) -> None:
         """Persist result in agent memory."""

@@ -21,7 +21,8 @@ class ToolCallRequest(BaseModel):
     """Normalized tool call — used for Executor input and typed messages.
 
     Provides a flat ``(id, name, arguments)`` view regardless of the
-    provider-specific wire format (OpenAI nests under ``function``).
+    provider-specific wire format.  Providers convert from this canonical
+    representation to their own format in their serialization layer.
     """
 
     id: str | None = None
@@ -30,31 +31,36 @@ class ToolCallRequest(BaseModel):
 
     @classmethod
     def from_raw(cls, tc: Any) -> ToolCallRequest:
-        """Parse from OpenAI-style tool_call (dict or SDK object)."""
+        """Parse from a tool-call dict or SDK object.
+
+        Accepts both the flat canonical format ``{"id", "name", "arguments"}``
+        and the legacy nested format ``{"function": {"name", "arguments"}}``.
+        """
         if isinstance(tc, cls):
             return tc
         if isinstance(tc, dict):
             tc_id = tc.get("id")
-            fn_info = tc.get("function", {})
+            fn_info = tc.get("function")
             if isinstance(fn_info, dict):
                 fn_name = fn_info.get("name", "")
                 fn_args = fn_info.get("arguments", "{}")
             else:
-                fn_name = ""
-                fn_args = "{}"
+                fn_name = tc.get("name", "")
+                fn_args = tc.get("arguments", "{}")
         else:
             tc_id = getattr(tc, "id", None)
             fn_info = getattr(tc, "function", None)
-            fn_name = getattr(fn_info, "name", "") if fn_info else ""
-            fn_args = getattr(fn_info, "arguments", "{}") if fn_info else "{}"
+            if fn_info is not None:
+                fn_name = getattr(fn_info, "name", "") or ""
+                fn_args = getattr(fn_info, "arguments", "{}") or "{}"
+            else:
+                fn_name = getattr(tc, "name", "") or ""
+                fn_args = getattr(tc, "arguments", "{}") or "{}"
         return cls(id=tc_id, name=fn_name, arguments=fn_args)
 
-    def to_openai_dict(self) -> dict[str, Any]:
-        """Serialize to OpenAI ``tool_calls[]`` wire format."""
-        d: dict[str, Any] = {
-            "type": "function",
-            "function": {"name": self.name, "arguments": self.arguments},
-        }
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the flat canonical format used across the framework."""
+        d: dict[str, Any] = {"name": self.name, "arguments": self.arguments}
         if self.id is not None:
             d["id"] = self.id
         return d
@@ -83,7 +89,7 @@ class ChatMessage(BaseModel):
         """Serialize to the dict format expected by LLM providers."""
         d: dict[str, Any] = {"role": self.role, "content": self.content}
         if self.tool_calls:
-            d["tool_calls"] = [tc.to_openai_dict() for tc in self.tool_calls]
+            d["tool_calls"] = [tc.to_dict() for tc in self.tool_calls]
         if self.tool_call_id is not None:
             d["tool_call_id"] = self.tool_call_id
         if self.name is not None:

@@ -267,7 +267,7 @@ class BaseExecutionMode(ABC):
             "messages": messages_to_dicts(messages),
             "tools": tool_specs if tool_specs else None,
             "max_output_tokens": max_output_tokens
-            or getattr(agent.config, "llm_max_output_tokens", 1024),
+            or getattr(agent.config, "llm_max_output_tokens", 2048),
         }
         call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
         call_kwargs.update(agent._get_structured_output_kwargs(output_config))
@@ -405,7 +405,7 @@ class BaseExecutionMode(ABC):
                 if messages is not None
                 else call_kwargs.get("messages", []),
                 tools=tool_specs,
-                max_output_tokens=call_kwargs.get("max_output_tokens", 1024),
+                max_output_tokens=call_kwargs.get("max_output_tokens", 2048),
                 call_count=pm.increment_model_calls(),
                 agent_name=agent.name,
                 extra_kwargs=extra,
@@ -544,7 +544,7 @@ class BaseExecutionMode(ABC):
         messages: list[ChatMessage],
         tool_specs: list[dict[str, Any]] | None,
         *,
-        max_tool_calls: int = 30,
+        max_tool_calls: int = 80,
         max_output_tokens: int = 2048,
         purpose: CallPurpose = CallPurpose.MAIN,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -564,7 +564,7 @@ class BaseExecutionMode(ABC):
         """
         tool_call_count = 0
         call_round = 0
-        empty_retries = 1
+        empty_retries = 2
         tracker = getattr(agent, "_usage_tracker", None)
         pre_synth_snapshot: list[ChatMessage] | None = None
 
@@ -712,7 +712,13 @@ class BaseExecutionMode(ABC):
 
             # --- Content returned, no tools → synthesis or done ---
             if full_content.strip():
-                if pre_synth_snapshot is not None:
+                synth_threshold = getattr(
+                    agent.config, "synthesis_word_threshold", 500
+                )
+                if (
+                    pre_synth_snapshot is not None
+                    and len(full_content.split()) < synth_threshold
+                ):
                     agent._logger.info(
                         "Synthesis pass (stream): %d tool calls over %d rounds",
                         tool_call_count,
@@ -782,12 +788,27 @@ class BaseExecutionMode(ABC):
                                     prompt_technique=_extract_prompt_technique(agent),
                                 )
                             )
-                        yield StreamEvent.complete_event(
-                            synth_event.content or "",
-                            metadata=synth_event.metadata,
+                        synth_text = (synth_event.content or "").strip()
+                        if synth_text:
+                            messages.append(
+                                ChatMessage(
+                                    role="assistant",
+                                    content=synth_event.content or "",
+                                )
+                            )
+                            yield StreamEvent.complete_event(
+                                synth_event.content or "",
+                                metadata=synth_event.metadata,
+                            )
+                            return
+                        agent._logger.warning(
+                            "Synthesis pass (stream) returned empty — "
+                            "preserving pre-synthesis content"
                         )
-                        return
 
+                messages.append(
+                    ChatMessage(role="assistant", content=full_content)
+                )
                 yield StreamEvent.complete_event(
                     full_content, metadata=complete_event.metadata
                 )

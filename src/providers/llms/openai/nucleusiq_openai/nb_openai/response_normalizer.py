@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from nucleusiq_openai._shared.models import (
+    FunctionCallInput,
     FunctionCallOutput,
     JsonSchemaFormat,
     MessageInputItem,
@@ -22,7 +23,7 @@ from nucleusiq_openai._shared.response_models import (
     _LLMResponse,
 )
 
-InputItem = MessageInputItem | FunctionCallOutput
+InputItem = MessageInputItem | FunctionCallInput | FunctionCallOutput
 
 
 def _convert_content_part_for_responses(part: dict[str, Any]) -> dict[str, Any]:
@@ -103,14 +104,41 @@ def messages_to_responses_input(
     input_items: list[InputItem] = []
 
     if last_response_id:
-        for msg in messages:
-            if msg.get("role") == "tool":
-                input_items.append(
-                    FunctionCallOutput(
-                        call_id=msg.get("tool_call_id", ""),
-                        output=str(msg.get("content", "")),
-                    )
+        # Chain mode: the Responses API looks up call_ids in the ancestral
+        # chain of ``previous_response_id``.  Only send tool outputs whose
+        # matching function_call belongs to the CURRENT head of the chain
+        # (i.e. the most recent assistant's tool_calls).  Re-sending older
+        # tool outputs from prior turns will fail with
+        # ``No tool call found for function call output with call_id ...``
+        # whenever the chain was reset (e.g. a retry that triggered a full
+        # replay and started a fresh chain on the next response).
+        last_assistant_idx = -1
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "assistant":
+                last_assistant_idx = i
+                break
+
+        valid_call_ids: set[str] = set()
+        if last_assistant_idx >= 0:
+            for tc in messages[last_assistant_idx].get("tool_calls") or []:
+                if not isinstance(tc, dict):
+                    continue
+                cid = tc.get("id", "")
+                if cid:
+                    valid_call_ids.add(cid)
+
+        for msg in messages[last_assistant_idx + 1 :]:
+            if msg.get("role") != "tool":
+                continue
+            cid = msg.get("tool_call_id", "")
+            if valid_call_ids and cid not in valid_call_ids:
+                continue
+            input_items.append(
+                FunctionCallOutput(
+                    call_id=cid,
+                    output=str(msg.get("content", "")),
                 )
+            )
         return instructions, input_items
 
     system_parts: list[str] = []
@@ -123,6 +151,22 @@ def messages_to_responses_input(
         elif role in ("user", "assistant"):
             resolved_content = _convert_content_for_responses(content)
             input_items.append(MessageInputItem(role=role, content=resolved_content))
+            if role == "assistant" and msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    fn = tc.get("function")
+                    if isinstance(fn, dict):
+                        tc_name = fn.get("name", "")
+                        tc_args = fn.get("arguments", "{}")
+                    else:
+                        tc_name = tc.get("name", "")
+                        tc_args = tc.get("arguments", "{}")
+                    input_items.append(
+                        FunctionCallInput(
+                            call_id=tc.get("id", ""),
+                            name=tc_name,
+                            arguments=tc_args,
+                        )
+                    )
         elif role == "tool":
             input_items.append(
                 FunctionCallOutput(
@@ -133,6 +177,23 @@ def messages_to_responses_input(
 
     if system_parts:
         instructions = "\n".join(system_parts)
+
+    # Defensive: drop orphan FunctionCallOutput items whose call_id has no
+    # matching FunctionCallInput in this request.  The framework's
+    # compactors preserve assistant+tool atomic groups, so this should
+    # never trigger in practice — but filtering here guarantees the
+    # Responses API never rejects the request over an upstream history
+    # anomaly (compaction bug, manual history edit, etc.).
+    known_call_ids = {
+        item.call_id for item in input_items if isinstance(item, FunctionCallInput)
+    }
+    input_items = [
+        item
+        for item in input_items
+        if not (
+            isinstance(item, FunctionCallOutput) and item.call_id not in known_call_ids
+        )
+    ]
 
     return instructions, input_items
 

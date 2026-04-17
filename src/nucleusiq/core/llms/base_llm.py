@@ -260,6 +260,25 @@ class BaseLLM(BaseLanguageModel, ABC):
         return 128_000
 
     # ------------------------------------------------------------------ #
+    # Reasoning model detection                                            #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def is_reasoning_model(self) -> bool:
+        """Whether this model uses internal reasoning tokens.
+
+        Reasoning models (e.g. OpenAI gpt-5.x, o-series) share their
+        ``max_completion_tokens`` budget between internal chain-of-thought
+        and visible output.  The framework uses this flag to give
+        internal calls (Critic, Decomposer) a larger token budget so
+        the model has room for both reasoning and visible output.
+
+        Providers override this based on their own model registries.
+        Defaults to ``False`` for non-reasoning models.
+        """
+        return False
+
+    # ------------------------------------------------------------------ #
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
 

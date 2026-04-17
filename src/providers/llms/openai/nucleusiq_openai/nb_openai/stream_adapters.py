@@ -267,6 +267,11 @@ async def _process_responses_events(
                         "output_tokens": getattr(raw_usage, "output_tokens", 0) or 0,
                         "total_tokens": getattr(raw_usage, "total_tokens", 0) or 0,
                     }
+                    output_details = getattr(raw_usage, "output_tokens_details", None)
+                    if output_details:
+                        usage["reasoning_tokens"] = (
+                            getattr(output_details, "reasoning_tokens", 0) or 0
+                        )
 
     full_content = "".join(content_parts) or None
     metadata: dict[str, Any] = {}

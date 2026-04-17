@@ -909,22 +909,78 @@ class TestMessageConversionEdgeCases:
         assert items[0].content == ""
 
     def test_mixed_messages_and_tool_results(self):
-        """Full conversation history with system + user + tool results."""
+        """Full conversation history with system + user + assistant(tool_calls) + tool + user."""
         messages = [
             {"role": "system", "content": "Be helpful."},
             {"role": "user", "content": "Do the thing."},
-            {"role": "assistant", "content": "I'll use a tool."},
+            {
+                "role": "assistant",
+                "content": "I'll use a tool.",
+                "tool_calls": [
+                    {"id": "tc_1", "name": "do_it", "arguments": "{}"},
+                ],
+            },
             {"role": "tool", "tool_call_id": "tc_1", "content": "done"},
             {"role": "user", "content": "Thanks!"},
         ]
         instructions, items = messages_to_responses_input(messages, None)
 
         assert instructions == "Be helpful."
-        assert len(items) == 4
+        assert len(items) == 5
         assert items[0].role == "user"
         assert items[1].role == "assistant"
-        assert items[2].type == "function_call_output"
-        assert items[3].role == "user"
+        assert items[2].type == "function_call"
+        assert items[2].call_id == "tc_1"
+        assert items[3].type == "function_call_output"
+        assert items[3].call_id == "tc_1"
+        assert items[4].role == "user"
+
+    def test_orphan_tool_output_dropped_in_full_replay(self):
+        """A tool message with no matching assistant tool_call is dropped (defensive).
+
+        Sending an orphan function_call_output to the Responses API would
+        cause a 400 'No tool call found ...' error. The normalizer drops
+        orphans defensively so upstream history anomalies never reach the
+        wire.
+        """
+        messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "ok"},
+            {"role": "tool", "tool_call_id": "tc_orphan", "content": "stale"},
+        ]
+        _, items = messages_to_responses_input(messages, None)
+
+        assert all(getattr(item, "type", None) != "function_call_output" for item in items)
+
+    def test_continuation_drops_stale_pre_assistant_tool_outputs(self):
+        """In chain mode, only emit outputs for the most recent assistant's tool_calls.
+
+        Older tool outputs belong to earlier responses in the chain (or a
+        chain that was reset). Re-sending them causes 400 errors like
+        'No tool call found for function call output with call_id ...'.
+        """
+        messages = [
+            {"role": "user", "content": "q"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "call_old", "name": "f", "arguments": "{}"}],
+            },
+            {"role": "tool", "tool_call_id": "call_old", "content": "old result"},
+            {"role": "user", "content": "retry please"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "call_new", "name": "f", "arguments": "{}"}],
+            },
+            {"role": "tool", "tool_call_id": "call_new", "content": "new result"},
+        ]
+        _, items = messages_to_responses_input(messages, "resp_head")
+
+        assert len(items) == 1
+        assert items[0].type == "function_call_output"
+        assert items[0].call_id == "call_new"
+        assert items[0].output == "new result"
 
 
 if __name__ == "__main__":
