@@ -12,7 +12,7 @@ Covers:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from nucleusiq.agents.agent import Agent
@@ -83,6 +83,25 @@ async def _collect(async_gen) -> list[StreamEvent]:
     async for event in async_gen:
         events.append(event)
     return events
+
+
+def _patch_critic_pass():
+    """Patch ``AutonomousMode._run_critic`` to always return PASS.
+
+    Streaming tests that drive autonomous mode with a ``MockLLM`` cannot
+    produce a parseable Critic verdict (the mock just echoes the
+    prompt).  Under F2 this now causes the runner to abstain via
+    ``AbstentionSignal`` instead of silently succeeding. When the test's
+    intent is to exercise stream-event protocol — not abstention — we
+    patch the Critic to PASS.
+    """
+    from nucleusiq.agents.components.critic import CritiqueResult, Verdict
+
+    return patch.object(
+        AutonomousMode,
+        "_run_critic",
+        new=AsyncMock(return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -424,7 +443,8 @@ class TestAutonomousModeStreamSimple:
         )
         mode = AutonomousMode()
 
-        events = await _collect(mode.run_stream(agent, _make_task("Say hi")))
+        with _patch_critic_pass():
+            events = await _collect(mode.run_stream(agent, _make_task("Say hi")))
 
         types = [e.type for e in events]
         assert "thinking" in types
@@ -792,7 +812,8 @@ class TestAutonomousModeStreamCriticRefiner:
         )
         mode = AutonomousMode()
 
-        events = await _collect(mode.run_stream(agent, _make_task("verify me")))
+        with _patch_critic_pass():
+            events = await _collect(mode.run_stream(agent, _make_task("verify me")))
 
         thinking_msgs = [e.message for e in events if e.type == "thinking"]
         assert any("Analyzing" in m for m in thinking_msgs)
@@ -800,7 +821,11 @@ class TestAutonomousModeStreamCriticRefiner:
 
     @pytest.mark.asyncio
     async def test_max_retries_exhausted(self):
-        """With multiple retries, mode should complete without infinite loop."""
+        """With multiple retries + all-failing Critic, mode abstains via
+        ``AbstentionSignal`` instead of looping forever (F2)."""
+        from nucleusiq.agents.agent_result import AbstentionSignal
+        from nucleusiq.agents.components.critic import CritiqueResult, Verdict
+
         agent = _make_agent(
             config=AgentConfig(
                 execution_mode=ExecutionMode.AUTONOMOUS,
@@ -809,10 +834,17 @@ class TestAutonomousModeStreamCriticRefiner:
         )
         mode = AutonomousMode()
 
-        events = await _collect(mode.run_stream(agent, _make_task("retry test")))
-
-        assert any(e.type == "complete" for e in events)
-        assert agent.state == AgentState.COMPLETED
+        with patch.object(
+            AutonomousMode,
+            "_run_critic",
+            new=AsyncMock(
+                return_value=CritiqueResult(
+                    verdict=Verdict.FAIL, score=0.1, feedback="nope"
+                )
+            ),
+        ):
+            with pytest.raises(AbstentionSignal):
+                await _collect(mode.run_stream(agent, _make_task("retry test")))
 
     @pytest.mark.asyncio
     async def test_error_in_simple_path(self):
@@ -846,9 +878,10 @@ class TestAutonomousModeStreamCriticRefiner:
         )
         mode = AutonomousMode()
 
-        events = await _collect(
-            mode.run_stream(agent, {"id": "d1", "objective": "dict task"})
-        )
+        with _patch_critic_pass():
+            events = await _collect(
+                mode.run_stream(agent, {"id": "d1", "objective": "dict task"})
+            )
 
         assert any(e.type == "complete" for e in events)
 
@@ -865,7 +898,10 @@ class TestAutonomousModeStreamCriticRefiner:
         )
         mode = AutonomousMode()
 
-        events = await _collect(mode.run_stream(agent, _make_task("Add 3 and 7")))
+        with _patch_critic_pass():
+            events = await _collect(
+                mode.run_stream(agent, _make_task("Add 3 and 7"))
+            )
 
         types = [e.type for e in events]
         assert "thinking" in types

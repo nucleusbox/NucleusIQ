@@ -446,6 +446,15 @@ class TestAutonomousModeRun:
 
     @pytest.mark.asyncio
     async def test_autonomous_with_memory(self):
+        """Autonomous + memory happy path.
+
+        Under F2 the Critic runs on every attempt including the final
+        one, so these ``MockLLM``-based tests (which echo the Critic
+        prompt back instead of returning a PASS JSON) need an explicit
+        PASS Critic stub to avoid tripping abstention.
+        """
+        from nucleusiq.agents.components.critic import CritiqueResult, Verdict
+
         mem = FullHistoryMemory()
         llm = MockLLM()
         agent = _make_agent(
@@ -455,7 +464,14 @@ class TestAutonomousModeRun:
         )
         await agent.initialize()
         mode = AutonomousMode()
-        result = await mode.run(agent, {"id": "1", "objective": "test task"})
+        with patch.object(
+            AutonomousMode,
+            "_run_critic",
+            new=AsyncMock(
+                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
+            ),
+        ):
+            result = await mode.run(agent, {"id": "1", "objective": "test task"})
         assert isinstance(result, str)
         ctx = mem.get_context()
         assert len(ctx) >= 1
@@ -463,6 +479,7 @@ class TestAutonomousModeRun:
     @pytest.mark.asyncio
     async def test_autonomous_with_structured_output(self):
         """Autonomous delegates to StandardMode; structured output is returned."""
+        from nucleusiq.agents.components.critic import CritiqueResult, Verdict
         from pydantic import BaseModel
 
         class MyOut(BaseModel):
@@ -476,15 +493,31 @@ class TestAutonomousModeRun:
         )
         await agent.initialize()
         mode = AutonomousMode()
-        result = await mode.run(agent, {"id": "1", "objective": "compute"})
+        with patch.object(
+            AutonomousMode,
+            "_run_critic",
+            new=AsyncMock(
+                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
+            ),
+        ):
+            result = await mode.run(agent, {"id": "1", "objective": "compute"})
         assert result is not None
 
     @pytest.mark.asyncio
     async def test_autonomous_standard_mode_delegation(self):
         """Autonomous mode delegates execution to StandardMode."""
+        from nucleusiq.agents.components.critic import CritiqueResult, Verdict
+
         llm = MockLLM()
         agent = _make_agent(llm=llm)
         await agent.initialize()
         mode = AutonomousMode()
-        result = await mode.run(agent, {"id": "1", "objective": "test"})
+        with patch.object(
+            AutonomousMode,
+            "_run_critic",
+            new=AsyncMock(
+                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
+            ),
+        ):
+            result = await mode.run(agent, {"id": "1", "objective": "test"})
         assert isinstance(result, str)

@@ -250,29 +250,43 @@ class TestSimplePath:
         assert result == "correct answer"
         assert std._tool_call_loop.await_count == 2
 
+    @patch("nucleusiq.agents.components.refiner.Refiner.revise", new_callable=AsyncMock)
     @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
-    async def test_retries_on_critic_fail(self, MockStd, MockValidation, mock_critic):
-        """Critic FAIL triggers Refiner-based retry instead of generic retry."""
+    async def test_retries_on_critic_fail(
+        self, MockStd, MockValidation, mock_critic, mock_revise
+    ):
+        """Critic FAIL now triggers a Refiner pass (F1), not a Generator retry.
+
+        Under the Aletheia-style Generate -> Verify -> Revise loop, the
+        Generator runs only on the first attempt (and on validation/error
+        retries).  A Critic FAIL on attempt 1 escalates to the Reviser,
+        whose revised candidate then flows back through the Critic.
+        """
+        from nucleusiq.agents.components.refiner import RevisionCandidate
+
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
         std._get_tool_specs = MagicMock(return_value=[])
         std.build_messages = MagicMock(return_value=[])
-        std._tool_call_loop = AsyncMock(
-            side_effect=["wrong answer", "correct answer"],
-        )
+        std._tool_call_loop = AsyncMock(return_value="wrong answer")
 
         MockValidation.return_value.validate = AsyncMock(
             return_value=_valid_result(),
         )
         mock_critic.side_effect = [_critic_fail(), _critic_pass()]
+        mock_revise.return_value = RevisionCandidate(content="correct answer")
 
         agent = _make_agent(config=AgentConfig(max_retries=3))
         mode = AutonomousMode()
         result = await mode._run_simple(agent, Task(id="t1", objective="X"))
+
         assert result == "correct answer"
-        assert std._tool_call_loop.await_count == 2
+        # Generator runs exactly once; Reviser produced attempt 2.
+        assert std._tool_call_loop.await_count == 1
+        assert mock_revise.await_count == 1
+        # Critic runs on both candidates (Generator's + Reviser's).
         assert mock_critic.await_count == 2
 
     @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
@@ -700,15 +714,25 @@ class TestAutonomousAdditionalBranches:
         assert result == "synth answer"
         assert agent.state == AgentState.COMPLETED
 
+    @patch("nucleusiq.agents.components.refiner.Refiner.revise", new_callable=AsyncMock)
     @patch.object(AutonomousMode, "_run_critic", new_callable=AsyncMock)
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")
     @patch("nucleusiq.agents.modes.autonomous_mode.StandardMode")
-    async def test_run_complex_returns_last_result_after_retries(
+    async def test_run_complex_returns_best_candidate_on_abstention(
         self,
         MockStd,
         MockValidation,
         mock_critic,
+        mock_revise,
     ):
+        """F5: when every pass fails the Critic, the complex path
+        raises ``AbstentionSignal`` carrying the *best* candidate (by
+        Critic score), not just the most recent one.  Here the Refiner
+        improves the score from 0.2 → 0.3 on attempt 2, so the revised
+        answer (higher score) wins."""
+        from nucleusiq.agents.agent_result import AbstentionSignal
+        from nucleusiq.agents.components.refiner import RevisionCandidate
+
         std = MockStd.return_value
         std._ensure_executor = MagicMock()
         std._get_tool_specs = MagicMock(return_value=[])
@@ -716,7 +740,13 @@ class TestAutonomousAdditionalBranches:
         std._tool_call_loop = AsyncMock(return_value="best-effort")
 
         MockValidation.return_value.validate = AsyncMock(return_value=_valid_result())
-        mock_critic.return_value = _critic_fail(score=0.2)
+        # Attempt 1: Critic scores 0.2 (FAIL); Attempt 2: 0.3 (FAIL, but
+        # better).  F5 keeps the higher-scoring candidate as "best".
+        mock_critic.side_effect = [
+            _critic_fail(score=0.2),
+            _critic_fail(score=0.3),
+        ]
+        mock_revise.return_value = RevisionCandidate(content="revised answer")
 
         decomposer = MagicMock()
         decomposer.run_sub_tasks = AsyncMock(return_value=[{"id": "s1", "result": "r"}])
@@ -724,14 +754,19 @@ class TestAutonomousAdditionalBranches:
 
         agent = _make_agent(config=AgentConfig(max_retries=2))
         mode = AutonomousMode()
-        result = await mode._run_complex(
-            agent,
-            Task(id="t1", objective="X"),
-            decomposer,
-            _complex_analysis(),
-        )
 
-        assert result == "best-effort"
+        with pytest.raises(AbstentionSignal) as excinfo:
+            await mode._run_complex(
+                agent,
+                Task(id="t1", objective="X"),
+                decomposer,
+                _complex_analysis(),
+            )
+
+        # F5: best-candidate wins — second (higher-score) attempt is
+        # the Refiner's revised answer.
+        assert excinfo.value.best_candidate == "revised answer"
+        assert excinfo.value.critique.score == pytest.approx(0.3)
         assert agent.state == AgentState.COMPLETED
 
     @patch("nucleusiq.agents.modes.autonomous_mode.ValidationPipeline")

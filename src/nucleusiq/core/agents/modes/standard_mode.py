@@ -155,8 +155,17 @@ class StandardMode(BaseExecutionMode):
         task: Task | dict[str, Any],
         messages: list[ChatMessage],
         tool_specs: list[dict[str, Any]],
+        *,
+        purpose_override: CallPurpose | None = None,
     ) -> Any:
-        """Core tool-calling loop: LLM -> tool -> LLM -> ... -> final answer."""
+        """Core tool-calling loop: LLM -> tool -> LLM -> ... -> final answer.
+
+        ``purpose_override`` lets other roles (e.g. the Reviser in
+        ``AutonomousMode``) reuse this engine while tagging every LLM
+        call with a role-specific ``CallPurpose`` (``REFINER``, etc.).
+        When ``None``, the default per-round classification is used
+        (``MAIN`` for round 1, ``TOOL_LOOP`` thereafter).
+        """
         max_tool_calls = agent.config.get_effective_max_tool_calls()
         tool_call_count = 0
         call_round = 0
@@ -172,7 +181,10 @@ class StandardMode(BaseExecutionMode):
             if agent.config.enable_synthesis and tool_call_count > 0 and call_round > 2:
                 pre_synth_snapshot = list(messages)
 
-            purpose = CallPurpose.MAIN if call_round == 1 else CallPurpose.TOOL_LOOP
+            if purpose_override is not None:
+                purpose = purpose_override
+            else:
+                purpose = CallPurpose.MAIN if call_round == 1 else CallPurpose.TOOL_LOOP
             call_kwargs = self.build_call_kwargs(
                 agent,
                 messages,

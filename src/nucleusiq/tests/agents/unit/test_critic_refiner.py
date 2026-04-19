@@ -487,326 +487,13 @@ class TestCriticPromptConstruction:
 
 
 # ================================================================== #
-# Refiner Tests                                                        #
+# Refiner tests — the new, public Refiner.revise() surface            #
 # ================================================================== #
-
-
-class TestRefinerStep:
-    @pytest.mark.asyncio
-    async def test_llm_revision_for_execute_step(self):
-        response = FakeLLMResponse(content="Corrected result: 5")
-        agent = _make_agent(llm_response=response)
-        refiner = Refiner()
-
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            score=0.3,
-            feedback="Wrong calculation",
-            issues=["Sum is incorrect"],
-            suggestions=["Recalculate"],
-        )
-
-        result = await refiner.refine_step(
-            agent,
-            "Add 2+3",
-            _make_step(),
-            "wrong result",
-            critique,
-            {},
-        )
-        assert result == "Corrected result: 5"
-
-    @pytest.mark.asyncio
-    async def test_tool_reexecution_for_tool_step(self):
-        tool = MagicMock()
-        tool.name = "add"
-        tool.get_spec = MagicMock(
-            return_value={
-                "name": "add",
-                "parameters": {
-                    "properties": {"a": {}, "b": {}},
-                    "required": ["a", "b"],
-                },
-            }
-        )
-
-        tool_call_response = FakeLLMResponse(
-            content=None,
-            tool_calls=[
-                FakeToolCall(function=FakeFunction("add", '{"a": 2, "b": 3}')),
-            ],
-        )
-        agent = _make_agent(llm_response=tool_call_response, tools=[tool])
-        agent.llm.convert_tool_specs = MagicMock(
-            return_value=[
-                {
-                    "function": {
-                        "name": "add",
-                        "parameters": {"properties": {"a": {}, "b": {}}},
-                    },
-                }
-            ]
-        )
-        agent._executor.execute = AsyncMock(return_value=5)
-
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            feedback="Wrong args",
-            issues=["Used wrong numbers"],
-        )
-
-        refiner = Refiner()
-        step = _make_step(1, "add", "Add two numbers")
-        result = await refiner.refine_step(
-            agent,
-            "Add 2+3",
-            step,
-            "wrong",
-            critique,
-            {},
-        )
-        assert result == 5
-        agent._executor.execute.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_no_llm_returns_original(self):
-        agent = _make_agent(has_llm=False)
-        refiner = Refiner()
-        critique = CritiqueResult(verdict=Verdict.FAIL)
-
-        result = await refiner.refine_step(
-            agent,
-            "task",
-            _make_step(),
-            "original",
-            critique,
-            {},
-        )
-        assert result == "original"
-
-    @pytest.mark.asyncio
-    async def test_llm_error_returns_original(self):
-        agent = _make_agent()
-        agent.llm.call = AsyncMock(side_effect=Exception("API error"))
-        refiner = Refiner()
-        critique = CritiqueResult(verdict=Verdict.FAIL)
-
-        result = await refiner.refine_step(
-            agent,
-            "task",
-            _make_step(),
-            "original",
-            critique,
-            {},
-        )
-        assert result == "original"
-
-    @pytest.mark.asyncio
-    async def test_empty_llm_response_returns_original(self):
-        response = FakeLLMResponse(content=None)
-        agent = _make_agent(llm_response=response)
-        refiner = Refiner()
-        critique = CritiqueResult(verdict=Verdict.FAIL)
-
-        result = await refiner.refine_step(
-            agent,
-            "task",
-            _make_step(),
-            "original",
-            critique,
-            {},
-        )
-        assert result == "original"
-
-
-class TestRefinerFinal:
-    @pytest.mark.asyncio
-    async def test_final_revision(self):
-        response = FakeLLMResponse(content="Improved final result")
-        agent = _make_agent(llm_response=response)
-        refiner = Refiner()
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            feedback="Incomplete answer",
-            suggestions=["Add more detail"],
-        )
-        plan = _make_plan()
-
-        result = await refiner.refine_final(
-            agent,
-            "Summarize data",
-            plan,
-            ["step1 result"],
-            "weak summary",
-            critique,
-        )
-        assert result == "Improved final result"
-
-    @pytest.mark.asyncio
-    async def test_final_no_llm(self):
-        agent = _make_agent(has_llm=False)
-        refiner = Refiner()
-        critique = CritiqueResult(verdict=Verdict.FAIL)
-
-        result = await refiner.refine_final(
-            agent,
-            "task",
-            _make_plan(),
-            ["r"],
-            "original",
-            critique,
-        )
-        assert result == "original"
-
-    @pytest.mark.asyncio
-    async def test_final_refinement_exception_returns_original(self):
-        agent = _make_agent()
-        agent.llm.call = AsyncMock(side_effect=RuntimeError("boom"))
-        refiner = Refiner()
-        critique = CritiqueResult(verdict=Verdict.FAIL, feedback="bad")
-
-        result = await refiner.refine_final(
-            agent,
-            "task",
-            _make_plan(),
-            ["r1"],
-            "original",
-            critique,
-        )
-        assert result == "original"
-
-
-class TestRefinerPrompts:
-    def test_llm_revision_prompt_includes_feedback(self):
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            score=0.3,
-            feedback="Calculation error",
-            issues=["2+3 != 6"],
-            suggestions=["Use 5 instead"],
-        )
-        prompt = Refiner._build_llm_revision_prompt(
-            "Add 2+3",
-            _make_step(1, "execute", "Calculate"),
-            "6",
-            critique,
-            {},
-        )
-        assert "Calculation error" in prompt
-        assert "2+3 != 6" in prompt
-        assert "Use 5 instead" in prompt
-
-    def test_tool_arg_revision_prompt_includes_spec(self):
-        agent = _make_agent()
-        agent.llm.convert_tool_specs = MagicMock(
-            return_value=[
-                {
-                    "function": {
-                        "name": "add",
-                        "parameters": {"properties": {"a": {}, "b": {}}},
-                    },
-                }
-            ]
-        )
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            issues=["Wrong args"],
-        )
-        prompt = Refiner._build_tool_arg_revision_prompt(
-            "task",
-            _make_step(1, "add"),
-            "wrong",
-            critique,
-            {},
-            agent,
-        )
-        assert "add" in prompt
-        assert "Wrong args" in prompt
-
-    def test_final_revision_prompt_structure(self):
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            feedback="Incomplete",
-            issues=["Missing data"],
-            suggestions=["Add more detail"],
-        )
-        plan = _make_plan(
-            [
-                _make_step(1, "search"),
-                _make_step(2, "summarize"),
-            ]
-        )
-        prompt = Refiner._build_final_revision_prompt(
-            "Research AI",
-            plan,
-            ["data", "summary"],
-            "weak summary",
-            critique,
-        )
-        assert "Research AI" in prompt
-        assert "Incomplete" in prompt
-        assert "Missing data" in prompt
-
-    def test_llm_revision_prompt_includes_context_summary(self):
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            score=0.4,
-            feedback="needs fixes",
-        )
-        prompt = Refiner._build_llm_revision_prompt(
-            "task",
-            _make_step(2, "execute", "Do step"),
-            "old result",
-            critique,
-            {"step_1": "previous output", "step_1_action": "tool_name"},
-        )
-        assert "Previous Steps:" in prompt
-        assert "previous output" in prompt
-        assert "step_1_action" not in prompt
-
-
-class TestRefinerExtractHelpers:
-    def test_extract_content_none_response(self):
-        assert Refiner._extract_content(None) is None
-
-    def test_extract_content_from_dict_message(self):
-        fake = MagicMock()
-        fake.choices = [MagicMock(message={"content": "hello"})]
-        assert Refiner._extract_content(fake) == "hello"
-
-    def test_extract_tool_args_non_list_tool_calls(self):
-        fake = MagicMock()
-        fake.choices = [MagicMock(message=MagicMock(tool_calls="bad-shape"))]
-        assert Refiner._extract_tool_args(fake, "add") is None
-
-    def test_extract_tool_args_invalid_json_returns_none(self):
-        tc = FakeToolCall(function=FakeFunction("add", "{bad"))
-        fake = FakeLLMResponse(content=None, tool_calls=[tc])
-        assert Refiner._extract_tool_args(fake, "add") is None
-
-    @pytest.mark.asyncio
-    async def test_tool_refine_falls_back_to_llm_when_args_missing(self):
-        tool = MagicMock()
-        tool.name = "add"
-
-        no_tool_call_resp = FakeLLMResponse(content=None, tool_calls=[])
-        agent = _make_agent(llm_response=no_tool_call_resp, tools=[tool])
-        refiner = Refiner()
-        critique = CritiqueResult(verdict=Verdict.FAIL, feedback="fix")
-
-        with patch.object(
-            refiner, "_refine_llm_step", new_callable=AsyncMock
-        ) as llm_ref:
-            llm_ref.return_value = "fallback-llm-result"
-            out = await refiner._refine_tool_step(
-                agent,
-                "task",
-                _make_step(1, "add"),
-                "old",
-                critique,
-                {},
-            )
-        assert out == "fallback-llm-result"
+# NOTE: Tests for the Reviser role (``Refiner.revise``) live in the   #
+# dedicated module ``test_refiner_revise.py``. Pre-F1 tests targeting #
+# ``refine_step`` / ``refine_final`` / ``build_revision_message`` and #
+# the extract-helpers have been removed along with that legacy API.   #
+# ================================================================== #
 
 
 # ================================================================== #
@@ -847,7 +534,12 @@ class TestAutonomousModeFull:
 
     @pytest.mark.asyncio
     async def test_simple_task_returns_result(self):
-        """Standard execution produces result, validation passes → done."""
+        """Standard execution produces result, validation passes → done.
+
+        Uses a PASS Critic stub so the loop exits on attempt 1 rather
+        than falling through to F2 abstention.  The ``mode.run`` happy
+        path is what this test cares about, not the Critic's own logic.
+        """
         from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
         async def mock_call(**kwargs):
@@ -858,14 +550,26 @@ class TestAutonomousModeFull:
 
         mode = AutonomousMode()
         task = _make_task("What is 6*7?")
-        result = await mode.run(agent, task)
+
+        with patch.object(
+            AutonomousMode,
+            "_run_critic",
+            new=AsyncMock(
+                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
+            ),
+        ):
+            result = await mode.run(agent, task)
 
         assert "42" in str(result)
         assert agent.state == AgentState.COMPLETED
 
     @pytest.mark.asyncio
     async def test_result_returned_after_max_retries(self):
-        """Returns result after exhausting retries."""
+        """After max retries with the Critic still refusing, the mode
+        now raises ``AbstentionSignal`` (F2) instead of silently
+        returning the last candidate.  The signal still carries the
+        best candidate for inspection."""
+        from nucleusiq.agents.agent_result import AbstentionSignal
         from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
         async def mock_call(**kwargs):
@@ -877,9 +581,23 @@ class TestAutonomousModeFull:
 
         mode = AutonomousMode()
         task = _make_task("Hard task")
-        result = await mode.run(agent, task)
 
-        assert result is not None
+        with patch.object(
+            AutonomousMode,
+            "_run_critic",
+            new=AsyncMock(
+                return_value=CritiqueResult(
+                    verdict=Verdict.FAIL,
+                    score=0.1,
+                    feedback="nope",
+                )
+            ),
+        ):
+            with pytest.raises(AbstentionSignal) as excinfo:
+                await mode.run(agent, task)
+
+        assert excinfo.value.best_candidate is not None
+        assert excinfo.value.critique.verdict == Verdict.FAIL
         assert agent.state == AgentState.COMPLETED
 
     @pytest.mark.asyncio
@@ -940,59 +658,19 @@ class TestAutonomousModeFull:
 
         mode = AutonomousMode()
         task = _make_task("Compute something")
-        await mode.run(agent, task)
+
+        with patch.object(
+            AutonomousMode,
+            "_run_critic",
+            new=AsyncMock(
+                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
+            ),
+        ):
+            await mode.run(agent, task)
 
         progress = agent._execution_progress
         assert progress is not None
         assert len(progress.steps) >= 1
-
-    def test_refiner_build_revision_message(self):
-        """Refiner.build_revision_message produces a targeted correction."""
-        from nucleusiq.agents.components.refiner import Refiner
-
-        refiner = Refiner()
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            score=0.2,
-            feedback="Wrong answer",
-            issues=["Tool returned 50 but you said 42"],
-            suggestions=["Use 50 from the tool result"],
-        )
-        msg = refiner.build_revision_message(critique)
-
-        assert "VERIFICATION RESULT: fail" in msg
-        assert "Tool returned 50 but you said 42" in msg
-        assert "Use 50 from the tool result" in msg
-        assert "Fix ONLY the specific error" in msg
-
-    def test_refiner_revision_message_injected_into_conversation(self):
-        """Refiner produces revision messages that can be appended to conversations."""
-        from nucleusiq.agents.components.refiner import Refiner
-
-        messages = [
-            ChatMessage(role="system", content="You are a helper."),
-            ChatMessage(role="user", content="Solve this problem"),
-            ChatMessage(role="assistant", content="Let me call a tool"),
-            ChatMessage(role="tool", content="tool result here"),
-            ChatMessage(role="assistant", content="The answer is 42"),
-        ]
-        original_len = len(messages)
-        critique = CritiqueResult(
-            verdict=Verdict.FAIL,
-            score=0.2,
-            feedback="Wrong answer",
-            issues=["Tool returned 50 but you said 42"],
-            suggestions=["Use 50 from the tool result"],
-        )
-        refiner = Refiner()
-        revision_msg = refiner.build_revision_message(critique)
-        messages.append(ChatMessage(role="user", content=revision_msg))
-
-        assert len(messages) == original_len + 1
-        fix_msg = messages[-1]
-        assert fix_msg.role == "user"
-        assert "VERIFICATION RESULT: fail" in fix_msg.content
-        assert "Tool returned 50 but you said 42" in fix_msg.content
 
 
 class TestAutonomousModeConfig:

@@ -27,9 +27,10 @@ class TestResultStatus:
         assert ResultStatus.SUCCESS == "success"
         assert ResultStatus.ERROR == "error"
         assert ResultStatus.HALTED == "halted"
+        assert ResultStatus.ABSTAINED == "abstained"
 
     def test_all_values_present(self):
-        assert len(ResultStatus) == 3
+        assert len(ResultStatus) == 4
 
 
 class TestAgentResultCreation:

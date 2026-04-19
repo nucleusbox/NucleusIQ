@@ -16,7 +16,12 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, ClassVar
 
-from nucleusiq.agents.agent_result import AgentResult, AutonomousDetail, ResultStatus
+from nucleusiq.agents.agent_result import (
+    AbstentionSignal,
+    AgentResult,
+    AutonomousDetail,
+    ResultStatus,
+)
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.components.executor import Executor
 from nucleusiq.agents.config.agent_config import AgentMetrics, AgentState
@@ -454,15 +459,25 @@ class Agent(BaseAgent):
                 return self._build_result(task_obj, status, output, None, None, t0)
 
             status = ResultStatus.SUCCESS
+            abstention_reason: str | None = None
             try:
                 output = await mode.run(self, task_obj)
             except PluginHalt as halt:
                 status = ResultStatus.HALTED
                 output = halt.result
+            except AbstentionSignal as signal:
+                # F2: Autonomous mode exhausted retries with Critic still
+                # failing. Surface as a first-class outcome rather than
+                # silently returning a bad answer.
+                status = ResultStatus.ABSTAINED
+                output = signal.best_candidate
+                abstention_reason = signal.reason
 
             if self._plugin_manager is not None:
                 output = await self._plugin_manager.run_after_agent(agent_ctx, output)
-            return self._build_result(task_obj, status, output, None, None, t0)
+            return self._build_result(
+                task_obj, status, output, None, None, t0, abstention_reason
+            )
 
         except Exception as exc:
             if task_obj is None:
@@ -486,6 +501,7 @@ class Agent(BaseAgent):
         error: str | None,
         error_type: str | None,
         t0: float,
+        abstention_reason: str | None = None,
     ) -> AgentResult:
         """Construct a frozen :class:`AgentResult` from execution data."""
         from nucleusiq.agents.agent_result import MemorySnapshot
@@ -584,6 +600,7 @@ class Agent(BaseAgent):
             error=error,
             error_type=error_type,
             duration_ms=(time.perf_counter() - t0) * 1000,
+            abstention_reason=abstention_reason,
             usage=usage_dict,
             tool_calls=tool_calls_t,
             llm_calls=llm_calls_t,
@@ -652,6 +669,17 @@ class Agent(BaseAgent):
             except PluginHalt as halt:
                 final_result = str(halt.result) if halt.result else ""
                 yield StreamEvent.complete_event(final_result)
+            except AbstentionSignal as signal:
+                # F2: surface abstention as a terminal stream event.
+                # We emit the best candidate as complete_event content so
+                # UIs that only consume final text still work, but wrap
+                # the signal's reason in an error_event so abstention is
+                # distinguishable from a clean pass.
+                final_result = (
+                    str(signal.best_candidate) if signal.best_candidate else ""
+                )
+                yield StreamEvent.complete_event(final_result)
+                yield StreamEvent.error_event(f"ABSTAINED: {signal.reason}")
 
             if self._plugin_manager and final_result is not None:
                 await self._plugin_manager.run_after_agent(agent_ctx, final_result)

@@ -44,7 +44,10 @@ async def test_autonomous_simple_path_traces_llm_and_critic():
     await agent.initialize()
     result = await agent.execute(Task(id="auto-1", objective="explain gravity"))
 
-    assert result.status.value == "success"
+    # MockLLM echoes the Critic prompt back so the Critic can't parse a
+    # structured verdict and autonomous mode ends up abstaining. Either
+    # outcome is fine — this test is about tracing, not success.
+    assert result.status.value in {"success", "abstained"}
 
     assert len(result.llm_calls) >= 2, (
         f"Expected >=2 llm_calls (tool_call_loop + critic), got {len(result.llm_calls)}"

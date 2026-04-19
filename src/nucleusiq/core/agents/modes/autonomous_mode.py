@@ -1,38 +1,45 @@
 """
-AutonomousMode — Gear 3: Structured orchestration over Standard mode.
+AutonomousMode — Gear 3: structured orchestration over Standard mode.
 
-Implements a Generator → Verifier → Reviser loop:
+Implements NucleusIQ's Aletheia-aligned loop, mapping paper roles onto
+actual framework classes:
 
-1. **Explicit verification separation** — the Verifier (Critic) runs
-   independently from the Generator so it can catch errors the Generator
-   cannot self-detect.
-2. **Rich context for the Verifier** — the Critic receives context
-   limits that auto-scale for reasoning models (via ``CriticLimits``).
-3. **Targeted revision** — the Reviser (Refiner) corrects only what the
-   Verifier flagged, re-synthesizing from existing tool data rather than
-   re-exploring from scratch.
-4. **Self-abstention** — when the Verifier is uncertain and the score is
-   below the acceptance threshold, the result is treated as a failure and
-   retried rather than accepted blindly.
+    primary agent pass (``StandardMode._tool_call_loop``)
+        -> ``Critic``   (Verifier role — independent verification)
+        -> ``Refiner``  (Reviser role — targeted correction)
+        -> loop until PASS / UNCERTAIN-accepted / max_retries
 
-Adds capabilities Standard mode cannot provide alone:
-- **Parallel execution** via isolated sub-agents (for independent sub-tasks)
-- **Plugin-based validation** with structured retry
-- **Critic** (independent verification) + **Refiner** (targeted correction)
-- **Progress tracking** per step
-- **Context curation** — each sub-agent sees only what it needs
+Key behaviours:
 
-Task routing (via Decomposer's 3-gate checklist):
+1. **Explicit verification separation** — the ``Critic`` runs
+   independently from the primary agent so it can catch errors the
+   primary pass cannot self-detect.
+2. **Rich context for the Critic** — adaptive context limits via
+   ``CriticLimits`` (reasoning vs standard models).
+3. **Targeted revision (F1)** — the ``Refiner`` corrects only what the
+   ``Critic`` flagged, re-synthesising from an existing tool-result
+   summary rather than re-exploring from scratch.
+4. **Uncertain-with-high-score acceptance** — an UNCERTAIN verdict with
+   ``score >= 0.7`` is accepted on the first attempt; later attempts
+   use a looser ``0.3`` threshold.
 
-**Simple tasks** -> Standard mode + validate + Critic/Refiner loop
-**Parallel tasks** -> Decompose -> parallel Standard agents -> synthesize
-                      + validate + Critic/Refiner loop
+Task routing (via ``Decomposer``'s 3-gate checklist):
 
-Validation + Verification pipeline:
-    Layer 1: Tool output checks (free, deterministic)
-    Layer 2: Plugin validators (user-provided, via existing plugin system)
-    Critic:  Independent verification (builds adaptive prompt, parses CritiqueResult)
-    Refiner: Targeted correction on FAIL (specific issues + suggestions)
+* **Simple tasks**  — primary agent + validate + Critic/Refiner loop
+* **Parallel tasks** — decompose -> parallel sub-agents -> synthesize,
+  then the same validate + Critic/Refiner loop.
+
+Modularisation
+--------------
+Execution detail lives in the ``autonomous`` sub-package so this file
+stays a thin dispatcher:
+
+* ``autonomous.telemetry``      — tracer record helpers.
+* ``autonomous.helpers``        — pure utility functions.
+* ``autonomous.critic_runner``  — one ``Critic`` pass.
+* ``autonomous.refiner_runner`` — one ``Refiner`` pass + fallback.
+* ``autonomous.simple_runner``  — simple-path orchestration.
+* ``autonomous.complex_runner`` — complex-path orchestration.
 """
 
 from __future__ import annotations
@@ -43,47 +50,66 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
-from nucleusiq.agents.agent_result import ValidationRecord
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.components.critic import (
     Critic,
-    CriticLimits,
     CritiqueResult,
-    REASONING_LIMITS,
-    STANDARD_LIMITS,
-    Verdict,
 )
 from nucleusiq.agents.components.decomposer import Decomposer, TaskAnalysis
-from nucleusiq.agents.components.progress import ExecutionProgress
-from nucleusiq.agents.components.refiner import Refiner
-from nucleusiq.agents.components.validation import ValidationPipeline, ValidationResult
-from nucleusiq.agents.config.agent_config import AgentState
+from nucleusiq.agents.components.refiner import Refiner, RevisionCandidate
+from nucleusiq.agents.components.validation import ValidationPipeline
+from nucleusiq.agents.modes.autonomous import helpers, telemetry
+from nucleusiq.agents.modes.autonomous.complex_runner import ComplexRunner
+from nucleusiq.agents.modes.autonomous.critic_runner import CriticRunner
+from nucleusiq.agents.modes.autonomous.parallel_runner import ParallelRunner
+from nucleusiq.agents.modes.autonomous.refiner_runner import RefinerRunner
+from nucleusiq.agents.modes.autonomous.simple_runner import SimpleRunner
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
 from nucleusiq.agents.task import Task
-from nucleusiq.plugins.errors import PluginHalt
-from nucleusiq.streaming.events import StreamEvent, StreamEventType
-
-_UNCERTAIN_ACCEPT_THRESHOLD = 0.7
-_UNCERTAIN_RETRY_THRESHOLD = 0.3
+from nucleusiq.streaming.events import StreamEvent
 
 
 class AutonomousMode(BaseExecutionMode):
-    """Gear 3: Autonomous mode — structured orchestration over Standard mode.
+    """Gear 3 — structured orchestration over Standard mode.
 
-    For simple tasks: runs Standard mode directly, validates, retries if needed.
-    For parallel tasks: decomposes, runs sub-agents in parallel, synthesizes.
-    All paths: Layer 1+2 validation, then Critic for independent verification,
-    and Refiner for targeted correction on failure.
+    Public API:
+      * ``run``         — dispatch sync.
+      * ``run_stream``  — dispatch streaming.
+
+    Internal methods (``_run_simple``, ``_run_complex``, ``_run_critic``,
+    ``_run_refiner``) are thin delegators kept for test compatibility
+    and to document the main collaboration points; all real work lives
+    in the ``autonomous`` sub-package.
     """
 
-    @staticmethod
-    def _select_critic_limits(agent: Agent) -> CriticLimits:
-        """Pick REASONING or STANDARD limits based on the agent's LLM."""
-        is_reasoning = getattr(getattr(agent, "llm", None), "is_reasoning_model", False)
-        return REASONING_LIMITS if is_reasoning else STANDARD_LIMITS
+    # ------------------------------------------------------------------ #
+    # Static delegators (test compatibility + documentation)              #
+    # ------------------------------------------------------------------ #
+    #
+    # The original monolithic ``AutonomousMode`` exposed these as static
+    # methods; preserving them avoids breaking callers / tests that
+    # reference ``AutonomousMode._is_error``, etc.
 
-    async def run(self, agent: Agent, task: Any) -> Any:
+    _is_error = staticmethod(helpers.is_error_result)
+    _build_validation_retry = staticmethod(helpers.build_validation_retry)
+    _build_fallback_revision_message = staticmethod(
+        helpers.build_fallback_revision_message
+    )
+    _select_critic_limits = staticmethod(helpers.select_critic_limits)
+    _summarize_tool_results = staticmethod(helpers.summarize_tool_results)
+
+    _record_validation = staticmethod(telemetry.record_validation)
+    _record_revision = staticmethod(telemetry.record_revision)
+    _record_critic_verdict = staticmethod(telemetry.record_critic_verdict)
+    _set_autonomous_detail = staticmethod(telemetry.set_autonomous_detail)
+    _rollup_sub_agent_metrics = staticmethod(telemetry.rollup_sub_agent_metrics)
+
+    # ------------------------------------------------------------------ #
+    # Dispatcher: sync                                                    #
+    # ------------------------------------------------------------------ #
+
+    async def run(self, agent: "Agent", task: Any) -> Any:
         if isinstance(task, dict):
             task = Task.from_dict(task)
 
@@ -98,32 +124,54 @@ class AutonomousMode(BaseExecutionMode):
         decomposer = Decomposer(logger=agent._logger)
         analysis = await decomposer.analyze(agent, task)
 
-        if analysis.is_complex and len(analysis.sub_tasks) >= 2:
+        n = int(getattr(agent.config, "n_parallel_attempts", 1) or 1)
+        is_complex = analysis.is_complex and len(analysis.sub_tasks) >= 2
+
+        if is_complex:
             agent._logger.info(
                 "Task classified as COMPLEX (%d sub-tasks) — decomposing",
                 len(analysis.sub_tasks),
             )
-            return await self._run_complex(agent, task, decomposer, analysis)
+            if n <= 1:
+                return await self._run_complex(agent, task, decomposer, analysis)
+            agent._logger.info(
+                "F4 Best-of-%d enabled — running %d independent complex "
+                "attempts sequentially",
+                n,
+                n,
+            )
+            runner = ParallelRunner(
+                n=n,
+                run_one_sync=lambda: self._run_complex(
+                    agent, task, decomposer, analysis
+                ),
+            )
+            return await runner.run_sync(agent)
 
-        agent._logger.info("Task classified as SIMPLE — standard + validate + Critic")
-        return await self._run_simple(agent, task)
+        agent._logger.info(
+            "Task classified as SIMPLE — standard + validate + Critic"
+        )
+        if n <= 1:
+            return await self._run_simple(agent, task)
+        agent._logger.info(
+            "F4 Best-of-%d enabled — running %d independent simple attempts "
+            "sequentially",
+            n,
+            n,
+        )
+        runner = ParallelRunner(
+            n=n,
+            run_one_sync=lambda: self._run_simple(agent, task),
+        )
+        return await runner.run_sync(agent)
 
     # ------------------------------------------------------------------ #
-    # Streaming                                                            #
+    # Dispatcher: streaming                                               #
     # ------------------------------------------------------------------ #
 
     async def run_stream(
-        self, agent: Agent, task: Any
+        self, agent: "Agent", task: Any
     ) -> AsyncGenerator[StreamEvent, None]:
-        """Stream an Autonomous mode execution.
-
-        * LLM text generation is streamed token-by-token.
-        * Tool calls emit ``TOOL_CALL_START`` / ``TOOL_CALL_END`` events.
-        * Critic and Refiner steps emit ``THINKING`` events (their output
-          is internal verification, not user-facing content).
-        * Complex (decomposed) sub-tasks are executed non-streamed;
-          only the synthesis LLM call is streamed.
-        """
         if isinstance(task, dict):
             task = Task.from_dict(task)
 
@@ -142,864 +190,148 @@ class AutonomousMode(BaseExecutionMode):
         decomposer = Decomposer(logger=agent._logger)
         analysis = await decomposer.analyze(agent, task)
 
-        if analysis.is_complex and len(analysis.sub_tasks) >= 2:
+        n = int(getattr(agent.config, "n_parallel_attempts", 1) or 1)
+        is_complex = analysis.is_complex and len(analysis.sub_tasks) >= 2
+
+        if is_complex:
             agent._logger.info(
                 "Task classified as COMPLEX (%d sub-tasks) — decomposing",
                 len(analysis.sub_tasks),
             )
-            async for event in self._stream_complex(agent, task, decomposer, analysis):
-                yield event
-        else:
-            agent._logger.info(
-                "Task classified as SIMPLE — streaming standard + Critic"
+            if n <= 1:
+                async for event in self._stream_complex(
+                    agent, task, decomposer, analysis
+                ):
+                    yield event
+                return
+            runner = ParallelRunner(
+                n=n,
+                run_one_sync=lambda: self._run_complex(
+                    agent, task, decomposer, analysis
+                ),
+                run_one_stream=lambda: self._stream_complex(
+                    agent, task, decomposer, analysis
+                ),
             )
+            async for event in runner.run_stream(agent, task):
+                yield event
+            return
+
+        agent._logger.info(
+            "Task classified as SIMPLE — streaming standard + Critic"
+        )
+        if n <= 1:
             async for event in self._stream_simple(agent, task):
                 yield event
+            return
+        runner = ParallelRunner(
+            n=n,
+            run_one_sync=lambda: self._run_simple(agent, task),
+            run_one_stream=lambda: self._stream_simple(agent, task),
+        )
+        async for event in runner.run_stream(agent, task):
+            yield event
 
     # ------------------------------------------------------------------ #
-    # Streaming: simple path                                               #
+    # Simple path                                                         #
     # ------------------------------------------------------------------ #
+
+    async def _run_simple(self, agent: "Agent", task: Task) -> Any:
+        """Simple path sync entrypoint. Delegates to ``SimpleRunner``."""
+        runner = self._build_simple_runner(agent)
+        return await runner.run_sync(agent, task)
 
     async def _stream_simple(
-        self, agent: Agent, task: Task
+        self, agent: "Agent", task: Task
     ) -> AsyncGenerator[StreamEvent, None]:
-        """Stream the simple path: tool loop → validate → critic → refine."""
-        max_retries = getattr(agent.config, "max_retries", 3)
-        validation = ValidationPipeline(logger=agent._logger)
-        critic = Critic(logger=agent._logger, limits=self._select_critic_limits(agent))
-        refiner = Refiner(logger=agent._logger)
-        progress = ExecutionProgress(task_id=task.id)
-        std_mode = StandardMode()
+        """Simple path streaming entrypoint."""
+        runner = self._build_simple_runner(agent)
+        async for event in runner.run_stream(agent, task):
+            yield event
 
-        std_mode._ensure_executor(agent)
-        tool_specs = std_mode._get_tool_specs(agent)
-        messages = std_mode.build_messages(agent, task)
-        max_tool_calls = agent.config.get_effective_max_tool_calls()
+    def _build_simple_runner(self, agent: "Agent") -> SimpleRunner:
+        """Instantiate ``SimpleRunner`` with module-level collaborators.
 
-        step = progress.add_step("execute", task.objective)
-
-        final_content: str | None = None
-
-        for attempt in range(max_retries):
-            label = "EXECUTE" if attempt == 0 else "RETRY"
-            agent._logger.info("Attempt %d/%d [%s]", attempt + 1, max_retries, label)
-
-            step.mark_executing()
-            agent.state = AgentState.EXECUTING
-            final_content = None
-
-            try:
-                async for event in self._streaming_tool_call_loop(
-                    agent,
-                    messages,
-                    tool_specs,
-                    max_tool_calls=max_tool_calls,
-                    max_output_tokens=getattr(
-                        agent.config, "llm_max_output_tokens", 2048
-                    ),
-                ):
-                    if event.type == StreamEventType.COMPLETE:
-                        final_content = event.content
-                    elif event.type == StreamEventType.ERROR:
-                        yield event
-                        return
-                    yield event
-            except PluginHalt:
-                raise
-            except Exception as e:
-                step.mark_failed(str(e))
-                agent._logger.error("Execution error: %s", e)
-                agent.state = AgentState.ERROR
-                yield StreamEvent.error_event(str(e))
-                return
-
-            agent._last_messages = messages
-
-            if self._is_error(final_content):
-                agent._logger.warning(
-                    "Attempt %d/%d: Generator returned error — treating as "
-                    "FAIL for retry (not bailing out). Error: %s",
-                    attempt + 1,
-                    max_retries,
-                    str(final_content)[:200],
-                )
-                if attempt < max_retries - 1:
-                    yield StreamEvent.thinking_event(
-                        "Generator error — retrying with fresh prompt…"
-                    )
-                    messages.append(
-                        ChatMessage(
-                            role="user",
-                            content=(
-                                "Your previous attempt produced an error or "
-                                "empty response. Please try again from scratch "
-                                "and provide a complete answer to the task."
-                            ),
-                        )
-                    )
-                continue
-
-            # Layer 1+2: deterministic + plugin validation
-            vr = await validation.validate(agent, final_content, messages)
-            if not vr.valid:
-                if attempt < max_retries - 1:
-                    yield StreamEvent.thinking_event(
-                        f"Validation failed ({vr.reason}), retrying…"
-                    )
-                    retry_msg = self._build_validation_retry(vr)
-                    messages.append(ChatMessage(role="user", content=retry_msg))
-                continue
-
-            # On final attempt (after at least one prior try), accept
-            # any non-error result without another Critic call.
-            if (
-                attempt > 0
-                and attempt == max_retries - 1
-                and not self._is_error(final_content)
-            ):
-                step.mark_completed(str(final_content))
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                return
-
-            # Critic: independent verification
-            yield StreamEvent.thinking_event("Verifying result with Critic…")
-            critique = await self._run_critic(
-                agent, critic, task.objective, final_content, messages
-            )
-
-            accept_threshold = (
-                _UNCERTAIN_ACCEPT_THRESHOLD if attempt == 0
-                else _UNCERTAIN_RETRY_THRESHOLD
-            )
-            if critique.verdict == Verdict.PASS or (
-                critique.verdict == Verdict.UNCERTAIN
-                and critique.score >= accept_threshold
-            ):
-                step.mark_completed(str(final_content))
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                return
-
-            # Refiner: build targeted correction
-            if attempt < max_retries - 1:
-                yield StreamEvent.thinking_event(
-                    f"Critic: {critique.verdict.value} (score={critique.score:.2f}), refining…"
-                )
-                revision_msg = refiner.build_revision_message(critique)
-                messages.append(ChatMessage(role="user", content=revision_msg))
-
-        step.mark_completed(str(final_content))
-        agent.state = AgentState.COMPLETED
-        agent._execution_progress = progress
-
-    # ------------------------------------------------------------------ #
-    # Streaming: complex path                                              #
-    # ------------------------------------------------------------------ #
-
-    async def _stream_complex(
-        self,
-        agent: Agent,
-        task: Task,
-        decomposer: Decomposer,
-        analysis: TaskAnalysis,
-    ) -> AsyncGenerator[StreamEvent, None]:
-        """Stream the complex path: decompose → parallel execute → stream synthesis."""
-        max_sub = getattr(agent.config, "max_sub_agents", 5)
-        max_retries = getattr(agent.config, "max_retries", 3)
-        validation = ValidationPipeline(logger=agent._logger)
-        critic = Critic(logger=agent._logger, limits=self._select_critic_limits(agent))
-        refiner = Refiner(logger=agent._logger)
-        progress = ExecutionProgress(task_id=task.id)
-        std_mode = StandardMode()
-        std_mode._ensure_executor(agent)
-
-        yield StreamEvent.thinking_event(
-            f"Decomposing into {len(analysis.sub_tasks)} sub-tasks…"
+        Using the module-level ``StandardMode`` / ``ValidationPipeline``
+        references (not the sub-package ones) keeps the existing test
+        patch points functional.
+        """
+        return SimpleRunner(
+            mode=self,
+            std_mode=StandardMode(),
+            validation=ValidationPipeline(logger=agent._logger),
+            critic=Critic(
+                logger=agent._logger,
+                limits=helpers.select_critic_limits(agent),
+            ),
+            refiner=Refiner(logger=agent._logger),
         )
 
-        sub_step = progress.add_step("decompose", "Run parallel sub-tasks")
-        sub_step.mark_executing()
-
-        findings = await decomposer.run_sub_tasks(
-            parent=agent,
-            sub_tasks=analysis.sub_tasks,
-            max_sub_agents=max_sub,
-        )
-
-        self._rollup_sub_agent_metrics(agent, decomposer._sub_agent_results)
-
-        sub_step.mark_completed(f"{len(findings)} findings collected")
-        yield StreamEvent.thinking_event(
-            f"Sub-tasks complete — synthesizing {len(findings)} findings…"
-        )
-
-        # Build synthesis prompt and stream the synthesis LLM call
-        synth_prompt = decomposer.build_synthesis_prompt(task.objective, findings)
-        tool_specs = std_mode._get_tool_specs(agent)
-        messages = std_mode.build_messages(
-            agent, Task(id=f"{task.id}-synth", objective=synth_prompt)
-        )
-        max_tool_calls = agent.config.get_effective_max_tool_calls()
-
-        final_content: str | None = None
-
-        for attempt in range(max_retries):
-            label = "SYNTHESIZE" if attempt == 0 else "RETRY"
-            agent._logger.info(
-                "Synthesis attempt %d/%d [%s]", attempt + 1, max_retries, label
-            )
-            agent.state = AgentState.EXECUTING
-            final_content = None
-
-            try:
-                async for event in self._streaming_tool_call_loop(
-                    agent,
-                    messages,
-                    tool_specs,
-                    max_tool_calls=max_tool_calls,
-                    max_output_tokens=getattr(
-                        agent.config, "llm_max_output_tokens", 2048
-                    ),
-                ):
-                    if event.type == StreamEventType.COMPLETE:
-                        final_content = event.content
-                    elif event.type == StreamEventType.ERROR:
-                        yield event
-                        return
-                    yield event
-            except PluginHalt:
-                raise
-            except Exception as e:
-                agent._logger.error("Synthesis error: %s", e)
-                agent.state = AgentState.ERROR
-                yield StreamEvent.error_event(str(e))
-                return
-
-            agent._last_messages = messages
-
-            vr = await validation.validate(agent, final_content, messages)
-            if not vr.valid:
-                if attempt < max_retries - 1:
-                    yield StreamEvent.thinking_event(
-                        f"Validation failed ({vr.reason}), retrying…"
-                    )
-                    retry_msg = self._build_validation_retry(vr)
-                    messages.append(ChatMessage(role="user", content=retry_msg))
-                continue
-
-            if (
-                attempt > 0
-                and attempt == max_retries - 1
-                and not self._is_error(final_content)
-            ):
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                return
-
-            yield StreamEvent.thinking_event("Verifying synthesis with Critic…")
-            critique = await self._run_critic(
-                agent, critic, task.objective, final_content, messages
-            )
-
-            accept_threshold = (
-                _UNCERTAIN_ACCEPT_THRESHOLD if attempt == 0
-                else _UNCERTAIN_RETRY_THRESHOLD
-            )
-            if critique.verdict == Verdict.PASS or (
-                critique.verdict == Verdict.UNCERTAIN
-                and critique.score >= accept_threshold
-            ):
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                return
-
-            if attempt < max_retries - 1:
-                yield StreamEvent.thinking_event(
-                    f"Critic: {critique.verdict.value} (score={critique.score:.2f}), refining…"
-                )
-                revision_msg = refiner.build_revision_message(critique)
-                messages.append(ChatMessage(role="user", content=revision_msg))
-
-        agent.state = AgentState.COMPLETED
-        agent._execution_progress = progress
-
     # ------------------------------------------------------------------ #
-    # Simple path: Standard mode + validate + Critic/Refiner               #
-    # ------------------------------------------------------------------ #
-
-    async def _run_simple(self, agent: Agent, task: Task) -> Any:
-        """Execute via Standard mode with validation, Critic, and Refiner."""
-        max_retries = getattr(agent.config, "max_retries", 3)
-        validation = ValidationPipeline(logger=agent._logger)
-        critic = Critic(logger=agent._logger, limits=self._select_critic_limits(agent))
-        refiner = Refiner(logger=agent._logger)
-        progress = ExecutionProgress(task_id=task.id)
-        std_mode = StandardMode()
-
-        std_mode._ensure_executor(agent)
-        tool_specs = std_mode._get_tool_specs(agent)
-        messages = std_mode.build_messages(agent, task)
-
-        step = progress.add_step("execute", task.objective)
-
-        result = None
-        for attempt in range(max_retries):
-            label = "EXECUTE" if attempt == 0 else "RETRY"
-            agent._logger.info(
-                "Attempt %d/%d [%s]",
-                attempt + 1,
-                max_retries,
-                label,
-            )
-
-            step.mark_executing()
-            agent.state = AgentState.EXECUTING
-
-            try:
-                result = await std_mode._tool_call_loop(
-                    agent,
-                    task,
-                    messages,
-                    tool_specs,
-                )
-            except PluginHalt:
-                raise
-            except Exception as e:
-                step.mark_failed(str(e))
-                agent._logger.error("Execution error: %s", e)
-                agent.state = AgentState.ERROR
-                return f"Error: {e}"
-
-            agent._last_messages = messages
-
-            if self._is_error(result):
-                agent._logger.warning(
-                    "Attempt %d/%d: Generator returned error — treating as "
-                    "FAIL for retry (not bailing out). Error: %s",
-                    attempt + 1,
-                    max_retries,
-                    str(result)[:200],
-                )
-                if attempt < max_retries - 1:
-                    messages.append(
-                        ChatMessage(
-                            role="user",
-                            content=(
-                                "Your previous attempt produced an error or "
-                                "empty response. Please try again from scratch "
-                                "and provide a complete answer to the task."
-                            ),
-                        )
-                    )
-                continue
-
-            # Layer 1+2: Deterministic + plugin validation
-            vr = await validation.validate(agent, result, messages)
-            self._record_validation(agent, attempt + 1, vr.valid, vr.layer, vr.reason)
-            agent._logger.info(
-                "Attempt %d/%d [VALIDATE]: valid=%s layer=%s",
-                attempt + 1,
-                max_retries,
-                vr.valid,
-                vr.layer,
-            )
-
-            if not vr.valid:
-                if attempt < max_retries - 1:
-                    retry_msg = self._build_validation_retry(vr)
-                    messages.append(ChatMessage(role="user", content=retry_msg))
-                continue
-
-            # On final attempt (after at least one prior try), accept
-            # any non-error result without spending another Critic call.
-            if (
-                attempt > 0
-                and attempt == max_retries - 1
-                and not self._is_error(result)
-            ):
-                agent._logger.info(
-                    "Attempt %d/%d [FINAL]: accepting non-error result "
-                    "without Critic check",
-                    attempt + 1,
-                    max_retries,
-                )
-                step.mark_completed(str(result))
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                self._set_autonomous_detail(
-                    agent,
-                    attempts=attempt + 1,
-                    max_attempts=max_retries,
-                    complexity="simple",
-                    refined=True,
-                )
-                return result
-
-            # Critic: Independent verification
-            critique = await self._run_critic(
-                agent, critic, task.objective, result, messages
-            )
-            self._record_validation(
-                agent,
-                attempt + 1,
-                critique.verdict in (Verdict.PASS, Verdict.UNCERTAIN),
-                "critic",
-                f"{critique.verdict.value} (score={critique.score:.2f})",
-            )
-
-            if critique.verdict == Verdict.PASS:
-                agent._logger.info(
-                    "Attempt %d/%d [CRITIC]: PASS (score=%.2f)",
-                    attempt + 1,
-                    max_retries,
-                    critique.score,
-                )
-                step.mark_completed(str(result))
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                self._set_autonomous_detail(
-                    agent,
-                    attempts=attempt + 1,
-                    max_attempts=max_retries,
-                    complexity="simple",
-                )
-                return result
-
-            # Diminishing strictness: lower threshold on retries
-            accept_threshold = (
-                _UNCERTAIN_ACCEPT_THRESHOLD if attempt == 0
-                else _UNCERTAIN_RETRY_THRESHOLD
-            )
-            if (
-                critique.verdict == Verdict.UNCERTAIN
-                and critique.score >= accept_threshold
-            ):
-                agent._logger.info(
-                    "Attempt %d/%d [CRITIC]: UNCERTAIN but score=%.2f >= %.2f — accepting",
-                    attempt + 1,
-                    max_retries,
-                    critique.score,
-                    accept_threshold,
-                )
-                step.mark_completed(str(result))
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                self._set_autonomous_detail(
-                    agent,
-                    attempts=attempt + 1,
-                    max_attempts=max_retries,
-                    complexity="simple",
-                )
-                return result
-
-            agent._logger.info(
-                "Attempt %d/%d [CRITIC]: %s (score=%.2f) — %s",
-                attempt + 1,
-                max_retries,
-                critique.verdict.value,
-                critique.score,
-                critique.feedback[:100] if critique.feedback else "no feedback",
-            )
-
-            # Refiner: Build targeted correction
-            if attempt < max_retries - 1:
-                revision_msg = refiner.build_revision_message(critique)
-                messages.append(ChatMessage(role="user", content=revision_msg))
-
-        step.mark_completed(str(result))
-        agent.state = AgentState.COMPLETED
-        agent._execution_progress = progress
-        self._set_autonomous_detail(
-            agent,
-            attempts=max_retries,
-            max_attempts=max_retries,
-            complexity="simple",
-            refined=max_retries > 1,
-        )
-        return result
-
-    # ------------------------------------------------------------------ #
-    # Complex path: Decompose -> Parallel -> Synthesize + validate          #
+    # Complex path                                                        #
     # ------------------------------------------------------------------ #
 
     async def _run_complex(
         self,
-        agent: Agent,
+        agent: "Agent",
         task: Task,
         decomposer: Decomposer,
         analysis: TaskAnalysis,
     ) -> Any:
-        """Decomposition: parallel sub-agents -> synthesize -> validate -> Critic/Refiner."""
-        max_sub = getattr(agent.config, "max_sub_agents", 5)
-        max_retries = getattr(agent.config, "max_retries", 3)
-        validation = ValidationPipeline(logger=agent._logger)
-        critic = Critic(logger=agent._logger, limits=self._select_critic_limits(agent))
-        refiner = Refiner(logger=agent._logger)
-        progress = ExecutionProgress(task_id=task.id)
-        std_mode = StandardMode()
-        std_mode._ensure_executor(agent)
+        """Complex path sync entrypoint. Delegates to ``ComplexRunner``."""
+        runner = self._build_complex_runner(agent)
+        return await runner.run_sync(agent, task, decomposer, analysis)
 
-        # Step 1: Run sub-tasks in parallel
-        sub_step = progress.add_step("decompose", "Run parallel sub-tasks")
-        sub_step.mark_executing()
+    async def _stream_complex(
+        self,
+        agent: "Agent",
+        task: Task,
+        decomposer: Decomposer,
+        analysis: TaskAnalysis,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        runner = self._build_complex_runner(agent)
+        async for event in runner.run_stream(agent, task, decomposer, analysis):
+            yield event
 
-        findings = await decomposer.run_sub_tasks(
-            parent=agent,
-            sub_tasks=analysis.sub_tasks,
-            max_sub_agents=max_sub,
+    def _build_complex_runner(self, agent: "Agent") -> ComplexRunner:
+        return ComplexRunner(
+            mode=self,
+            std_mode=StandardMode(),
+            validation=ValidationPipeline(logger=agent._logger),
+            critic=Critic(
+                logger=agent._logger,
+                limits=helpers.select_critic_limits(agent),
+            ),
+            refiner=Refiner(logger=agent._logger),
         )
-
-        self._rollup_sub_agent_metrics(agent, decomposer._sub_agent_results)
-
-        sub_step.mark_completed(f"{len(findings)} findings collected")
-        agent._logger.info(
-            "Decomposition complete: %d findings collected",
-            len(findings),
-        )
-
-        # Step 2: Synthesize with validation + Critic/Refiner
-        synth_step = progress.add_step("synthesize", "Combine findings")
-        synth_prompt = decomposer.build_synthesis_prompt(
-            task.objective,
-            findings,
-        )
-        tool_specs = std_mode._get_tool_specs(agent)
-        messages = std_mode.build_messages(
-            agent,
-            Task(id=f"{task.id}-synth", objective=synth_prompt),
-        )
-
-        sub_task_names = tuple(
-            s.get("objective", s.get("id", "")) if isinstance(s, dict) else str(s)
-            for s in analysis.sub_tasks
-        )
-
-        result = None
-        for attempt in range(max_retries):
-            label = "SYNTHESIZE" if attempt == 0 else "RETRY"
-            agent._logger.info(
-                "Synthesis attempt %d/%d [%s]",
-                attempt + 1,
-                max_retries,
-                label,
-            )
-
-            synth_step.mark_executing()
-            agent.state = AgentState.EXECUTING
-
-            try:
-                result = await std_mode._tool_call_loop(
-                    agent,
-                    task,
-                    messages,
-                    tool_specs,
-                )
-            except PluginHalt:
-                raise
-            except Exception as e:
-                synth_step.mark_failed(str(e))
-                agent._logger.error("Synthesis error: %s", e)
-                agent.state = AgentState.ERROR
-                return f"Error: {e}"
-
-            agent._last_messages = messages
-
-            # Layer 1+2 validation
-            vr = await validation.validate(agent, result, messages)
-            self._record_validation(agent, attempt + 1, vr.valid, vr.layer, vr.reason)
-            agent._logger.info(
-                "Synthesis attempt %d/%d [VALIDATE]: valid=%s layer=%s",
-                attempt + 1,
-                max_retries,
-                vr.valid,
-                vr.layer,
-            )
-
-            if not vr.valid:
-                if attempt < max_retries - 1:
-                    retry_msg = self._build_validation_retry(vr)
-                    messages.append(ChatMessage(role="user", content=retry_msg))
-                continue
-
-            if (
-                attempt > 0
-                and attempt == max_retries - 1
-                and not self._is_error(result)
-            ):
-                agent._logger.info(
-                    "Synthesis attempt %d/%d [FINAL]: accepting non-error "
-                    "result without Critic check",
-                    attempt + 1,
-                    max_retries,
-                )
-                synth_step.mark_completed(str(result))
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                self._set_autonomous_detail(
-                    agent,
-                    attempts=attempt + 1,
-                    max_attempts=max_retries,
-                    sub_tasks=sub_task_names,
-                    complexity="complex",
-                    refined=True,
-                )
-                return result
-
-            # Critic verification
-            critique = await self._run_critic(
-                agent, critic, task.objective, result, messages
-            )
-            self._record_validation(
-                agent,
-                attempt + 1,
-                critique.verdict in (Verdict.PASS, Verdict.UNCERTAIN),
-                "critic",
-                f"{critique.verdict.value} (score={critique.score:.2f})",
-            )
-
-            if critique.verdict == Verdict.PASS:
-                synth_step.mark_completed(str(result))
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                self._set_autonomous_detail(
-                    agent,
-                    attempts=attempt + 1,
-                    max_attempts=max_retries,
-                    sub_tasks=sub_task_names,
-                    complexity="complex",
-                )
-                return result
-
-            accept_threshold = (
-                _UNCERTAIN_ACCEPT_THRESHOLD if attempt == 0
-                else _UNCERTAIN_RETRY_THRESHOLD
-            )
-            if (
-                critique.verdict == Verdict.UNCERTAIN
-                and critique.score >= accept_threshold
-            ):
-                synth_step.mark_completed(str(result))
-                agent.state = AgentState.COMPLETED
-                agent._execution_progress = progress
-                self._set_autonomous_detail(
-                    agent,
-                    attempts=attempt + 1,
-                    max_attempts=max_retries,
-                    sub_tasks=sub_task_names,
-                    complexity="complex",
-                )
-                return result
-
-            agent._logger.info(
-                "Synthesis attempt %d/%d [CRITIC]: %s (score=%.2f)",
-                attempt + 1,
-                max_retries,
-                critique.verdict.value,
-                critique.score,
-            )
-
-            if attempt < max_retries - 1:
-                revision_msg = refiner.build_revision_message(critique)
-                messages.append(ChatMessage(role="user", content=revision_msg))
-
-        synth_step.mark_completed(str(result))
-        agent.state = AgentState.COMPLETED
-        agent._execution_progress = progress
-        self._set_autonomous_detail(
-            agent,
-            attempts=max_retries,
-            max_attempts=max_retries,
-            sub_tasks=sub_task_names,
-            complexity="complex",
-            refined=max_retries > 1,
-        )
-        return result
 
     # ------------------------------------------------------------------ #
-    # Critic execution                                                     #
+    # Critic / Refiner — kept as methods so tests can patch them          #
     # ------------------------------------------------------------------ #
 
     async def _run_critic(
         self,
-        agent: Agent,
+        agent: "Agent",
         critic: Critic,
         task_objective: str,
         result: Any,
         messages: list[ChatMessage],
     ) -> CritiqueResult:
-        """Run the Critic to independently verify the result.
+        """Run one Critic verification pass. Thin delegate to ``CriticRunner``."""
+        return await CriticRunner(self, critic).run(
+            agent, task_objective, result, messages
+        )
 
-        Builds a verification prompt, calls the LLM, and parses
-        the response into a CritiqueResult.  Falls back to PASS
-        if the Critic itself errors (non-fatal).
-
-        Routes through ``self.call_llm()`` so the call is recorded
-        in the UsageTracker under ``CallPurpose.CRITIC``.
-
-        Token budget uses the same ``llm_max_output_tokens`` that the
-        agent uses for all LLM calls — no separate config needed.
-
-        Since this is a single LLM call without tool access, we always
-        use the reasoning-verification prompt (no "call tools" instruction)
-        to avoid confusing models that take instructions literally.
-        """
-        from nucleusiq.agents.usage.usage_tracker import CallPurpose
-
-        try:
-            verification_prompt = critic.build_verification_prompt(
-                task_objective=task_objective,
-                final_result=result,
-                generator_messages=messages,
-                allow_tool_instructions=False,
-            )
-
-            model_name = getattr(agent.llm, "model_name", "default")
-            token_budget = agent.config.llm_max_output_tokens
-
-            call_kwargs = {
-                "model": model_name,
-                "messages": [{"role": "user", "content": verification_prompt}],
-                "max_output_tokens": token_budget,
-            }
-            call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
-            response = await self.call_llm(
-                agent, call_kwargs, purpose=CallPurpose.CRITIC
-            )
-
-            text = ""
-            if hasattr(response, "choices") and response.choices:
-                msg = response.choices[0].message
-                text = getattr(msg, "content", "") or ""
-            elif isinstance(response, str):
-                text = response
-
-            return critic.parse_result_text(text)
-
-        except Exception as e:
-            agent._logger.warning("Critic failed (non-fatal, accepting result): %s", e)
-            return CritiqueResult(
-                verdict=Verdict.PASS,
-                score=0.5,
-                feedback=f"Critic error: {e}",
-            )
-
-    # ------------------------------------------------------------------ #
-    # Helpers                                                              #
-    # ------------------------------------------------------------------ #
-
-    # ------------------------------------------------------------------ #
-    # Tracer helpers                                                       #
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _get_tracer(agent: Agent) -> Any:
-        """Return the agent's tracer or ``None``."""
-        return getattr(agent, "_tracer", None)
-
-    @staticmethod
-    def _record_validation(
-        agent: Agent,
-        attempt: int,
-        valid: bool,
-        layer: str,
-        reason: str,
-    ) -> None:
-        tracer = getattr(agent, "_tracer", None)
-        if tracer is None:
-            return
-        try:
-            tracer.record_validation(
-                ValidationRecord(
-                    attempt=attempt,
-                    valid=valid,
-                    layer=layer,
-                    reason=reason,
-                )
-            )
-        except Exception:
-            pass
-
-    @staticmethod
-    def _set_autonomous_detail(
-        agent: Agent,
-        attempts: int,
-        max_attempts: int,
-        sub_tasks: tuple[str, ...] = (),
-        complexity: str = "simple",
-        refined: bool = False,
-    ) -> None:
-        tracer = getattr(agent, "_tracer", None)
-        if tracer is None:
-            return
-        try:
-            tracer.set_autonomous_detail(
-                attempts=attempts,
-                max_attempts=max_attempts,
-                sub_tasks=sub_tasks,
-                complexity=complexity,
-                refined=refined,
-            )
-        except Exception:
-            pass
-
-    # ------------------------------------------------------------------ #
-    # Retry / error helpers                                                #
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _rollup_sub_agent_metrics(agent: Agent, sub_results: list) -> None:
-        """Roll up sub-agent LLM calls, tool calls, and context telemetry.
-
-        Called after ``Decomposer.run_sub_tasks()`` to aggregate metrics
-        from parallel sub-agents into the parent agent's tracer.  This
-        ensures the parent ``AgentResult`` reflects total work done.
-        """
-        from nucleusiq.agents.agent_result import LLMCallRecord
-
-        tracer = getattr(agent, "_tracer", None)
-        if tracer is None:
-            return
-
-        sub_context_tels: list = []
-
-        for sub in sub_results:
-            for lc in getattr(sub, "llm_calls", ()):
-                tracer.record_llm_call(
-                    LLMCallRecord(
-                        round=len(tracer._llm_calls) + 1,
-                        purpose=f"sub-agent:{lc.purpose}"
-                        if lc.purpose
-                        else "sub-agent",
-                        model=lc.model,
-                        prompt_tokens=lc.prompt_tokens,
-                        completion_tokens=lc.completion_tokens,
-                        total_tokens=lc.total_tokens,
-                        reasoning_tokens=lc.reasoning_tokens,
-                        has_tool_calls=lc.has_tool_calls,
-                        tool_call_count=lc.tool_call_count,
-                        duration_ms=lc.duration_ms,
-                        prompt_technique=lc.prompt_technique,
-                    )
-                )
-            for tc in getattr(sub, "tool_calls", ()):
-                tracer.record_tool_call(tc)
-            ct = getattr(sub, "context_telemetry", None)
-            if ct is not None:
-                sub_context_tels.append(ct)
-
-        if sub_context_tels:
-            agent._sub_agent_context_tels = sub_context_tels
-
-    @staticmethod
-    def _build_validation_retry(vr: ValidationResult) -> str:
-        """Build a retry message from Layer 1/2 validation failure."""
-        parts = [f"Your previous answer had an issue: {vr.reason}"]
-        if vr.details:
-            parts.append(f"Details: {'; '.join(vr.details)}")
-        parts.append("Please fix the issue and provide a corrected answer.")
-        return "\n".join(parts)
-
-    @staticmethod
-    def _is_error(result: Any) -> bool:
-        return isinstance(result, str) and result.strip().startswith("Error:")
+    async def _run_refiner(
+        self,
+        agent: "Agent",
+        refiner: Refiner,
+        task_objective: str,
+        candidate: Any,
+        critique: CritiqueResult,
+        messages: list[ChatMessage],
+    ) -> RevisionCandidate | None:
+        """Run one Refiner pass. Thin delegate to ``RefinerRunner``."""
+        return await RefinerRunner(refiner).run(
+            agent, task_objective, candidate, critique, messages
+        )

@@ -143,6 +143,20 @@ class AgentConfig(BaseModel):
             "in autonomous mode."
         ),
     )
+    n_parallel_attempts: int = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description=(
+            "F4 — number of independent Best-of-N attempts per run in "
+            "autonomous mode. ``1`` (default) runs one attempt with zero "
+            "overhead. ``2`` to ``5`` run that many independent Generator "
+            "→ Verifier → Reviser loops in parallel (different LLM seeds / "
+            "temperatures); the best-scoring PASS / UNCERTAIN candidate is "
+            "returned, otherwise the run abstains. Capped at 5 — beyond "
+            "that the cost/quality curve flattens (per Aletheia data)."
+        ),
+    )
     llm_review: bool = Field(
         default=False,
         description=(

@@ -365,10 +365,24 @@ class TestErrorRetryNotBailout:
 
 
 class TestRefinerReSynthesis:
-    """Verify Refiner discourages re-tooling and encourages re-synthesis."""
+    """Reviser prompt discourages blind re-tooling and re-exploration.
 
-    def test_revision_message_discourages_retooling(self):
-        refiner = Refiner()
+    These tests target the F1 ``Refiner._build_revision_prompt`` static
+    method, which is the sole source of truth for how the Reviser role
+    is primed.  (The legacy ``build_revision_message`` helper was deleted
+    in F1 as part of the ISP cleanup.)
+    """
+
+    @staticmethod
+    def _build(critique: CritiqueResult, *, candidate: str = "old candidate") -> str:
+        return Refiner._build_revision_prompt(
+            task_objective="Test objective",
+            candidate=candidate,
+            critique=critique,
+            tool_result_summary=None,
+        )
+
+    def test_revision_prompt_discourages_retooling(self):
         critique = CritiqueResult(
             verdict=Verdict.FAIL,
             score=0.2,
@@ -377,15 +391,13 @@ class TestRefinerReSynthesis:
             suggestions=["Use the tool result from step 3"],
         )
 
-        msg = refiner.build_revision_message(critique)
+        msg = self._build(critique)
 
-        assert "Do NOT re-call tools" in msg
-        assert "in the conversation above" in msg
+        assert "Do NOT call tools" in msg
         assert "MISSING data" in msg
 
-    def test_revision_message_allows_tools_for_missing_data(self):
+    def test_revision_prompt_allows_tools_for_missing_data(self):
         """Should mention that tools are OK when data is MISSING."""
-        refiner = Refiner()
         critique = CritiqueResult(
             verdict=Verdict.FAIL,
             score=0.15,
@@ -393,14 +405,12 @@ class TestRefinerReSynthesis:
             issues=["Missing PE ratio analysis"],
         )
 
-        msg = refiner.build_revision_message(critique)
+        msg = self._build(critique)
 
         assert "MISSING data" in msg
-        assert "new tool call" in msg.lower() or "requires a new tool call" in msg.lower()
 
-    def test_revision_message_does_not_encourage_reexploration(self):
+    def test_revision_prompt_does_not_encourage_reexploration(self):
         """Old message had 'If you need to re-call a tool, do so' — removed."""
-        refiner = Refiner()
         critique = CritiqueResult(
             verdict=Verdict.FAIL,
             score=0.3,
@@ -408,12 +418,14 @@ class TestRefinerReSynthesis:
             issues=["Sum is incorrect"],
         )
 
-        msg = refiner.build_revision_message(critique)
+        msg = self._build(critique)
 
-        assert "If you need to re-call a tool with different arguments, do so" not in msg
+        assert (
+            "If you need to re-call a tool with different arguments, do so"
+            not in msg
+        )
 
-    def test_revision_message_includes_issues_and_suggestions(self):
-        refiner = Refiner()
+    def test_revision_prompt_includes_issues_and_suggestions(self):
         critique = CritiqueResult(
             verdict=Verdict.FAIL,
             score=0.2,
@@ -422,15 +434,14 @@ class TestRefinerReSynthesis:
             suggestions=["Fix A", "Fix B"],
         )
 
-        msg = refiner.build_revision_message(critique)
+        msg = self._build(critique)
 
         assert "Issue A" in msg
         assert "Issue B" in msg
         assert "Fix A" in msg
         assert "Fix B" in msg
 
-    def test_revision_message_asks_for_complete_answer(self):
-        refiner = Refiner()
+    def test_revision_prompt_asks_for_complete_answer(self):
         critique = CritiqueResult(
             verdict=Verdict.FAIL,
             score=0.25,
@@ -438,9 +449,9 @@ class TestRefinerReSynthesis:
             issues=["Missing section"],
         )
 
-        msg = refiner.build_revision_message(critique)
+        msg = self._build(critique)
 
-        assert "COMPLETE final answer" in msg
+        assert "complete, self-contained final answer" in msg
 
 
 # ================================================================== #

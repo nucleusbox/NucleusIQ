@@ -40,9 +40,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from nucleusiq.agents.components.critic import CritiqueResult
 
 # ------------------------------------------------------------------ #
 # Enums                                                                #
@@ -50,11 +53,28 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ResultStatus(str, Enum):
-    """Final outcome of an ``Agent.execute()`` call."""
+    """Final outcome of an ``Agent.execute()`` call.
+
+    * ``SUCCESS``   — the agent produced an answer that passed every
+      internal gate (validation + Critic).
+    * ``ERROR``     — execution raised an unhandled exception.
+    * ``HALTED``    — a plugin raised ``PluginHalt`` to end execution
+      early.
+    * ``ABSTAINED`` — (Autonomous mode, F2) the agent exhausted its
+      retries and the Critic's final verdict was FAIL or
+      UNCERTAIN-below-threshold; the ``AgentResult`` carries the best
+      candidate plus a machine-readable ``abstention_reason`` and the
+      final ``CritiqueResult`` via ``autonomous.critic_verdicts[-1]``.
+      This is a first-class outcome distinct from ``SUCCESS`` and
+      ``ERROR`` — callers decide whether to retry with a better model,
+      escalate to a human, hand off to another agent, or treat the
+      task as failed.  No human-in-the-loop is part of the contract.
+    """
 
     SUCCESS = "success"
     ERROR = "error"
     HALTED = "halted"
+    ABSTAINED = "abstained"
 
 
 # ------------------------------------------------------------------ #
@@ -130,6 +150,69 @@ class ValidationRecord(BaseModel):
     reason: str = ""
 
 
+class CritiqueSnapshot(BaseModel):
+    """Frozen snapshot of a Critic verdict for telemetry.
+
+    Produced by ``AutonomousMode`` after every ``_run_critic`` call and
+    stored on ``AutonomousDetail.critic_verdicts``. Intentionally a thin
+    copy of ``CritiqueResult`` so the runtime type can keep evolving
+    without breaking the persisted record shape.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    attempt: int
+    verdict: str
+    score: float = 0.0
+    feedback: str = ""
+    issues: tuple[str, ...] = ()
+    suggestions: tuple[str, ...] = ()
+
+
+class RevisionRecord(BaseModel):
+    """One Refiner pass — produced a revised candidate from a critique.
+
+    Written by ``AutonomousMode`` whenever ``Refiner.revise`` runs and
+    yields a ``RevisionCandidate``. Surfaces the cost and effect of each
+    revision pass so the research harness (and later ``ComputeBudget``)
+    can measure whether revision is moving scores in the right direction.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    attempt: int
+    triggered_by_verdict: str = ""
+    triggered_by_score: float = 0.0
+    char_delta: int = 0
+    tool_calls_made: int = 0
+    addressed_issues: tuple[str, ...] = ()
+    duration_ms: float = 0.0
+
+
+class EscalationRecord(BaseModel):
+    """F3 — one budget escalation event.
+
+    Emitted by ``AutonomousMode`` whenever ``ComputeBudget.escalate`` is
+    called.  Surfaces *why* we spent more compute so the research harness
+    can correlate cost with problem difficulty.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    attempt: int
+    #: Escalation reason from ``compute_budget.EscalationReason``
+    #: (``"uncertain_close"`` or ``"stuck"``).  Stored as ``str`` so the
+    #: set can grow without a schema migration.
+    reason: str
+    retries_before: int
+    retries_after: int
+    max_output_tokens_before: int
+    max_output_tokens_after: int
+    max_tool_calls_before: int
+    max_tool_calls_after: int
+    cumulative_tokens_at_escalation: int = 0
+
+
 class AutonomousDetail(BaseModel):
     """Autonomous-mode execution details."""
 
@@ -141,6 +224,21 @@ class AutonomousDetail(BaseModel):
     complexity: str | None = None
     validations: tuple[ValidationRecord, ...] = ()
     refined: bool = False
+    # F1/F5 — Reviser-as-role telemetry
+    revisions: tuple[RevisionRecord, ...] = ()
+    critic_verdicts: tuple[CritiqueSnapshot, ...] = ()
+    # F3/F5 — compute-budget telemetry
+    escalations: tuple[EscalationRecord, ...] = ()
+    cumulative_tokens: int = 0
+    # F4/F5 — Best-of-N parallel attempts. Empty when
+    # ``n_parallel_attempts == 1`` (default).  Otherwise contains one
+    # ``AutonomousDetail`` per attempt (the detail on the enclosing
+    # model describes the selected attempt / abstention outcome).
+    parallel_attempts: tuple["AutonomousDetail", ...] = ()
+    # F4 — which attempt produced the returned candidate (0-based index
+    # into ``parallel_attempts``).  ``None`` when ``parallel_attempts``
+    # is empty (single-attempt runs).
+    selected_attempt: int | None = None
 
 
 # ------------------------------------------------------------------ #
@@ -176,6 +274,11 @@ class AgentResult(BaseModel):
     error: str | None = None
     error_type: str | None = None
     duration_ms: float = 0.0
+    # Populated when ``status == ResultStatus.ABSTAINED`` (F2): a plain-
+    # text explanation (typically the final Critic's ``feedback``).  The
+    # full structured critique is available via
+    # ``autonomous.critic_verdicts[-1]``.
+    abstention_reason: str | None = None
 
     # --- Tool observability (populated since 0.7.4) ---
     tool_calls: tuple[ToolCallRecord, ...] = ()
@@ -232,6 +335,11 @@ class AgentResult(BaseModel):
     def is_halted(self) -> bool:
         """True when status is HALTED (plugin early-exit)."""
         return self.status == ResultStatus.HALTED
+
+    @property
+    def is_abstained(self) -> bool:
+        """True when status is ABSTAINED (F2: Autonomous mode self-abstention)."""
+        return self.status == ResultStatus.ABSTAINED
 
     @property
     def tool_call_count(self) -> int:
@@ -348,3 +456,51 @@ class AgentResult(BaseModel):
                 lines.append(f"    - {w}")
 
         return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ #
+# Control-flow signals                                                 #
+# ------------------------------------------------------------------ #
+
+
+class AbstentionSignal(Exception):
+    """Raised by ``AutonomousMode`` when the agent self-abstains (F2).
+
+    This is a deliberate control-flow signal, not a failure, mirroring
+    the ``PluginHalt`` pattern.  It is raised from inside the execution
+    mode and caught by ``Agent.execute()`` which converts it into an
+    ``AgentResult`` with ``status=ResultStatus.ABSTAINED``.
+
+    Abstention means the agent tried, exhausted its retry budget, and
+    the ``Critic`` still refused to pass the candidate.  Rather than
+    silently shipping a bad answer (the pre-F2 behaviour) the framework
+    surfaces a structured outcome so callers can:
+
+      * retry with a stronger model,
+      * escalate to a human,
+      * hand off to another agent,
+      * or treat the task as failed.
+
+    Args:
+        best_candidate: The best candidate produced across all attempts.
+            Still included so callers can inspect partial work.
+        critique: The ``CritiqueResult`` from the final Critic pass
+            (FAIL or UNCERTAIN-below-threshold).  Provides structured
+            ``issues`` and ``suggestions``.
+        reason: Human-readable explanation — defaults to
+            ``critique.feedback``.
+    """
+
+    def __init__(
+        self,
+        best_candidate: Any,
+        critique: "CritiqueResult",
+        reason: str | None = None,
+    ) -> None:
+        self.best_candidate = best_candidate
+        self.critique = critique
+        self.reason = reason or (
+            getattr(critique, "feedback", None)
+            or f"Critic rejected candidate ({getattr(critique, 'verdict', 'unknown')})"
+        )
+        super().__init__(self.reason)

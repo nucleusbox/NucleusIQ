@@ -1,62 +1,137 @@
 """
-Refiner Component — The Reviser SubAgent in the Generate → Verify → Revise loop.
+Refiner Component — the revision role in NucleusIQ's Autonomous mode.
 
-Architecture:
-    Critic (Verifier SubAgent) produces CritiqueResult(verdict=FAIL, ...)
-        ↓
-    Refiner builds a targeted correction message
-        ↓
-    Generator SubAgent re-runs with the correction injected
-        ↓
-    Corrected result goes back to Critic for re-verification
+The Refiner is the third role in the Aletheia-style loop that
+``AutonomousMode`` runs.  Mapping the paper's terminology onto actual
+NucleusIQ classes:
 
-Revision strategies:
-    1. Conversation injection (autonomous mode) — the Refiner builds a
-       correction message that gets injected into the Generator's conversation.
-       The message explicitly asks the model to re-synthesize from existing
-       tool data rather than re-executing tools from scratch.
-    2. Tool re-execution (plan-step mode) — the Refiner asks the LLM to
-       infer better arguments and re-executes the tool.
-    3. LLM revision (plan-step mode) — the Refiner asks the LLM to produce
-       a corrected result incorporating the Critic's feedback.
+    Primary agent pass (``StandardMode._tool_call_loop``)
+        -> ``Critic``  (the Verifier role — produces a ``CritiqueResult``)
+        -> ``Refiner`` (this module — produces a revised candidate)
+        -> ``Critic`` re-runs on the revised candidate
 
-Design Principles:
-    1. Directed revision — uses Critic's specific feedback, not blind retry
-    2. Builds on previous attempt — doesn't start from scratch
-    3. Re-synthesize, not re-explore — tool data is already in the conversation;
-       the Reviser should fix the *answer*, not re-gather evidence
-    4. Strategy selection — picks the right revision approach automatically
-    5. Graceful fallback — returns original result if revision fails
+Unlike earlier revisions of this component — which only built a prompt
+string that was then appended to the primary agent's conversation — the
+``Refiner`` now drives its own LLM call.  It reuses
+``StandardMode._tool_call_loop`` as its execution engine so the
+framework's plugin pipeline, usage tracker and (optional) tool access
+all apply, but every call is tagged with ``CallPurpose.REFINER`` so
+telemetry keeps the primary / ``Critic`` / ``Refiner`` traffic
+separated.
+
+Design principles
+-----------------
+1. **Own LLM call, own purpose.** The ``Refiner`` is a real role, not a
+   prompt-builder helper.  Its calls are tagged ``CallPurpose.REFINER``
+   in the usage tracker.
+2. **Bounded input scope.** The ``Refiner`` sees the task objective,
+   the previous candidate, the ``Critic``'s critique, and (optionally)
+   a bounded tool-result summary.  It does **not** see the primary
+   agent's full conversation — that would re-introduce the same bias
+   the ``Critic`` just flagged.
+3. **Tool-enabled, but re-synthesis-biased.** The ``Refiner`` *may*
+   call tools if the critique specifically requires missing data, but
+   the system prompt tells it to prefer re-synthesising from the
+   summary.
+4. **Structured output.** Returns a ``RevisionCandidate`` carrying the
+   revised content and metrics (tool calls, char delta, addressed
+   issues) consumed by ``AutonomousMode`` telemetry and by the upcoming
+   ``ComputeBudget``.
 """
 
 from __future__ import annotations
 
-import json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
-from nucleusiq.agents.chat_models import ToolCallRequest
+from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.components.critic import CritiqueResult
-from nucleusiq.agents.plan import Plan, PlanStep
+
+
+# ------------------------------------------------------------------ #
+# Output model                                                        #
+# ------------------------------------------------------------------ #
+
+
+class RevisionCandidate(BaseModel):
+    """The result of a single ``Refiner.revise`` pass.
+
+    ``content`` is the new candidate answer; the remaining fields are
+    bookkeeping consumed by ``AutonomousMode`` telemetry (``RevisionRecord``)
+    and by the upcoming ``ComputeBudget`` scheduler.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    content: str = Field(description="The revised candidate answer.")
+    addressed_issues: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Issues the Refiner believes it addressed. Today we copy the "
+            "Critic's issue list verbatim; a future revision may parse "
+            "this from a structured Refiner response."
+        ),
+    )
+    tool_calls_made: int = Field(
+        default=0,
+        description="Number of tool calls the Refiner made during this pass.",
+    )
+    char_delta: int = Field(
+        default=0,
+        description=(
+            "len(new candidate) - len(previous candidate). Useful as a "
+            "cheap proxy for how much the Refiner actually changed."
+        ),
+    )
+    duration_ms: float = Field(
+        default=0.0,
+        description="Wall-clock time spent inside Refiner.revise, in milliseconds.",
+    )
+
+
+_REFINER_SYSTEM_PROMPT = (
+    "You are the Refiner component in NucleusIQ's Autonomous mode. "
+    "The primary agent pass produced a candidate answer and the Critic "
+    "reviewed it and flagged specific issues. Your job is to produce a "
+    "corrected final answer that addresses the Critic's feedback "
+    "without redoing work that was already correct. Prefer "
+    "re-synthesising from the evidence provided over calling new "
+    "tools; only call a tool if the Critic explicitly identified "
+    "MISSING data that cannot be inferred from the summary. Return a "
+    "single, self-contained final answer — no preamble, no apology, "
+    "no meta-commentary."
+)
+
+
+_MAX_CANDIDATE_CHARS = 8_000
+_MAX_TOOL_SUMMARY_CHARS = 4_000
 
 
 class Refiner:
-    """Reviser component for the autonomous execution loop.
+    """The revision role in NucleusIQ's Autonomous mode loop.
 
-    Usage::
+    Runs after the ``Critic`` rejects a candidate: takes the task,
+    the prior candidate and the ``CritiqueResult``, and produces a
+    new ``RevisionCandidate`` via its own LLM pass (tagged
+    ``CallPurpose.REFINER``).
+
+    Usage (the only supported entry point)::
 
         refiner = Refiner()
-        corrected = await refiner.refine_step(
-            agent,
-            task_objective,
-            step,
-            bad_result,
-            critique,
-            context,
+        revision = await refiner.revise(
+            agent=agent,
+            task_objective=task.objective,
+            candidate=previous_result,
+            critique=critique,
+            tool_result_summary=tool_summary,  # optional
         )
+        new_candidate = revision.content
     """
 
     def __init__(self, logger: logging.Logger | None = None) -> None:
@@ -66,481 +141,175 @@ class Refiner:
     # Public API                                                          #
     # ------------------------------------------------------------------ #
 
-    def build_revision_message(
+    async def revise(
         self,
+        agent: "Agent",
+        task_objective: str,
+        candidate: Any,
         critique: CritiqueResult,
-    ) -> str:
-        """Build a targeted correction message from Critic feedback.
+        tool_result_summary: str | None = None,
+    ) -> RevisionCandidate:
+        """Produce a revised candidate using the ``Critic``'s feedback.
 
-        Used by AutonomousMode to inject a revision directive into the
-        conversation.  The message tells the model exactly what went
-        wrong and what to fix, without redoing correct work.
+        Runs an independent tool-enabled LLM pass via
+        ``StandardMode._tool_call_loop`` with ``CallPurpose.REFINER``.
+        Does **not** mutate the primary agent's conversation — the
+        caller is responsible for deciding how the returned candidate
+        flows into the next ``Critic`` pass.
+
+        Raises any exception from the underlying LLM / tool loop; the
+        caller (``AutonomousMode``) is responsible for graceful
+        degradation.
 
         Args:
-            critique: The Critic's structured feedback (verdict=FAIL).
+            agent: The active Agent (supplies ``llm``, ``tools``,
+                plugin pipeline, usage tracker).
+            task_objective: The original user task text.
+            candidate: The previous candidate answer the ``Critic``
+                rejected.
+            critique: The ``Critic``'s structured feedback.
+            tool_result_summary: Optional bounded summary (<= 4 KB) of
+                tool outputs produced earlier in this task.  Letting
+                the ``Refiner`` see the evidence that grounded the
+                original answer makes re-synthesis much more reliable
+                than blind revision.
 
         Returns:
-            A user-role message string for conversation injection.
+            A frozen ``RevisionCandidate``.
         """
-        issues = (
-            "\n".join(f"- {i}" for i in critique.issues)
-            if critique.issues
-            else "- error detected in your answer"
-        )
-        suggestions = (
-            "\n".join(f"- {s}" for s in critique.suggestions)
-            if critique.suggestions
-            else ""
-        )
-
-        msg = (
-            f"VERIFICATION RESULT: {critique.verdict.value} "
-            f"(score: {critique.score:.2f})\n\n"
-        )
-        if critique.feedback:
-            msg += f"Assessment: {critique.feedback}\n\n"
-        msg += f"Issues identified:\n{issues}\n"
-        if suggestions:
-            msg += f"\nSuggested fixes:\n{suggestions}\n"
-        msg += (
-            "\nREVISION INSTRUCTIONS:\n"
-            "- Fix ONLY the specific error(s) listed above.\n"
-            "- Do NOT redo work that was already correct.\n"
-            "- Your previous answer is in the conversation above — "
-            "revise it to address the issues.\n"
-            "- Do NOT re-call tools unless the verification specifically "
-            "identified MISSING data that requires a new tool call.\n"
-            "- Provide your corrected COMPLETE final answer."
-        )
-        return msg
-
-    async def refine_step(
-        self,
-        agent: Agent,
-        task_objective: str,
-        step: PlanStep,
-        previous_result: Any,
-        critique: CritiqueResult,
-        context: dict[str, Any],
-    ) -> Any:
-        """Produce a corrected result for a single step.
-
-        Automatically selects the revision strategy:
-        - Tool steps → re-infer arguments and re-execute the tool
-        - LLM / execute steps → ask the LLM for a corrected response
-
-        Args:
-            agent: Agent instance
-            task_objective: The user's original task text
-            step: The PlanStep being revised
-            previous_result: The result that the Critic rejected
-            critique: The Critic's structured feedback
-            context: Accumulated results from prior steps
-
-        Returns:
-            Corrected result (or original if revision fails)
-        """
-        tool_names = {t.name for t in (agent.tools or []) if hasattr(t, "name")}
-        is_tool_step = step.action in tool_names
-
-        try:
-            if is_tool_step and agent.llm:
-                return await self._refine_tool_step(
-                    agent,
-                    task_objective,
-                    step,
-                    previous_result,
-                    critique,
-                    context,
-                )
-            elif agent.llm:
-                return await self._refine_llm_step(
-                    agent,
-                    task_objective,
-                    step,
-                    previous_result,
-                    critique,
-                    context,
-                )
-            else:
-                self._logger.warning(
-                    "No LLM available for refinement — returning original"
-                )
-                return previous_result
-        except Exception as e:
-            self._logger.warning(
-                "Refiner failed for step %d: %s. Returning original result.",
-                step.step,
-                e,
+        if agent.llm is None:
+            raise RuntimeError(
+                "Refiner.revise requires an LLM; call only when agent.llm is set."
             )
-            return previous_result
 
-    async def refine_final(
-        self,
-        agent: Agent,
-        task_objective: str,
-        plan: Plan,
-        results: list[Any],
-        final_result: Any,
-        critique: CritiqueResult,
-    ) -> Any:
-        """Produce a corrected final result using the Critic's feedback.
+        # Delayed imports to avoid circular dependency at module load.
+        from nucleusiq.agents.modes.standard_mode import StandardMode
+        from nucleusiq.agents.task import Task
+        from nucleusiq.agents.usage.usage_tracker import CallPurpose
 
-        Args:
-            agent: Agent instance
-            task_objective: The user's original task text
-            plan: The execution plan
-            results: All step results
-            final_result: The final result that the Critic rejected
-            critique: The Critic's structured feedback
+        std_mode = StandardMode()
+        std_mode._ensure_executor(agent)
+        tool_specs = std_mode._get_tool_specs(agent)
 
-        Returns:
-            Corrected final result
-        """
-        if not agent.llm:
-            return final_result
+        prompt = self._build_revision_prompt(
+            task_objective=task_objective,
+            candidate=candidate,
+            critique=critique,
+            tool_result_summary=tool_result_summary,
+        )
 
-        try:
-            prompt = self._build_final_revision_prompt(
-                task_objective,
-                plan,
-                results,
-                final_result,
-                critique,
-            )
-            response = await self._call_llm(agent, prompt)
-            content = self._extract_content(response)
-            return content if content else final_result
-        except Exception as e:
-            self._logger.warning(
-                "Final refinement failed: %s. Returning original.",
-                e,
-            )
-            return final_result
+        revision_messages: list[ChatMessage] = [
+            ChatMessage(role="system", content=_REFINER_SYSTEM_PROMPT),
+            ChatMessage(role="user", content=prompt),
+        ]
 
-    # ------------------------------------------------------------------ #
-    # Strategy 1: Tool re-execution                                       #
-    # ------------------------------------------------------------------ #
+        revise_task = Task(
+            id="refiner_pass",
+            objective=task_objective,
+        )
 
-    async def _refine_tool_step(
-        self,
-        agent: Agent,
-        task_objective: str,
-        step: PlanStep,
-        previous_result: Any,
-        critique: CritiqueResult,
-        context: dict[str, Any],
-    ) -> Any:
-        """Re-infer tool arguments based on critique, then re-execute."""
-        assert agent.llm is not None, "agent.llm must be set for Refiner"
-        assert agent._executor is not None, "agent._executor must be set for Refiner"
+        tool_calls_before = self._count_tool_calls(agent)
+        previous_len = len(str(candidate or ""))
+
         self._logger.info(
-            "Refiner: re-inferring args for tool '%s' (step %d)",
-            step.action,
-            step.step,
+            "Refiner: revising candidate (verdict=%s, score=%.2f, issues=%d)",
+            critique.verdict.value,
+            critique.score,
+            len(critique.issues),
         )
 
-        prompt = self._build_tool_arg_revision_prompt(
-            task_objective,
-            step,
-            previous_result,
-            critique,
-            context,
-            agent,
-        )
-
-        tool_specs = agent.llm.convert_tool_specs(agent.tools) if agent.tools else []
-
-        call_kwargs: dict[str, Any] = {
-            "model": getattr(agent.llm, "model_name", "default"),
-            "messages": [{"role": "user", "content": prompt}],
-            "tools": tool_specs if tool_specs else None,
-            "max_output_tokens": getattr(
-                agent.config,
-                "step_inference_max_tokens",
-                2048,
-            ),
-        }
-        call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
-
-        response = await agent.llm.call(**call_kwargs)
-        new_args = self._extract_tool_args(response, step.action)
-
-        if new_args is not None:
-            fn_call = ToolCallRequest(
-                name=step.action,
-                arguments=json.dumps(new_args),
+        start = time.perf_counter()
+        try:
+            revised = await std_mode._tool_call_loop(
+                agent,
+                revise_task,
+                revision_messages,
+                tool_specs,
+                purpose_override=CallPurpose.REFINER,
             )
-            self._logger.info(
-                "Refiner: re-executing tool '%s' with revised args",
-                step.action,
-            )
-            return await agent._executor.execute(fn_call)
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000.0
 
-        self._logger.warning(
-            "Refiner: could not infer new args for '%s', falling back to LLM revision",
-            step.action,
-        )
-        return await self._refine_llm_step(
-            agent,
-            task_objective,
-            step,
-            previous_result,
-            critique,
-            context,
-        )
+        content = str(revised) if revised is not None else ""
+        tool_calls_made = max(0, self._count_tool_calls(agent) - tool_calls_before)
 
-    # ------------------------------------------------------------------ #
-    # Strategy 2: LLM-based revision                                      #
-    # ------------------------------------------------------------------ #
-
-    async def _refine_llm_step(
-        self,
-        agent: Agent,
-        task_objective: str,
-        step: PlanStep,
-        previous_result: Any,
-        critique: CritiqueResult,
-        context: dict[str, Any],
-    ) -> Any:
-        """Ask the LLM to produce a corrected result from the critique."""
-        self._logger.info(
-            "Refiner: LLM revision for step %d (%s)",
-            step.step,
-            step.action,
+        return RevisionCandidate(
+            content=content,
+            addressed_issues=tuple(critique.issues),
+            tool_calls_made=tool_calls_made,
+            char_delta=len(content) - previous_len,
+            duration_ms=duration_ms,
         )
-
-        prompt = self._build_llm_revision_prompt(
-            task_objective,
-            step,
-            previous_result,
-            critique,
-            context,
-        )
-        response = await self._call_llm(agent, prompt)
-        content = self._extract_content(response)
-        return content if content else previous_result
 
     # ------------------------------------------------------------------ #
     # Prompt construction                                                 #
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _build_tool_arg_revision_prompt(
+    def _build_revision_prompt(
         task_objective: str,
-        step: PlanStep,
-        previous_result: Any,
+        candidate: Any,
         critique: CritiqueResult,
-        context: dict[str, Any],
-        agent: Agent,
+        tool_result_summary: str | None,
     ) -> str:
-        issues_list = (
-            "\n".join(f"  - {i}" for i in critique.issues) or "  (none specified)"
+        issues_block = (
+            "\n".join(f"- {i}" for i in critique.issues)
+            if critique.issues
+            else "- (Critic did not list specific issues — see feedback above)"
         )
-        suggestions_list = (
-            "\n".join(f"  - {s}" for s in critique.suggestions) or "  (none specified)"
+        suggestions_block = (
+            "\n".join(f"- {s}" for s in critique.suggestions)
+            if critique.suggestions
+            else "(no specific suggestions)"
         )
-        ctx_str = (
-            json.dumps(
-                {k: str(v)[:200] for k, v in context.items()},
-                indent=2,
+
+        tool_block = ""
+        if tool_result_summary:
+            truncated = tool_result_summary[:_MAX_TOOL_SUMMARY_CHARS]
+            tool_block = (
+                "\n## Tool Results From Previous Attempt (bounded summary)\n"
+                f"{truncated}\n"
             )
-            if context
-            else "{}"
-        )
 
-        tool_specs = (
-            agent.llm.convert_tool_specs(agent.tools)
-            if agent.llm and agent.tools
-            else []
-        )
-        target_spec = ""
-        for spec in tool_specs:
-            fn = spec.get("function", {}) if isinstance(spec, dict) else {}
-            if fn.get("name") == step.action:
-                target_spec = json.dumps(fn, indent=2)
-                break
+        candidate_str = str(candidate or "")[:_MAX_CANDIDATE_CHARS]
 
         return (
-            "A previous tool call produced an incorrect result. "
-            "You must call the tool again with BETTER arguments.\n\n"
-            f"## Original Task\n{task_objective}\n\n"
-            f"## Tool\n{step.action}\n"
-            f"{f'Spec: {target_spec}' if target_spec else ''}\n\n"
-            f"## Previous Arguments\n{json.dumps(step.args or {})}\n\n"
-            f"## Previous Result\n{str(previous_result)[:1000]}\n\n"
-            f"## Reviewer Feedback\n"
-            f"Verdict: {critique.verdict.value}\n"
-            f"Score: {critique.score}\n"
-            f"Feedback: {critique.feedback}\n"
-            f"Issues:\n{issues_list}\n"
-            f"Suggestions:\n{suggestions_list}\n\n"
-            f"## Context From Previous Steps\n{ctx_str}\n\n"
-            f"Now call the tool '{step.action}' with corrected arguments "
-            "that address the reviewer's feedback.\n"
-        )
-
-    @staticmethod
-    def _build_llm_revision_prompt(
-        task_objective: str,
-        step: PlanStep,
-        previous_result: Any,
-        critique: CritiqueResult,
-        context: dict[str, Any],
-    ) -> str:
-        step_details = step.details or step.action
-        issues_list = (
-            "\n".join(f"  - {i}" for i in critique.issues) or "  (none specified)"
-        )
-        suggestions_list = (
-            "\n".join(f"  - {s}" for s in critique.suggestions) or "  (none specified)"
-        )
-        ctx_summary = ""
-        if context:
-            lines = []
-            for k, v in context.items():
-                if k.endswith("_action"):
-                    continue
-                lines.append(f"  - {k}: {str(v)[:300]}")
-            if lines:
-                ctx_summary = "\n\nPrevious Steps:\n" + "\n".join(lines)
-
-        return (
-            "You are a revision specialist. A previous attempt at "
-            "completing a step had issues identified by a quality reviewer.\n\n"
-            f"## Original Task\n{task_objective}\n\n"
-            f"## Step to Revise\nStep {step.step}: {step_details}\n\n"
-            f"## Previous Attempt's Result\n"
-            f"{str(previous_result)[:2000]}\n\n"
-            f"## Reviewer Feedback\n"
-            f"Verdict: {critique.verdict.value}\n"
-            f"Score: {critique.score}\n"
-            f"Overall: {critique.feedback}\n"
-            f"Issues Found:\n{issues_list}\n"
-            f"Suggested Improvements:\n{suggestions_list}\n"
-            f"{ctx_summary}\n\n"
-            "## Your Job\n"
-            "Produce a CORRECTED result that addresses all the issues "
-            "raised by the reviewer. Focus specifically on the problems "
-            "identified — build upon and improve the previous attempt, "
-            "do not start from scratch.\n\n"
-            "Provide your corrected result:\n"
-        )
-
-    @staticmethod
-    def _build_final_revision_prompt(
-        task_objective: str,
-        plan: Plan,
-        results: list[Any],
-        final_result: Any,
-        critique: CritiqueResult,
-    ) -> str:
-        plan_lines = []
-        for s in plan.steps:
-            plan_lines.append(f"  Step {s.step}: {s.action}")
-        plan_summary = "\n".join(plan_lines)
-
-        results_lines = []
-        for i, r in enumerate(results, 1):
-            results_lines.append(f"  Step {i}: {str(r)[:500]}")
-        results_summary = "\n".join(results_lines)
-
-        issues_list = (
-            "\n".join(f"  - {i}" for i in critique.issues) or "  (none specified)"
-        )
-        suggestions_list = (
-            "\n".join(f"  - {s}" for s in critique.suggestions) or "  (none specified)"
-        )
-
-        return (
-            "You are a revision specialist. The final output of an "
-            "AI agent was reviewed and found lacking. Your job is to "
-            "produce an improved version.\n\n"
-            f"## Original Task\n{task_objective}\n\n"
-            f"## Plan Followed\n{plan_summary}\n\n"
-            f"## Step Results\n{results_summary}\n\n"
-            f"## Current Final Result\n"
-            f"{str(final_result)[:2000]}\n\n"
-            f"## Reviewer Feedback\n"
-            f"Verdict: {critique.verdict.value}\n"
-            f"Score: {critique.score}\n"
-            f"Overall: {critique.feedback}\n"
-            f"Issues:\n{issues_list}\n"
-            f"Suggestions:\n{suggestions_list}\n\n"
-            "## Your Job\n"
-            "Produce a CORRECTED and COMPLETE final result that "
-            "addresses the reviewer's concerns and fully satisfies "
+            f"## Task\n{task_objective}\n\n"
+            f"## Previous Candidate Answer\n{candidate_str}\n\n"
+            f"## Critic Verdict\n"
+            f"- verdict: {critique.verdict.value}\n"
+            f"- score: {critique.score:.2f}\n"
+            f"- overall: {critique.feedback or '(none)'}\n\n"
+            f"## Issues To Fix\n{issues_block}\n\n"
+            f"## Suggested Improvements\n{suggestions_block}\n"
+            f"{tool_block}\n"
+            "## Revision Instructions\n"
+            "1. Fix ONLY the specific issues listed above — keep what was correct.\n"
+            "2. Re-synthesise the answer using the tool results already gathered.\n"
+            "3. Do NOT call tools unless the Critic specifically identified "
+            "MISSING data that cannot be inferred from the summary above.\n"
+            "4. Return a complete, self-contained final answer that addresses "
             "the original task.\n"
         )
 
     # ------------------------------------------------------------------ #
-    # LLM helpers                                                         #
+    # Internals                                                           #
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    async def _call_llm(agent: Agent, prompt: str) -> Any:
-        assert agent.llm is not None, "agent.llm must be set for Refiner._call_llm"
-        call_kwargs: dict[str, Any] = {
-            "model": getattr(agent.llm, "model_name", "default"),
-            "messages": [{"role": "user", "content": prompt}],
-            "max_output_tokens": getattr(
-                agent.config,
-                "step_inference_max_tokens",
-                2048,
-            ),
-        }
-        call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
-        return await agent.llm.call(**call_kwargs)
+    def _count_tool_calls(agent: "Agent") -> int:
+        """Best-effort count of tool calls observed so far, from the tracer.
 
-    @staticmethod
-    def _extract_content(response: Any) -> str | None:
-        """Pull text content from an LLM response object."""
-        if not response or not hasattr(response, "choices") or not response.choices:
-            return None
-        msg = response.choices[0].message
-        if isinstance(msg, dict):
-            return msg.get("content")
-        return getattr(msg, "content", None)
+        Used to compute the per-revision ``tool_calls_made`` delta.
+        Falls back to 0 if no tracer is attached (e.g. in tests).
+        """
+        tracer = getattr(agent, "_tracer", None)
+        if tracer is None:
+            return 0
+        try:
+            return len(tracer.tool_calls)
+        except Exception:
+            return 0
 
-    @staticmethod
-    def _extract_tool_args(response: Any, action: str) -> dict[str, Any] | None:
-        """Extract tool arguments from an LLM response for re-execution."""
-        if not response or not hasattr(response, "choices") or not response.choices:
-            return None
-        msg = response.choices[0].message
-        tool_calls = (
-            msg.get("tool_calls")
-            if isinstance(msg, dict)
-            else getattr(msg, "tool_calls", None)
-        )
-        if not tool_calls or not isinstance(tool_calls, list):
-            return None
 
-        for tc in tool_calls:
-            if isinstance(tc, dict):
-                fn = tc.get("function")
-                if isinstance(fn, dict):
-                    fn_name = fn.get("name")
-                    fn_args = fn.get("arguments", "{}")
-                else:
-                    fn_name = tc.get("name")
-                    fn_args = tc.get("arguments", "{}")
-            else:
-                fn_info = getattr(tc, "function", None)
-                if fn_info is not None:
-                    fn_name = getattr(fn_info, "name", None)
-                    fn_args = getattr(fn_info, "arguments", "{}")
-                else:
-                    fn_name = getattr(tc, "name", None)
-                    fn_args = getattr(tc, "arguments", "{}")
-
-            if fn_name == action:
-                try:
-                    return (
-                        json.loads(fn_args)
-                        if isinstance(fn_args, str)
-                        else (fn_args or {})
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    return None
-        return None
+__all__ = ["Refiner", "RevisionCandidate"]
