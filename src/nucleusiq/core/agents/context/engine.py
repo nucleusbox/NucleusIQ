@@ -315,9 +315,17 @@ class ContextEngine:
 
     @property
     def telemetry(self) -> ContextTelemetry:
-        """Full observability into context management."""
+        """Full observability into context management.
+
+        F3 — reports masker vs compactor token savings separately so
+        researchers and operators can see which mechanism is actually
+        doing the work on a given run.  ``tokens_freed_total`` remains
+        the additive sum of both for backward compatibility.
+        """
         budget = self._ledger.snapshot()
-        total_freed = sum(e.tokens_freed for e in self._events) + self._tokens_masked
+        compactor_freed = sum(e.tokens_freed for e in self._events)
+        masker_freed = self._tokens_masked
+        total_freed = compactor_freed + masker_freed
 
         cost_without = 0.0
         cost_with = 0.0
@@ -339,6 +347,8 @@ class ContextEngine:
             compaction_count=len(self._events),
             compaction_events=tuple(self._events),
             tokens_freed_total=total_freed,
+            compactor_tokens_freed=compactor_freed,
+            masker_tokens_freed=masker_freed,
             artifacts_offloaded=self._store.size,
             region_breakdown=budget.by_region,
             context_limit=budget.max_tokens,

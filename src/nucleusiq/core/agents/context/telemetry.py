@@ -27,7 +27,22 @@ class CompactionEvent(BaseModel):
 
 
 class ContextTelemetry(BaseModel):
-    """Context management observability — exposed in AgentResult."""
+    """Context management observability — exposed in AgentResult.
+
+    F3 — separated masker vs compactor accounting
+    -----------------------------------------------
+    ``tokens_freed_total`` sums both the ``ObservationMasker`` (Tier 0
+    post-response) and the ``CompactionPipeline`` (ToolResult /
+    Conversation / Emergency).  The combined number hid which mechanism
+    was actually doing the work — a run could show
+    ``compaction_count = 5`` with ``tokens_freed_total = 800`` while the
+    compactor itself freed 0 tokens (the masker did all 800).  The two
+    fields below make that separation explicit::
+
+        masker_tokens_freed    = tokens saved by ObservationMasker
+        compactor_tokens_freed = tokens saved by CompactionPipeline events
+        tokens_freed_total     = masker + compactor (backward-compatible)
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -36,6 +51,8 @@ class ContextTelemetry(BaseModel):
     compaction_count: int = 0
     compaction_events: tuple[CompactionEvent, ...] = ()
     tokens_freed_total: int = 0
+    compactor_tokens_freed: int = 0  # F3
+    masker_tokens_freed: int = 0  # F3
     artifacts_offloaded: int = 0
     region_breakdown: dict[str, int] = Field(default_factory=dict)
     context_limit: int = 0
@@ -80,6 +97,8 @@ class ContextTelemetry(BaseModel):
         comp_count = p.compaction_count
         comp_events = list(p.compaction_events)
         freed = p.tokens_freed_total
+        compactor_freed = p.compactor_tokens_freed
+        masker_freed = p.masker_tokens_freed
         offloaded = p.artifacts_offloaded
         regions: dict[str, int] = dict(p.region_breakdown)
         obs_masked = p.observations_masked
@@ -93,6 +112,8 @@ class ContextTelemetry(BaseModel):
             comp_count += child.compaction_count
             comp_events.extend(child.compaction_events)
             freed += child.tokens_freed_total
+            compactor_freed += child.compactor_tokens_freed
+            masker_freed += child.masker_tokens_freed
             offloaded += child.artifacts_offloaded
             obs_masked += child.observations_masked
             tok_masked += child.tokens_masked
@@ -112,6 +133,8 @@ class ContextTelemetry(BaseModel):
             compaction_count=comp_count,
             compaction_events=tuple(comp_events),
             tokens_freed_total=freed,
+            compactor_tokens_freed=compactor_freed,
+            masker_tokens_freed=masker_freed,
             artifacts_offloaded=offloaded,
             region_breakdown=regions,
             context_limit=p.context_limit,
