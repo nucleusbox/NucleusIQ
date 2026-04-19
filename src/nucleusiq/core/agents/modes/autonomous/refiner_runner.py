@@ -53,7 +53,11 @@ class RefinerRunner:
         (see the Aletheia alignment design doc).
         """
         try:
-            tool_summary = summarize_tool_results(messages)
+            engine = getattr(agent, "_context_engine", None)
+            content_store = getattr(engine, "store", None) if engine else None
+            tool_summary = summarize_tool_results(
+                messages, content_store=content_store
+            )
             return await self._refiner.revise(
                 agent=agent,
                 task_objective=task_objective,

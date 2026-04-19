@@ -61,11 +61,14 @@ class CriticRunner:
         infrastructure problem.
         """
         try:
+            engine = getattr(agent, "_context_engine", None)
+            content_store = getattr(engine, "store", None) if engine else None
             verification_prompt = self._critic.build_verification_prompt(
                 task_objective=task_objective,
                 final_result=result,
                 generator_messages=messages,
                 allow_tool_instructions=False,
+                content_store=content_store,
             )
 
             model_name = getattr(agent.llm, "model_name", "default")

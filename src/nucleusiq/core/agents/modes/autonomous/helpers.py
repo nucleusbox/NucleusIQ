@@ -21,6 +21,7 @@ from nucleusiq.agents.components.validation import ValidationResult
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
+    from nucleusiq.agents.context.store import ContentStore
 
 
 # ------------------------------------------------------------------ #
@@ -56,13 +57,29 @@ def summarize_tool_results(
     *,
     max_chars: int = 4_000,
     per_item_chars: int = 500,
+    content_store: "ContentStore | None" = None,
 ) -> str | None:
     """Build a bounded summary of ``role='tool'`` messages for the Refiner.
 
     Each tool result is head-truncated to ``per_item_chars`` and entries
     accumulate up to ``max_chars`` total.  Returns ``None`` if no tool
     messages are present.
+
+    When ``content_store`` is provided and the ``ObservationMasker``
+    has collapsed earlier tool results into markers, the summary is
+    built from the rehydrated raw content (F2).  Without rehydration
+    the Refiner would "summarise summaries" — which is exactly how
+    opaque markers turned into compounding information loss in the
+    gpt-5.2 Task E regression.
     """
+    if content_store is not None:
+        from nucleusiq.agents.context.store import extract_raw_trace
+
+        messages = extract_raw_trace(
+            messages,
+            content_store,
+            max_chars_per_result=per_item_chars * 4,
+        )
     parts: list[str] = []
     total = 0
     for msg in messages:

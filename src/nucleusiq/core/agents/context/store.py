@@ -10,11 +10,23 @@ The interface is abstract enough for future durable backends
 Rehydration markers (Gap 4):
     Offloaded content includes ``[context_ref: {key}]`` markers so
     future versions can implement rehydration policies.
+
+Rehydration (F2):
+    ``extract_raw_trace`` re-hydrates masked tool messages from the
+    store so inspectors (Critic, Refiner) see the raw tool output
+    instead of the opaque marker.  Without this, ``ObservationMasker``
+    would blind every downstream consumer of the shared ``messages``
+    list.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nucleusiq.agents.chat_models import ChatMessage
 
 
 @dataclass(frozen=True)
@@ -130,3 +142,103 @@ class ContentStore:
     def keys(self) -> list[str]:
         """List all stored artifact keys."""
         return list(self._store.keys())
+
+
+# ------------------------------------------------------------------ #
+# F2 — Rehydration helper                                             #
+# ------------------------------------------------------------------ #
+
+#: Regex used to pull the ``ref: {key}`` line out of a masked marker.
+#: Kept deliberately loose (``[^\s\]]+``) so it accepts any key shape
+#: the masker may produce now or in the future.
+_REF_LINE_RE = re.compile(r"^ref:\s*(\S+)\s*$", re.MULTILINE)
+
+#: Any message content that starts with this prefix is a masked marker.
+#: Mirrors ``observation_masker.MASK_PREFIX`` — duplicated here only to
+#: avoid a circular import (``store`` is imported by the masker, not
+#: the other way around).
+_MASK_PREFIX = "[observation consumed"
+
+
+def extract_raw_trace(
+    messages: "list[ChatMessage]",
+    store: "ContentStore | None",
+    *,
+    max_chars_per_result: int = 8_000,
+) -> "list[ChatMessage]":
+    """Return a copy of ``messages`` with masked tool content rehydrated.
+
+    For every ``role='tool'`` message whose content is a masked
+    marker, parse the ``ref: {key}`` line and look the key up in the
+    store.  When the key resolves to real content, replace the marker
+    with that content (optionally truncated to
+    ``max_chars_per_result``).  When the key is missing or the store
+    is ``None``, keep the marker as-is — inspectors still have the
+    tool/args/summary slots from F1 to reason over.
+
+    Design properties:
+
+    * **Pure / non-mutating.** Returns a new list; input messages are
+      untouched (important — the production ``messages`` list is
+      shared across the autonomous loop).
+    * **Idempotent.** Non-masked messages pass through unchanged, and
+      rehydrated messages will not be touched on a subsequent call
+      (they no longer start with the mask prefix).
+    * **Fail-open.** Never raises on malformed markers — an invalid
+      marker is kept as-is so the inspector still sees *something*.
+
+    Args:
+        messages: Conversation messages as ``ChatMessage`` (or an
+            empty list).
+        store: The active ``ContentStore``.  ``None`` is accepted for
+            callers that may run without an engine (e.g. unit tests of
+            the components in isolation); in that case the function
+            returns ``messages`` unchanged.
+        max_chars_per_result: Hard cap on rehydrated payload length
+            per message.  Prevents a single huge tool result from
+            blowing up a Critic prompt that only needs to *see* the
+            evidence, not re-ingest it fully.
+
+    Returns:
+        A new list where applicable tool markers are rehydrated.
+    """
+    if store is None or not messages:
+        return list(messages)
+
+    from nucleusiq.agents.chat_models import ChatMessage as CM
+
+    rehydrated: list[ChatMessage] = []
+    for msg in messages:
+        content = msg.content
+        if (
+            msg.role != "tool"
+            or not isinstance(content, str)
+            or not content.startswith(_MASK_PREFIX)
+        ):
+            rehydrated.append(msg)
+            continue
+
+        match = _REF_LINE_RE.search(content)
+        if not match:
+            rehydrated.append(msg)
+            continue
+
+        key = match.group(1)
+        raw = store.retrieve(key)
+        if raw is None:
+            rehydrated.append(msg)
+            continue
+
+        if len(raw) > max_chars_per_result:
+            raw = raw[:max_chars_per_result] + "\n... (truncated)"
+
+        rehydrated.append(
+            CM(
+                role=msg.role,
+                content=raw,
+                name=msg.name,
+                tool_call_id=msg.tool_call_id,
+            )
+        )
+
+    return rehydrated

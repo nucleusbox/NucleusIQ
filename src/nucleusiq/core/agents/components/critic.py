@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
+    from nucleusiq.agents.context.store import ContentStore
 
 from nucleusiq.agents.plan import Plan, PlanStep
 
@@ -245,6 +246,7 @@ class Critic:
         generator_messages: list[Any] | None = None,
         *,
         allow_tool_instructions: bool = True,
+        content_store: "ContentStore | None" = None,
     ) -> str:
         """Build an adaptive verification prompt for the Verifier Agent.
 
@@ -273,12 +275,20 @@ class Critic:
             allow_tool_instructions: Whether the verification call will
                 have tool access.  ``False`` forces reasoning-only
                 verification regardless of generator behaviour.
+            content_store: Optional ``ContentStore`` used to rehydrate
+                tool results that ``ObservationMasker`` has collapsed
+                into opaque markers (F2).  When provided, the Verifier
+                sees the raw tool evidence instead of
+                ``[observation consumed]`` placeholders — which is the
+                whole point of running an independent Critic.
 
         Returns:
             Prompt string to use as the Verifier Agent's task objective.
         """
         lim = self._limits
-        trace = self._extract_reasoning_trace(generator_messages, lim)
+        trace = self._extract_reasoning_trace(
+            generator_messages, lim, content_store=content_store
+        )
         used_tools = bool(trace and "[Tool Call]" in trace)
 
         if used_tools and allow_tool_instructions:
@@ -416,6 +426,8 @@ class Critic:
     def _extract_reasoning_trace(
         messages: list[Any] | None,
         limits: CriticLimits | None = None,
+        *,
+        content_store: "ContentStore | None" = None,
     ) -> str:
         """Extract the Generator's execution trace from its conversation.
 
@@ -427,11 +439,24 @@ class Critic:
         Skips system and user messages (the Verifier already has the task).
         The Verifier uses this trace to understand WHAT was done and
         WHERE to focus its spot-check.
+
+        When ``content_store`` is provided and the ``ObservationMasker``
+        has collapsed earlier tool results into markers, the trace is
+        rehydrated so the Critic sees real tool output instead of
+        opaque ``[observation consumed]`` placeholders (F2).
         """
         if not messages:
             return ""
         if limits is None:
             limits = STANDARD_LIMITS
+        if content_store is not None:
+            from nucleusiq.agents.context.store import extract_raw_trace
+
+            messages = extract_raw_trace(
+                messages,
+                content_store,
+                max_chars_per_result=limits.tool_result,
+            )
         lines: list[str] = []
         for msg in messages:
             role = msg.role if hasattr(msg, "role") else msg.get("role", "?")
