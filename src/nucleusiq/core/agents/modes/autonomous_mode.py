@@ -109,7 +109,7 @@ class AutonomousMode(BaseExecutionMode):
     # Dispatcher: sync                                                    #
     # ------------------------------------------------------------------ #
 
-    async def run(self, agent: "Agent", task: Any) -> Any:
+    async def run(self, agent: Agent, task: Any) -> Any:
         if isinstance(task, dict):
             task = Task.from_dict(task)
 
@@ -148,9 +148,7 @@ class AutonomousMode(BaseExecutionMode):
             )
             return await runner.run_sync(agent)
 
-        agent._logger.info(
-            "Task classified as SIMPLE — standard + validate + Critic"
-        )
+        agent._logger.info("Task classified as SIMPLE — standard + validate + Critic")
         if n <= 1:
             return await self._run_simple(agent, task)
         agent._logger.info(
@@ -170,7 +168,7 @@ class AutonomousMode(BaseExecutionMode):
     # ------------------------------------------------------------------ #
 
     async def run_stream(
-        self, agent: "Agent", task: Any
+        self, agent: Agent, task: Any
     ) -> AsyncGenerator[StreamEvent, None]:
         if isinstance(task, dict):
             task = Task.from_dict(task)
@@ -217,9 +215,7 @@ class AutonomousMode(BaseExecutionMode):
                 yield event
             return
 
-        agent._logger.info(
-            "Task classified as SIMPLE — streaming standard + Critic"
-        )
+        agent._logger.info("Task classified as SIMPLE — streaming standard + Critic")
         if n <= 1:
             async for event in self._stream_simple(agent, task):
                 yield event
@@ -236,20 +232,20 @@ class AutonomousMode(BaseExecutionMode):
     # Simple path                                                         #
     # ------------------------------------------------------------------ #
 
-    async def _run_simple(self, agent: "Agent", task: Task) -> Any:
+    async def _run_simple(self, agent: Agent, task: Task) -> Any:
         """Simple path sync entrypoint. Delegates to ``SimpleRunner``."""
         runner = self._build_simple_runner(agent)
         return await runner.run_sync(agent, task)
 
     async def _stream_simple(
-        self, agent: "Agent", task: Task
+        self, agent: Agent, task: Task
     ) -> AsyncGenerator[StreamEvent, None]:
         """Simple path streaming entrypoint."""
         runner = self._build_simple_runner(agent)
         async for event in runner.run_stream(agent, task):
             yield event
 
-    def _build_simple_runner(self, agent: "Agent") -> SimpleRunner:
+    def _build_simple_runner(self, agent: Agent) -> SimpleRunner:
         """Instantiate ``SimpleRunner`` with module-level collaborators.
 
         Using the module-level ``StandardMode`` / ``ValidationPipeline``
@@ -273,7 +269,7 @@ class AutonomousMode(BaseExecutionMode):
 
     async def _run_complex(
         self,
-        agent: "Agent",
+        agent: Agent,
         task: Task,
         decomposer: Decomposer,
         analysis: TaskAnalysis,
@@ -284,7 +280,7 @@ class AutonomousMode(BaseExecutionMode):
 
     async def _stream_complex(
         self,
-        agent: "Agent",
+        agent: Agent,
         task: Task,
         decomposer: Decomposer,
         analysis: TaskAnalysis,
@@ -293,7 +289,7 @@ class AutonomousMode(BaseExecutionMode):
         async for event in runner.run_stream(agent, task, decomposer, analysis):
             yield event
 
-    def _build_complex_runner(self, agent: "Agent") -> ComplexRunner:
+    def _build_complex_runner(self, agent: Agent) -> ComplexRunner:
         return ComplexRunner(
             mode=self,
             std_mode=StandardMode(),
@@ -311,7 +307,7 @@ class AutonomousMode(BaseExecutionMode):
 
     async def _run_critic(
         self,
-        agent: "Agent",
+        agent: Agent,
         critic: Critic,
         task_objective: str,
         result: Any,
@@ -324,7 +320,7 @@ class AutonomousMode(BaseExecutionMode):
 
     async def _run_refiner(
         self,
-        agent: "Agent",
+        agent: Agent,
         refiner: Refiner,
         task_objective: str,
         candidate: Any,

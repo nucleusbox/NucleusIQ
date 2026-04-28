@@ -20,8 +20,18 @@ def _msg(
 
 
 class TestPostResponse:
+    """Masker mechanics — these tests isolate the masker from the budget gate.
+
+    Context Mgmt v2 — Step 1 introduced ``squeeze_threshold`` (default 0.70)
+    so the masker only runs once budget pressure is real.  These tests
+    verify the masker's *behaviour* (marker shape, counters, store
+    side-effects) and therefore explicitly set ``squeeze_threshold=0.0``
+    to bypass the gate.  Gate behaviour itself is covered in
+    ``test_squeeze_gate.py``.
+    """
+
     def test_masks_consumed_tool_results(self):
-        config = ContextConfig(optimal_budget=10_000)
+        config = ContextConfig(optimal_budget=10_000, squeeze_threshold=0.0)
         engine = ContextEngine(config, max_tokens=128_000)
 
         messages = [
@@ -37,7 +47,7 @@ class TestPostResponse:
         assert tel.tokens_masked > 0
 
     def test_no_masking_when_disabled(self):
-        config = ContextConfig(enable_observation_masking=False)
+        config = ContextConfig(enable_observation_masking=False, squeeze_threshold=0.0)
         engine = ContextEngine(config, max_tokens=128_000)
 
         messages = [
@@ -50,7 +60,11 @@ class TestPostResponse:
 
     def test_no_masking_when_strategy_none(self):
         """ObservationMasker respects enable_observation_masking, not strategy."""
-        config = ContextConfig(strategy="none", enable_observation_masking=True)
+        config = ContextConfig(
+            strategy="none",
+            enable_observation_masking=True,
+            squeeze_threshold=0.0,
+        )
         engine = ContextEngine(config, max_tokens=128_000)
 
         messages = [
@@ -61,7 +75,7 @@ class TestPostResponse:
         assert "[observation consumed" in result[0].content
 
     def test_content_preserved_in_store(self):
-        config = ContextConfig(optimal_budget=10_000)
+        config = ContextConfig(optimal_budget=10_000, squeeze_threshold=0.0)
         engine = ContextEngine(config, max_tokens=128_000)
         original = "D" * 1000
 
@@ -166,7 +180,8 @@ class TestCostTelemetry:
 
     @pytest.mark.asyncio
     async def test_masking_tokens_included_in_freed_total(self):
-        config = ContextConfig(optimal_budget=10_000)
+        # squeeze_threshold=0.0 — isolate this assertion from the v2 gate.
+        config = ContextConfig(optimal_budget=10_000, squeeze_threshold=0.0)
         engine = ContextEngine(config, max_tokens=128_000)
 
         messages = [

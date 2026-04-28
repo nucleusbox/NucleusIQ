@@ -31,13 +31,13 @@ if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
 
 
-def _tracer(agent: "Agent") -> Any:
+def _tracer(agent: Agent) -> Any:
     """Return the agent's tracer or ``None``."""
     return getattr(agent, "_tracer", None)
 
 
 def record_validation(
-    agent: "Agent",
+    agent: Agent,
     attempt: int,
     valid: bool,
     layer: str,
@@ -61,7 +61,7 @@ def record_validation(
 
 
 def record_revision(
-    agent: "Agent",
+    agent: Agent,
     attempt: int,
     critique: CritiqueResult,
     revision: RevisionCandidate,
@@ -87,7 +87,7 @@ def record_revision(
 
 
 def record_critic_verdict(
-    agent: "Agent",
+    agent: Agent,
     attempt: int,
     critique: CritiqueResult,
 ) -> None:
@@ -111,7 +111,7 @@ def record_critic_verdict(
 
 
 def record_escalation(
-    agent: "Agent",
+    agent: Agent,
     attempt: int,
     reason: EscalationReason,
     before: ComputeBudget,
@@ -145,7 +145,7 @@ def record_escalation(
 
 
 def set_autonomous_detail(
-    agent: "Agent",
+    agent: Agent,
     attempts: int,
     max_attempts: int,
     sub_tasks: tuple[str, ...] = (),
@@ -172,7 +172,7 @@ def set_autonomous_detail(
         pass
 
 
-def rollup_sub_agent_metrics(agent: "Agent", sub_results: list) -> None:
+def rollup_sub_agent_metrics(agent: Agent, sub_results: list) -> None:
     """Roll up sub-agent LLM / tool / context telemetry into the parent.
 
     Called after ``Decomposer.run_sub_tasks`` in the complex path.  The
@@ -190,9 +190,7 @@ def rollup_sub_agent_metrics(agent: "Agent", sub_results: list) -> None:
             tracer.record_llm_call(
                 LLMCallRecord(
                     round=len(tracer._llm_calls) + 1,
-                    purpose=(
-                        f"sub-agent:{lc.purpose}" if lc.purpose else "sub-agent"
-                    ),
+                    purpose=(f"sub-agent:{lc.purpose}" if lc.purpose else "sub-agent"),
                     model=lc.model,
                     prompt_tokens=lc.prompt_tokens,
                     completion_tokens=lc.completion_tokens,

@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Any
 
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.components.critic import (
-    CriticLimits,
-    CritiqueResult,
     REASONING_LIMITS,
     STANDARD_LIMITS,
+    CriticLimits,
+    CritiqueResult,
 )
 from nucleusiq.agents.components.validation import ValidationResult
 
@@ -29,11 +29,9 @@ if TYPE_CHECKING:
 # ------------------------------------------------------------------ #
 
 
-def select_critic_limits(agent: "Agent") -> CriticLimits:
+def select_critic_limits(agent: Agent) -> CriticLimits:
     """Pick REASONING or STANDARD limits based on the agent's LLM."""
-    is_reasoning = getattr(
-        getattr(agent, "llm", None), "is_reasoning_model", False
-    )
+    is_reasoning = getattr(getattr(agent, "llm", None), "is_reasoning_model", False)
     return REASONING_LIMITS if is_reasoning else STANDARD_LIMITS
 
 
@@ -55,30 +53,58 @@ def is_error_result(result: Any) -> bool:
 def summarize_tool_results(
     messages: list[ChatMessage],
     *,
-    max_chars: int = 4_000,
-    per_item_chars: int = 500,
-    content_store: "ContentStore | None" = None,
+    per_tool_char_cap: int | None = None,
+    total_char_cap: int | None = None,
+    content_store: ContentStore | None = None,
 ) -> str | None:
-    """Build a bounded summary of ``role='tool'`` messages for the Refiner.
+    """Return rehydrated tool-result evidence for the Refiner.
 
-    Each tool result is head-truncated to ``per_item_chars`` and entries
-    accumulate up to ``max_chars`` total.  Returns ``None`` if no tool
-    messages are present.
+    v0.7.8 — the pre-existing head-truncation (``per_item_chars=500``,
+    total ``max_chars=4_000``) has been removed.  It was the primary
+    cause of the post-F1-F9 Refiner regression: the Refiner asked for
+    evidence, the helper rehydrated the real tool content, then
+    silently sliced the first 500 chars of each result (invariably
+    boilerplate for structured documents) and discarded the rest.
 
-    When ``content_store`` is provided and the ``ObservationMasker``
-    has collapsed earlier tool results into markers, the summary is
-    built from the rehydrated raw content (F2).  Without rehydration
-    the Refiner would "summarise summaries" — which is exactly how
-    opaque markers turned into compounding information loss in the
-    gpt-5.2 Task E regression.
+    New behaviour:
+
+    * When ``content_store`` is provided, each ``role='tool'`` message
+      is rehydrated through ``extract_raw_trace`` using
+      ``per_tool_char_cap`` as the per-result budget.
+    * When ``per_tool_char_cap`` is ``None``, the helper applies no
+      per-tool truncation at all (callers that can see both the LLM's
+      context window and the number of tool results should always
+      pass a cap; absence means "give me everything").
+    * ``total_char_cap`` is an optional aggregate safety ceiling —
+      when provided, concatenation stops once the running byte count
+      reaches it.  Intended to guard against a 400K-char PDF batch
+      overflowing a small-context model even when each per-tool slice
+      is within budget.
+    * Returns ``None`` if no ``role='tool'`` messages are present.
+
+    Args:
+        messages: Conversation messages.
+        per_tool_char_cap: Adaptive per-tool-result char cap (see
+            ``compute_per_tool_cap``).  ``None`` means no per-tool
+            truncation.
+        total_char_cap: Aggregate char ceiling across all tool
+            results.  ``None`` means no aggregate ceiling.
+        content_store: ``ContentStore`` used to rehydrate masked
+            observations.  When ``None`` the messages are formatted
+            as-is.
     """
     if content_store is not None:
         from nucleusiq.agents.context.store import extract_raw_trace
 
+        # When no per-tool cap is supplied, pass the extract_raw_trace
+        # ceiling so a single pathological result doesn't balloon the
+        # Refiner prompt — 50K chars matches the v0.7.8
+        # ``tool_result_per_call_max_chars`` default.
+        effective_cap = per_tool_char_cap if per_tool_char_cap is not None else 50_000
         messages = extract_raw_trace(
             messages,
             content_store,
-            max_chars_per_result=per_item_chars * 4,
+            max_chars_per_result=effective_cap,
         )
     parts: list[str] = []
     total = 0
@@ -88,10 +114,9 @@ def summarize_tool_results(
         content = str(getattr(msg, "content", "") or "")
         if not content:
             continue
-        excerpt = content[:per_item_chars]
         tool_name = getattr(msg, "name", None) or "tool"
-        entry = f"[{tool_name}] {excerpt}"
-        if total + len(entry) + 1 > max_chars:
+        entry = f"[{tool_name}] {content}"
+        if total_char_cap is not None and total + len(entry) + 1 > total_char_cap:
             break
         parts.append(entry)
         total += len(entry) + 1

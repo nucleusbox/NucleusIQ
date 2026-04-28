@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.7](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.7) — 2026-04-27
+
+### Added
+
+- Context Management v2 recall and masking tests covering policy classification, squeeze gating, marker parsing, synthesis rehydration, recall round-trips, and streaming/non-streaming masking symmetry.
+- Autonomous-mode stability tests covering Critic/Refiner routing, abstention, compute-budget escalation, and tool-budget synthesis behavior.
+- Tool deduplication metadata via opt-in `BaseTool.idempotent` / `@tool(idempotent=True)`. The default remains `False` so live-data tools are never deduplicated unless explicitly declared safe.
+
+### Changed
+
+- Stabilized Context Management v2 around one `Compactor`, bounded observation markers, recallable offload, and synthesis-time rehydration.
+- Kept `ContextConfig.squeeze_threshold=0.70` as the stable default after validating that later masking can miss hard context limits on PDF-heavy runs.
+- Bounded marker previews to a small orientation preview only for large tool results, preventing marker bloat from becoming a second evidence store.
+- Restored Task E to the normal benchmark surface (`list_pdf_inventory` + `read_annual_report_excerpt`) and quarantined evidence-pack/search helpers as experiment-only artifacts, not framework behavior.
+
+### Fixed
+
+- Synthesis rehydration now uses the engine's resolved model context window when `ContextConfig.max_context_tokens` is auto-detected, instead of silently skipping rehydration when the config field is `None`.
+- `AgentResult` now surfaces legacy mode error-string sentinels as `status=error` when the agent state is already `ERROR`, including a stable `ToolCallLimitError` classification for exhausted tool budgets.
+- Standard mode forces a tools-free synthesis pass when the configured tool-call cap is reached and synthesis is enabled, so autonomous runs can still reach validation/refinement instead of stopping at a raw tool-limit string.
+
+### Provider Updates
+
+- **OpenAI provider (`nucleusiq-openai` 0.6.3)** — keeps provider behavior in sync with the stable V2 core changes, including Responses/Chat tool conversion and response-normalization fixes covered by provider tests.
+- **Gemini provider (`nucleusiq-gemini` 0.2.5)** — keeps Gemini response normalization and base-call behavior aligned with the updated core message/tool contracts.
+
+### Validation
+
+- Focused stable gates: `1340 passed` across `src/nucleusiq/tests/unit/context`, `src/nucleusiq/tests/agents/unit`, `test_context_management_e2e.py`, and `test_recall_round_trip_e2e.py`.
+- Full local gate excluding provider-backed memory integration: `2469 passed, 2 skipped`.
+- Full local gate including provider-backed memory integration: `2469 passed, 2 skipped, 8 failed` because the configured OpenAI project returned `403 model_not_found` for `gpt-4o-mini`. These are external/provider access failures, not release-blocking framework regressions.
+
+### Known Limitations
+
+- This release does not claim that long evidence-heavy tasks are fully solved.
+- Task E is not production-grade on `gpt-5.2`; it remains an internal research benchmark.
+- Workspace state, document search, evidence dossier, and autonomous phase control are deferred to the next feature line.
+
+### Packages
+
+| Package            | Version   | Note                                                                 |
+| ------------------ | --------- | -------------------------------------------------------------------- |
+| `nucleusiq`        | **0.7.7** | Stable V2 context/autonomous framework release                       |
+| `nucleusiq-openai` | **0.6.3** | Provider sync for stable V2 message/tool contracts (`nucleusiq>=0.7.7`) |
+| `nucleusiq-gemini` | **0.2.5** | Provider sync for stable V2 message/tool contracts (`nucleusiq>=0.7.7`) |
+
 ## [0.7.6](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.6) — 2026-04-10
 
 ### Breaking Changes

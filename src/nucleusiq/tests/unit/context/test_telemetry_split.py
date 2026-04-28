@@ -38,7 +38,10 @@ def _assistant_with_tool_call(tc_id: str, tool_name: str, arguments: str = "{}")
 
 
 def _build_engine() -> ContextEngine:
-    return ContextEngine(ContextConfig(), max_tokens=128_000)
+    # v2 step 1: these tests assert telemetry split semantics
+    # (masker vs compactor accounting), not gate behaviour.  Disable
+    # the squeeze gate so the masker fires deterministically.
+    return ContextEngine(ContextConfig(squeeze_threshold=0.0), max_tokens=128_000)
 
 
 # ------------------------------------------------------------------ #
@@ -126,7 +129,9 @@ def test_total_always_equals_sum_of_parts():
     )
 
     tel = engine.telemetry
-    assert tel.tokens_freed_total == tel.masker_tokens_freed + tel.compactor_tokens_freed
+    assert (
+        tel.tokens_freed_total == tel.masker_tokens_freed + tel.compactor_tokens_freed
+    )
     assert tel.masker_tokens_freed > 0
     assert tel.compactor_tokens_freed == 400
 

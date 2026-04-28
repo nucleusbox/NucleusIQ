@@ -284,8 +284,14 @@ class TestEmergencyCompactor:
         ]
         result = await ec.compact(msgs, _budget(), ContextConfig(), _counter, None)
         roles = [m.role for m in result.messages]
+        # I1 (Context Mgmt v2 — Step 2): the first user message is pinned
+        # right after the system head, so the compaction marker sits at
+        # index 2, not 1.
         assert roles[0] == "system"
-        assert "system" in roles[1]
+        assert roles[1] == "user"  # pinned original task (q1)
+        assert result.messages[1].content == "q1"
+        assert roles[2] == "system"  # compaction marker
+        assert "CONTEXT COMPACTED" in result.messages[2].content
 
 
 # ------------------------------------------------------------------ #
@@ -479,8 +485,14 @@ class TestContextEngineExtended:
         assert tel.estimated_cost_without_mgmt > tel.estimated_cost_with_mgmt
 
     def test_budget_property(self):
+        # v0.7.9: set optimal_budget explicitly so this coverage test
+        # keeps asserting an exact tokens value (otherwise the adaptive
+        # resolver would yield 0.7 × 10_000 = 7_000).
         engine = ContextEngine(
-            config=ContextConfig(max_context_tokens=10_000),
+            config=ContextConfig(
+                max_context_tokens=10_000,
+                optimal_budget=10_000,
+            ),
             token_counter=DefaultTokenCounter(),
             max_tokens=10_000,
         )

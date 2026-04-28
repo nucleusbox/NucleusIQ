@@ -58,10 +58,25 @@ class CompactionStrategy(ABC):
         config: ContextConfig,
         token_counter: TokenCounter,
         store: ContentStore | None = None,
+        *,
+        hot_set: frozenset[str] | None = None,
     ) -> CompactionResult:
         """Apply compaction to messages.
 
         Must return a new (possibly shorter) message list and report
         how many tokens were freed.  Must NOT mutate the input list.
+
+        Args:
+            hot_set: (Context Mgmt v2 — Step 2) Optional set of
+                ``ContentStore`` keys recently fetched via
+                ``recall_tool_result``.  Strategies that evict
+                conversation turns must refuse to evict any tool
+                message whose marker references a key in this set —
+                doing so would silently undo the model's most recent
+                memory operation and create a confusing churn loop.
+                ``None`` (default) means "no hot-set hint available;
+                use the same eviction rules as before".  Empty set is
+                semantically equivalent to ``None`` (zero entries to
+                rescue).
         """
         ...

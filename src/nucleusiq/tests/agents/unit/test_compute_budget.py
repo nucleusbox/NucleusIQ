@@ -10,7 +10,6 @@ that those runners rely on.
 from __future__ import annotations
 
 import pytest
-
 from nucleusiq.agents.components.compute_budget import (
     DEFAULT_RUN_TOKEN_CEILING,
     HARD_TOKEN_CEILING,
@@ -25,7 +24,6 @@ from nucleusiq.agents.components.compute_budget import (
     decide_next_action,
 )
 from nucleusiq.agents.components.critic import CritiqueResult, Verdict
-
 
 # --------------------------------------------------------------------- #
 # Helpers
@@ -276,18 +274,24 @@ class TestRecordTokens:
 class TestDecisionAccept:
     def test_pass_always_accepts_regardless_of_score(self) -> None:
         c = _critique(Verdict.PASS, 0.0)
-        d = decide_next_action(c, [c], _budget(), attempt=0, uncertain_accept_threshold=0.7)
+        d = decide_next_action(
+            c, [c], _budget(), attempt=0, uncertain_accept_threshold=0.7
+        )
         assert d.action == Action.STOP_ACCEPT
         assert d.escalation_reason is None
 
     def test_uncertain_above_threshold_accepts(self) -> None:
         c = _critique(Verdict.UNCERTAIN, 0.75)
-        d = decide_next_action(c, [c], _budget(), attempt=0, uncertain_accept_threshold=0.7)
+        d = decide_next_action(
+            c, [c], _budget(), attempt=0, uncertain_accept_threshold=0.7
+        )
         assert d.action == Action.STOP_ACCEPT
 
     def test_uncertain_exactly_at_threshold_accepts(self) -> None:
         c = _critique(Verdict.UNCERTAIN, 0.7)
-        d = decide_next_action(c, [c], _budget(), attempt=0, uncertain_accept_threshold=0.7)
+        d = decide_next_action(
+            c, [c], _budget(), attempt=0, uncertain_accept_threshold=0.7
+        )
         assert d.action == Action.STOP_ACCEPT
 
 
@@ -459,18 +463,14 @@ class TestDecisionUncertainFar:
     def test_retries_when_budget_left(self) -> None:
         cur = _critique(Verdict.UNCERTAIN, 0.3)  # far below threshold
         b = _budget(max_retries=3)
-        d = decide_next_action(
-            cur, [cur], b, attempt=0, uncertain_accept_threshold=0.7
-        )
+        d = decide_next_action(cur, [cur], b, attempt=0, uncertain_accept_threshold=0.7)
         assert d.action == Action.RETRY
         assert d.escalation_reason is None
 
     def test_abstains_when_budget_exhausted(self) -> None:
         cur = _critique(Verdict.UNCERTAIN, 0.3)
         b = _budget(max_retries=3)
-        d = decide_next_action(
-            cur, [cur], b, attempt=2, uncertain_accept_threshold=0.7
-        )
+        d = decide_next_action(cur, [cur], b, attempt=2, uncertain_accept_threshold=0.7)
         assert d.action == Action.STOP_ABSTAIN
 
 
@@ -490,3 +490,191 @@ class TestEscalationDecisionModel:
         b = _budget()
         d = EscalationDecision(action=Action.RETRY, budget=b)
         assert d.escalation_reason is None
+
+
+# --------------------------------------------------------------------- #
+# F5 — AbstainReason propagation on EscalationDecision
+# --------------------------------------------------------------------- #
+
+
+class TestAbstainReasonPropagation:
+    """F5 — every ``STOP_ABSTAIN`` verdict must carry a machine-readable
+    reason, and every non-abstain verdict must leave ``abstain_reason``
+    as ``None``.  This is the contract that runners rely on to stamp
+    ``AgentResult.abstention_code`` without string-matching feedback.
+    """
+
+    def test_non_abstain_decisions_have_no_reason(self) -> None:
+        """PASS / RETRY / STOP_ACCEPT must never carry an abstain_reason."""
+        b = _budget(max_retries=3)
+
+        pass_c = _critique(Verdict.PASS, 0.95)
+        d = decide_next_action(
+            pass_c, [pass_c], b, attempt=0, uncertain_accept_threshold=0.7
+        )
+        assert d.action == Action.STOP_ACCEPT
+        assert d.abstain_reason is None
+
+        fail_c = _critique(Verdict.FAIL, 0.2)
+        d = decide_next_action(
+            fail_c, [fail_c], b, attempt=0, uncertain_accept_threshold=0.7
+        )
+        assert d.action == Action.RETRY
+        assert d.abstain_reason is None
+
+    def test_budget_exhausted_on_fail_sets_budget_exhausted_reason(self) -> None:
+        """Final-attempt FAIL with no delta history -> budget_exhausted."""
+        cur = _critique(Verdict.FAIL, 0.2)
+        b = _budget(max_retries=3)
+        d = decide_next_action(cur, [cur], b, attempt=2, uncertain_accept_threshold=0.7)
+        assert d.action == Action.STOP_ABSTAIN
+        assert d.abstain_reason == "budget_exhausted"
+
+    def test_budget_exhausted_on_uncertain_close_sets_budget_exhausted(
+        self,
+    ) -> None:
+        c = _critique(Verdict.UNCERTAIN, 0.65)
+        b = _budget(
+            max_retries=3,
+            escalations_used=MAX_ESCALATIONS_PER_RUN,
+        )
+        d = decide_next_action(c, [c], b, attempt=2, uncertain_accept_threshold=0.7)
+        assert d.action == Action.STOP_ABSTAIN
+        assert d.abstain_reason == "budget_exhausted"
+
+    def test_budget_exhausted_on_uncertain_far_sets_budget_exhausted(self) -> None:
+        cur = _critique(Verdict.UNCERTAIN, 0.3)
+        b = _budget(max_retries=3)
+        d = decide_next_action(cur, [cur], b, attempt=2, uncertain_accept_threshold=0.7)
+        assert d.action == Action.STOP_ABSTAIN
+        assert d.abstain_reason == "budget_exhausted"
+
+    def test_stuck_after_escalation_guard_sets_specific_reason(self) -> None:
+        """F3.1 futile-escalation guard fires with its own reason code —
+        this is how the harness tells 'ran out of retries' apart from
+        'refused to spend more compute because it's futile'."""
+        prev = _critique(Verdict.FAIL, 0.22)
+        cur = _critique(Verdict.FAIL, 0.22)  # delta = 0.0
+        b = _budget(max_retries=5, escalations_used=1)
+        d = decide_next_action(
+            cur, [prev, cur], b, attempt=3, uncertain_accept_threshold=0.7
+        )
+        assert d.action == Action.STOP_ABSTAIN
+        assert d.abstain_reason == "stuck_after_escalation"
+
+    def test_budget_exhausted_with_real_progress_on_final_attempt(self) -> None:
+        """FAIL with improvement delta >= IMPROVEMENT_DELTA at the final
+        attempt still abstains — progress was real but we ran out of
+        retries.  This is budget_exhausted, NOT stuck_after_escalation."""
+        prev = _critique(Verdict.FAIL, 0.20)
+        cur = _critique(Verdict.FAIL, 0.20 + IMPROVEMENT_DELTA + 0.05)
+        b = _budget(max_retries=3, escalations_used=0)
+        d = decide_next_action(
+            cur, [prev, cur], b, attempt=2, uncertain_accept_threshold=0.7
+        )
+        assert d.action == Action.STOP_ABSTAIN
+        assert d.abstain_reason == "budget_exhausted"
+
+    def test_all_abstain_reasons_are_in_typed_literal(self) -> None:
+        """Every value decide_next_action emits must be one of the
+        closed AbstainReason literals.  Breaking this breaks typed
+        downstream code (e.g. experiment harness) silently."""
+        from typing import get_args
+
+        from nucleusiq.agents.components.compute_budget import AbstainReason
+
+        allowed = set(get_args(AbstainReason))
+        assert allowed == {"budget_exhausted", "stuck_after_escalation"}
+
+        # Exhaustively drive both emission paths and check.
+        emitted: set[str] = set()
+
+        # budget_exhausted path
+        cur = _critique(Verdict.FAIL, 0.2)
+        d = decide_next_action(
+            cur,
+            [cur],
+            _budget(max_retries=3),
+            attempt=2,
+            uncertain_accept_threshold=0.7,
+        )
+        assert d.abstain_reason is not None
+        emitted.add(d.abstain_reason)
+
+        # stuck_after_escalation path
+        prev = _critique(Verdict.FAIL, 0.22)
+        cur = _critique(Verdict.FAIL, 0.22)
+        d = decide_next_action(
+            cur,
+            [prev, cur],
+            _budget(max_retries=5, escalations_used=1),
+            attempt=3,
+            uncertain_accept_threshold=0.7,
+        )
+        assert d.abstain_reason is not None
+        emitted.add(d.abstain_reason)
+
+        assert emitted <= allowed
+        assert emitted == allowed, (
+            "decide_next_action should emit every defined AbstainReason "
+            "from at least one code path (otherwise the literal has dead "
+            "values)."
+        )
+
+
+# --------------------------------------------------------------------- #
+# F5 — AbstentionSignal carries the structured reason through to callers
+# --------------------------------------------------------------------- #
+
+
+class TestAbstentionSignalCarriesReason:
+    """F5 — ``AbstentionSignal.abstain_reason`` is the contract that
+    ``agent.py`` uses to stamp ``AgentResult.abstention_code``.  We lock
+    in that:
+
+        * the constructor accepts the reason as a keyword-only arg,
+        * it is preserved as an attribute on the raised signal,
+        * omitting it keeps the legacy ``reason=None`` behaviour.
+    """
+
+    def test_signal_accepts_and_stores_abstain_reason(self) -> None:
+        from nucleusiq.agents.agent_result import AbstentionSignal
+        from nucleusiq.agents.components.critic import CritiqueResult, Verdict
+
+        crit = CritiqueResult(verdict=Verdict.FAIL, score=0.2, feedback="x")
+        sig = AbstentionSignal(
+            best_candidate="best",
+            critique=crit,
+            reason="critic rejected",
+            abstain_reason="budget_exhausted",
+        )
+        assert sig.abstain_reason == "budget_exhausted"
+        assert sig.best_candidate == "best"
+        assert sig.critique is crit
+
+    def test_signal_defaults_abstain_reason_to_none(self) -> None:
+        from nucleusiq.agents.agent_result import AbstentionSignal
+        from nucleusiq.agents.components.critic import CritiqueResult, Verdict
+
+        crit = CritiqueResult(verdict=Verdict.FAIL, score=0.2, feedback="x")
+        sig = AbstentionSignal(best_candidate=None, critique=crit, reason="no reason")
+        # Legacy constructor shape: abstain_reason simply missing -> None.
+        assert sig.abstain_reason is None
+
+    def test_signal_is_raisable_and_keeps_reason_code(self) -> None:
+        """Critical: the code path through ``agent.run`` catches the
+        signal and reads ``.abstain_reason`` off the caught instance,
+        so we must be able to ``raise`` and ``except`` without losing
+        the reason."""
+        from nucleusiq.agents.agent_result import AbstentionSignal
+        from nucleusiq.agents.components.critic import CritiqueResult, Verdict
+
+        crit = CritiqueResult(verdict=Verdict.FAIL, score=0.2, feedback="x")
+        with pytest.raises(AbstentionSignal) as exc_info:
+            raise AbstentionSignal(
+                best_candidate="x",
+                critique=crit,
+                reason="nope",
+                abstain_reason="stuck_after_escalation",
+            )
+        assert exc_info.value.abstain_reason == "stuck_after_escalation"

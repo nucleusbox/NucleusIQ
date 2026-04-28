@@ -128,6 +128,33 @@ class TestToolCallProcessing:
         assert "Maximum tool calls" in result
 
     @pytest.mark.asyncio
+    async def test_max_tool_calls_forces_synthesis_when_enabled(self):
+        """Tool cap should transition to synthesis instead of returning an error."""
+        tool = _make_inc_tool()
+
+        tc1 = {"id": "call_1", "function": {"name": "inc", "arguments": "{}"}}
+        tc2 = {"id": "call_2", "function": {"name": "inc", "arguments": "{}"}}
+
+        llm = MockLLM()
+        llm.call = AsyncMock(
+            side_effect=[
+                _build_tool_resp([tc1]),
+                _build_tool_resp([tc2]),
+                _build_text_resp("final synthesized answer"),
+            ]
+        )
+
+        agent = _make_agent(llm=llm, tools=[tool])
+        agent.config.max_tool_calls = 2
+        await agent.initialize()
+
+        mode = StandardMode()
+        result = await mode.run(agent, {"id": "1", "objective": "x"})
+
+        assert result == "final synthesized answer"
+        assert llm.call.await_args.kwargs["tools"] is None
+
+    @pytest.mark.asyncio
     async def test_tool_call_missing_name(self):
         tc = {"id": "call_1", "function": {"name": None, "arguments": "{}"}}
 

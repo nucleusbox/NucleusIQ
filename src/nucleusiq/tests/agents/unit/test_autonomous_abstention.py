@@ -74,7 +74,9 @@ def _pass_critic() -> AsyncMock:
 def _fail_critic(feedback: str = "answer is wrong") -> AsyncMock:
     return AsyncMock(
         return_value=CritiqueResult(
-            verdict=Verdict.FAIL, score=0.1, feedback=feedback,
+            verdict=Verdict.FAIL,
+            score=0.1,
+            feedback=feedback,
         ),
     )
 
@@ -82,7 +84,9 @@ def _fail_critic(feedback: str = "answer is wrong") -> AsyncMock:
 def _uncertain_critic(score: float = 0.5) -> AsyncMock:
     return AsyncMock(
         return_value=CritiqueResult(
-            verdict=Verdict.UNCERTAIN, score=score, feedback="not sure",
+            verdict=Verdict.UNCERTAIN,
+            score=score,
+            feedback="not sure",
         ),
     )
 
@@ -229,9 +233,12 @@ class TestSimpleRunnerAbstention:
     @pytest.mark.asyncio
     async def test_uncertain_below_threshold_abstains(self):
         """UNCERTAIN with score < 0.7 on *every* retry -> abstain."""
-        agent = _make_agent(config=AgentConfig(
-            execution_mode=ExecutionMode.AUTONOMOUS, max_retries=2,
-        ))
+        agent = _make_agent(
+            config=AgentConfig(
+                execution_mode=ExecutionMode.AUTONOMOUS,
+                max_retries=2,
+            )
+        )
         mode = AutonomousMode()
 
         critic = _uncertain_critic(score=0.5)
@@ -249,9 +256,12 @@ class TestNoFinalAttemptBypass:
     async def test_critic_runs_on_final_attempt(self):
         """With ``max_retries=1`` the Critic is called exactly once and the
         outcome governs whether we abstain."""
-        agent = _make_agent(config=AgentConfig(
-            execution_mode=ExecutionMode.AUTONOMOUS, max_retries=1,
-        ))
+        agent = _make_agent(
+            config=AgentConfig(
+                execution_mode=ExecutionMode.AUTONOMOUS,
+                max_retries=1,
+            )
+        )
         mode = AutonomousMode()
 
         critic = _fail_critic()
@@ -320,3 +330,101 @@ class TestAgentExecuteStreamAbstention:
 
         error_evs = [e for e in events if e.type == "error"]
         assert any("ABSTAINED" in (e.message or "") for e in error_evs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# F5 — AbstainReason propagated end-to-end through Agent.execute
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestF5AbstentionCodePropagation:
+    """F5 — the ``abstain_reason`` computed by ``decide_next_action`` must
+    survive the trip through the runner, ``AbstentionSignal``, and
+    ``agent._build_result`` as ``AgentResult.abstention_code``.  This is
+    the contract the experiment harness uses to tell 'ran out of
+    retries' (``budget_exhausted``) apart from 'refused to keep
+    spending compute because it's futile' (``stuck_after_escalation``)
+    without pattern-matching free-form feedback.
+    """
+
+    @pytest.mark.asyncio
+    async def test_result_carries_budget_exhausted_code(self):
+        """Single-shot FAIL (``max_retries=1``) has no history to build
+        a delta, so the loop cannot escalate; ``decide_next_action``
+        must emit ``budget_exhausted`` and the agent must surface it as
+        ``AgentResult.abstention_code``."""
+        agent = _make_agent(
+            config=AgentConfig(
+                execution_mode=ExecutionMode.AUTONOMOUS,
+                max_retries=1,
+            )
+        )
+
+        with patch.object(AutonomousMode, "_run_critic", new=_fail_critic("bad")):
+            result = await agent.execute(_make_task())
+
+        assert result.status == ResultStatus.ABSTAINED
+        assert result.abstention_code == "budget_exhausted", (
+            f"Expected 'budget_exhausted', got {result.abstention_code!r}. "
+            "F5 requires decide_next_action's abstain_reason to flow "
+            "through AbstentionSignal and into AgentResult."
+        )
+
+    @pytest.mark.asyncio
+    async def test_result_carries_stuck_after_escalation_code(self):
+        """Multi-attempt FAIL with delta=0 across retries triggers the
+        F3.1 futile-escalation guard; the code must reach the caller."""
+        agent = _make_agent(
+            config=AgentConfig(
+                execution_mode=ExecutionMode.AUTONOMOUS,
+                max_retries=2,
+            )
+        )
+
+        with patch.object(AutonomousMode, "_run_critic", new=_fail_critic("bad")):
+            result = await agent.execute(_make_task())
+
+        assert result.status == ResultStatus.ABSTAINED
+        assert result.abstention_code == "stuck_after_escalation", (
+            f"Expected 'stuck_after_escalation', got "
+            f"{result.abstention_code!r}.  F3.1 guard should fire when "
+            "delta=0 after the first escalation, and F5 should surface "
+            "that as a structured code."
+        )
+
+    @pytest.mark.asyncio
+    async def test_success_result_has_no_abstention_code(self):
+        """PASS verdicts must leave abstention_code as None."""
+        agent = _make_agent()
+
+        with patch.object(AutonomousMode, "_run_critic", new=_pass_critic()):
+            result = await agent.execute(_make_task())
+
+        assert result.status == ResultStatus.SUCCESS
+        assert result.abstention_code is None
+
+    @pytest.mark.asyncio
+    async def test_stream_error_event_tags_abstain_code(self):
+        """Streaming path prefixes the error_event message with the
+        structured code so UIs can render e.g.
+        ``ABSTAINED[budget_exhausted]`` without parsing feedback."""
+        agent = _make_agent(
+            config=AgentConfig(
+                execution_mode=ExecutionMode.AUTONOMOUS,
+                max_retries=1,
+            )
+        )
+
+        with patch.object(AutonomousMode, "_run_critic", new=_fail_critic("bad")):
+            events = []
+            async for event in agent.execute_stream(_make_task()):
+                events.append(event)
+
+        error_evs = [e for e in events if e.type == "error"]
+        assert error_evs, "expected at least one error event on abstention"
+        assert any(
+            "ABSTAINED[budget_exhausted]" in (e.message or "") for e in error_evs
+        ), (
+            "F5 requires the streaming error_event to carry the "
+            "structured abstain_reason code."
+        )

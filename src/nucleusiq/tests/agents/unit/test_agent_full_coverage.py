@@ -467,9 +467,7 @@ class TestAutonomousModeRun:
         with patch.object(
             AutonomousMode,
             "_run_critic",
-            new=AsyncMock(
-                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
-            ),
+            new=AsyncMock(return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)),
         ):
             result = await mode.run(agent, {"id": "1", "objective": "test task"})
         assert isinstance(result, str)
@@ -496,9 +494,7 @@ class TestAutonomousModeRun:
         with patch.object(
             AutonomousMode,
             "_run_critic",
-            new=AsyncMock(
-                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
-            ),
+            new=AsyncMock(return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)),
         ):
             result = await mode.run(agent, {"id": "1", "objective": "compute"})
         assert result is not None
@@ -515,9 +511,7 @@ class TestAutonomousModeRun:
         with patch.object(
             AutonomousMode,
             "_run_critic",
-            new=AsyncMock(
-                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
-            ),
+            new=AsyncMock(return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)),
         ):
             result = await mode.run(agent, {"id": "1", "objective": "test"})
         assert isinstance(result, str)

@@ -225,9 +225,15 @@ def _assistant_with_tool_call(
 
 
 class TestMarkerStructuredSlots:
-    """F1 — Marker carries tool, args, ref, size, summary slots."""
+    """F1 (v0.7.8) — Marker carries tool, args, ref, size only.
 
-    def test_marker_contains_all_five_slots(self, masker, counter, store):
+    The ``summary`` slot was removed in v0.7.8 because its head-
+    truncated first-200-chars were boilerplate for structured
+    payloads and encouraged the Generator to hallucinate from the
+    teaser instead of rehydrating the real content.
+    """
+
+    def test_marker_contains_four_honest_slots(self, masker, counter, store):
         messages = [
             _msg("system", "You are helpful."),
             _msg("user", "Compute 2+2"),
@@ -255,12 +261,23 @@ class TestMarkerStructuredSlots:
         assert lines[2].startswith("args: ")
         assert lines[3].startswith("ref: ")
         assert lines[4].startswith("size: ")
-        assert lines[5].startswith("summary: ")
+        # Context Mgmt v2 — Step 2: marker carries an explicit recall
+        # hint so the model learns the tool from the marker itself
+        # (belt-and-suspenders with the auto-injected tool spec).
+        assert lines[5].startswith("To retrieve: call recall_tool_result(")
         assert "calculator" in lines[1]
         assert "2+2" in lines[2]  # args preview looked up from upstream tool_call
         assert "obs:calculator:" in lines[3]  # store key
         assert "tokens" in lines[4]
-        assert "result is 4" in lines[5]  # summary is from content
+        # The recall hint quotes the same ref that lines[3] carries —
+        # cheap data integrity check.
+        ref_value = lines[3].split("ref:", 1)[1].strip()
+        assert f'ref="{ref_value}"' in lines[5]
+        # v0.7.8 regression guard: the marker MUST NOT contain a summary
+        # slot because it head-truncates to first-N chars which is
+        # boilerplate for structured documents (PDF/JSON/MDX headers).
+        assert "summary:" not in marker
+        assert len(lines) == 6  # 4 fact slots + prefix + recall hint
 
     def test_marker_args_preview_falls_back_when_upstream_missing(
         self, masker, counter, store
@@ -307,8 +324,18 @@ class TestMarkerStructuredSlots:
         assert "/tmp/report.pdf" in marker
         assert "pages" in marker
 
-    def test_marker_summary_truncates_long_content(self, masker, counter, store):
-        """Summary slot is bounded (~200 chars) and newlines are collapsed."""
+    def test_marker_size_is_bounded_for_huge_payloads(self, masker, counter, store):
+        """Marker length is O(metadata + preview cap), independent of payload size.
+
+        v0.7.10: the marker now optionally carries a small inline
+        preview of the payload (Step 4 — re-fetch loop fix).  The size
+        bound is intentionally tight so markers do not become a second
+        prompt-sized evidence store.  The important property — that
+        marker size is BOUNDED, not proportional to payload — is
+        preserved: a 500K-char payload
+        and a 5K-char payload produce markers of the same upper-
+        bound size.
+        """
         huge = "\n".join([f"line {i}: " + "Z" * 100 for i in range(50)])
         messages = [
             _assistant_with_tool_call(
@@ -323,16 +350,15 @@ class TestMarkerStructuredSlots:
         result, _masked_count, _freed = masker.mask(messages, counter, store)
 
         marker = result[1].content
-        summary_line = [ln for ln in marker.split("\n") if ln.startswith("summary: ")][
-            0
-        ]
-        summary_body = summary_line[len("summary: "):]
-        assert len(summary_body) <= 210  # 200 + ellipsis
-        assert "\n" not in summary_body  # newlines collapsed so marker stays parseable
+        # Bounded by preview cap (300) + chrome (~700) → < 1100.
+        # The original 5K-char payload produces the SAME bound as a
+        # 500K-char payload — this is the invariant.
+        assert len(marker) < 1100, (
+            f"Marker grew unexpectedly: {len(marker)} chars (cap ~1100)"
+        )
+        assert "summary:" not in marker
 
-    def test_marker_args_preview_truncates_long_arguments(
-        self, masker, counter, store
-    ):
+    def test_marker_args_preview_truncates_long_arguments(self, masker, counter, store):
         """Large argument blobs are truncated to keep the marker compact."""
         large_args = "{" + ",".join(f'"k{i}":"v{i}"' for i in range(500)) + "}"
         messages = [
@@ -349,7 +375,7 @@ class TestMarkerStructuredSlots:
 
         marker = result[1].content
         args_line = [ln for ln in marker.split("\n") if ln.startswith("args: ")][0]
-        args_body = args_line[len("args: "):]
+        args_body = args_line[len("args: ") :]
         assert len(args_body) <= 210  # truncated + ellipsis
 
     def test_marker_idempotent_on_second_pass(self, masker, counter, store):
@@ -395,20 +421,11 @@ class TestMarkerStructuredSlots:
         expected = build_marker(
             tool_name="sample",
             args_preview='{"q":"hello"}',
-            key=[k for k in store.keys() if k.startswith("obs:sample:")][0],
+            key=[k for k in store if k.startswith("obs:sample:")][0],
             tokens=counter.count("The answer " * 50),
-            summary="The answer " * 50,
         )
-        # Summary in `expected` is the raw text; the masker collapses + truncates.
-        # We assert structural parity on the non-summary lines — those are
-        # deterministic and prove layout consistency.
-        expected_lines = expected.split("\n")
-        produced_lines = produced.split("\n")
-        assert expected_lines[0] == produced_lines[0]
-        assert expected_lines[1] == produced_lines[1]
-        assert expected_lines[2] == produced_lines[2]
-        assert expected_lines[3] == produced_lines[3]
-        assert expected_lines[4] == produced_lines[4]
+        # v0.7.8 — four honest slots, byte-for-byte identical.
+        assert produced == expected
 
     def test_mask_prefix_constant_matches_marker(self, masker, counter, store):
         """MASK_PREFIX is the exported constant used for idempotency checks."""
@@ -418,6 +435,5 @@ class TestMarkerStructuredSlots:
             args_preview="{}",
             key="obs:t:abc",
             tokens=123,
-            summary="hi",
         )
         assert marker.startswith(MASK_PREFIX)

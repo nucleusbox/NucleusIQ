@@ -32,7 +32,14 @@ def _make_task(objective: str = "Analyze data") -> Task:
 
 class TestContextEngineCreation:
     def test_engine_created_with_config(self):
-        """When ContextConfig is provided, _create_context_engine returns an engine."""
+        """When ContextConfig is provided, _create_context_engine returns an engine.
+
+        v0.7.9: the ledger's ``max_tokens`` is the *resolved optimal
+        budget*, not the model's hard ceiling.  For
+        ``max_context_tokens=10_000`` with default ``optimal_budget_fraction=0.7``
+        that resolves to ``7_000``.  Use an explicit ``optimal_budget``
+        to pin the old behaviour.
+        """
         agent = Agent(
             name="test",
             role="tester",
@@ -40,7 +47,10 @@ class TestContextEngineCreation:
             prompt=make_test_prompt(),
             llm=MockLLM(),
             config=AgentConfig(
-                context=ContextConfig(max_context_tokens=10_000),
+                context=ContextConfig(
+                    max_context_tokens=10_000,
+                    optimal_budget=10_000,
+                ),
                 respect_context_window=True,
             ),
         )

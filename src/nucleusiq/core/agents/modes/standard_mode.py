@@ -13,12 +13,14 @@ Characteristics:
 - Multiple tool calls supported
 """
 
+import hashlib
 import json
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
+    from nucleusiq.tools.base_tool import BaseTool
 
 from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.executor import Executor
@@ -29,6 +31,57 @@ from nucleusiq.agents.usage.usage_tracker import CallPurpose
 from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
+# Context Mgmt v2 — Step 4 (re-fetch loop fix).
+# When an idempotent tool is invoked with arguments identical to a
+# prior call within the same execution, the agent layer returns this
+# banner instead of re-executing.  The banner names the original call
+# id so the model can correlate it with the result already in its
+# transcript (or recall it via recall_tool_result if the result has
+# since been masked).  Dedup is *opt-in per tool* (see
+# ``BaseTool.idempotent``); live-data tools (weather, stock, time)
+# default to False and are never deduped.
+_IDEMPOTENT_DEDUP_BANNER = (
+    "[duplicate idempotent call — short-circuited]\n"
+    "tool: {tool_name}\n"
+    "args: {args_preview}\n"
+    "You already called this tool with these exact arguments earlier in "
+    "this execution (original tool_call_id: {original_call_id}).\n"
+    "The earlier result is in your conversation history above — either "
+    "as the original tool message, or as an [observation consumed] "
+    "marker if the masker has since fired.\n"
+    "Do NOT re-fetch.  Use the prior result, or call "
+    "recall_tool_result(ref=...) if it was masked.  Make progress with "
+    "what you already have."
+)
+
+
+def _hash_tool_args(args_str: str) -> str:
+    """Stable short hash of a JSON-serialised tool-call arguments string.
+
+    Uses a canonical JSON re-serialise so semantically-equal args
+    (different key order, equivalent whitespace) hash to the same
+    value.  Falls back to the raw string if parsing fails (still
+    deterministic within a run).
+    """
+    try:
+        parsed = json.loads(args_str) if args_str else {}
+        canonical = json.dumps(parsed, sort_keys=True, separators=(",", ":"))
+    except (json.JSONDecodeError, TypeError):
+        canonical = args_str or ""
+    return hashlib.sha1(canonical.encode("utf-8"), usedforsecurity=False).hexdigest()[
+        :16
+    ]
+
+
+def _get_tool_by_name(agent: "Agent", name: str | None) -> "BaseTool | None":
+    """Return the tool registered on ``agent`` matching ``name`` (or None)."""
+    if not name:
+        return None
+    for t in agent.tools or []:
+        if getattr(t, "name", None) == name:
+            return t
+    return None
+
 
 class StandardMode(BaseExecutionMode):
     """Gear 2: Standard mode — tool-enabled, linear execution (max 80 by default)."""
@@ -37,6 +90,12 @@ class StandardMode(BaseExecutionMode):
         """Execute a task with tool-calling loop."""
         agent._logger.debug("Executing in STANDARD mode (tool-enabled, linear)")
         agent.state = AgentState.EXECUTING
+
+        # Reset per-execution idempotent-tool dedup cache so retries
+        # (e.g. autonomous SimpleRunner re-invoking StandardMode after a
+        # validator failure) start fresh and aren't blocked by a prior
+        # attempt's call history.
+        agent._tool_dedup_cache = {}
 
         # Fast path: no LLM -> echo
         echo = self.echo_fallback(agent, task)
@@ -86,6 +145,9 @@ class StandardMode(BaseExecutionMode):
         """
         agent._logger.debug("Streaming in STANDARD mode (tool-enabled, linear)")
         agent.state = AgentState.EXECUTING
+
+        # Same per-execution dedup cache reset as run() — see comment there.
+        agent._tool_dedup_cache = {}
 
         echo = self.echo_fallback(agent, task)
         if echo is not None:
@@ -216,13 +278,29 @@ class StandardMode(BaseExecutionMode):
                 )
                 if result is not None:
                     return result
-                tool_call_count += len(tool_calls)
+                # Auto-injected recall tools (memory operations) do not
+                # consume the tool-call budget — see §6.4 of the v2
+                # redesign.  The user's quota is for *external actions*.
+                #
+                # ``tool_calls`` here is still the raw provider-shape
+                # list (OpenAI uses ``tc.function.name``); we route it
+                # through ``_parse_tool_call`` so the recall check sees
+                # the canonical name regardless of wire format.  Without
+                # this, OpenAI-shaped recall calls would be counted
+                # because ``getattr(tc, "name", None)`` returns ``None``.
+                from nucleusiq.agents.context.recall_tools import (
+                    is_recall_tool_name,
+                )
+
+                tool_call_count += sum(
+                    1
+                    for tc in tool_calls
+                    if not is_recall_tool_name(self._parse_tool_call(tc)[1])
+                )
                 continue
 
             if content:
-                synth_threshold = getattr(
-                    agent.config, "synthesis_word_threshold", 500
-                )
+                synth_threshold = getattr(agent.config, "synthesis_word_threshold", 500)
                 if (
                     pre_synth_snapshot is not None
                     and len(content.split()) < synth_threshold
@@ -237,9 +315,12 @@ class StandardMode(BaseExecutionMode):
                     if synth.strip():
                         content = synth
 
-                messages.append(
-                    ChatMessage(role="assistant", content=content)
-                )
+                messages.append(ChatMessage(role="assistant", content=content))
+                # F7 — terminal post_response symmetry.  Masks the last
+                # round's tool results (which now have an assistant
+                # after them) so Critic/Refiner see the same masked
+                # conversation as every intermediate round.
+                self._finalize_post_response(agent, messages)
                 agent.state = AgentState.COMPLETED
                 await self._store_in_memory(agent, task, content)
                 return content
@@ -267,6 +348,29 @@ class StandardMode(BaseExecutionMode):
             )
 
         agent._logger.warning("Maximum tool calls (%d) reached", max_tool_calls)
+        if agent.config.enable_synthesis and tool_call_count > 0:
+            agent._logger.info(
+                "Tool-call budget exhausted after %d calls — forcing "
+                "tools-free synthesis from current compacted context",
+                tool_call_count,
+            )
+            try:
+                content = await self._synthesis_pass(agent, list(messages))
+            except Exception as e:
+                agent._logger.error("Synthesis after tool-call cap failed: %s", e)
+                agent.state = AgentState.ERROR
+                return (
+                    f"Error: Maximum tool calls ({max_tool_calls}) reached; "
+                    f"synthesis failed: {e}"
+                )
+
+            if content.strip():
+                messages.append(ChatMessage(role="assistant", content=content))
+                self._finalize_post_response(agent, messages)
+                agent.state = AgentState.COMPLETED
+                await self._store_in_memory(agent, task, content)
+                return content
+
         agent.state = AgentState.ERROR
         return f"Error: Maximum tool calls ({max_tool_calls}) reached"
 
@@ -305,6 +409,13 @@ class StandardMode(BaseExecutionMode):
 
         Returns an error string if any tool fails (fire-and-forget),
         otherwise ``None`` (continue loop).
+
+        Context Mgmt v2 — Step 4: when a tool declares
+        ``idempotent=True`` and the same ``(tool_name, args)`` was
+        already invoked in this execution, we short-circuit by
+        appending a dedup banner instead of re-executing the tool.
+        Non-idempotent tools (the default — weather, stock, news,
+        live-data) are always re-executed.
         """
         from nucleusiq.tools.errors import ToolExecutionError
 
@@ -322,12 +433,58 @@ class StandardMode(BaseExecutionMode):
             )
         )
 
+        # Per-execution dedup cache.  Lazily initialised on the agent
+        # so it spans all tool rounds in a single run() call but is
+        # fresh for the next run().  Maps (tool_name, args_hash) →
+        # original tool_call_id, so dedup banners can point the model
+        # back at the canonical earlier result.
+        dedup_cache: dict[tuple[str, str], str] = (
+            getattr(agent, "_tool_dedup_cache", None) or {}
+        )
+        agent._tool_dedup_cache = dedup_cache
+
         for tc in parsed_calls:
             if not tc.name:
                 agent._logger.warning("Tool call missing function name, skipping")
                 continue
 
             agent._logger.info("Tool requested: %s", tc.name)
+
+            tool = _get_tool_by_name(agent, tc.name)
+            is_idempotent = bool(getattr(tool, "idempotent", False))
+
+            args_hash = _hash_tool_args(tc.arguments or "")
+            cache_key = (tc.name, args_hash)
+            prior_call_id = dedup_cache.get(cache_key)
+
+            if is_idempotent and prior_call_id is not None:
+                # Short-circuit the duplicate — do NOT execute the tool.
+                from nucleusiq.agents.context.compactor import _build_args_preview
+
+                args_preview = _build_args_preview(
+                    {"function": {"arguments": tc.arguments or "{}"}}
+                )
+                banner = _IDEMPOTENT_DEDUP_BANNER.format(
+                    tool_name=tc.name,
+                    args_preview=args_preview,
+                    original_call_id=prior_call_id,
+                )
+                agent._logger.info(
+                    "Tool dedup: %s with args_hash=%s already called "
+                    "(original_call_id=%s) — returning short-circuit banner",
+                    tc.name,
+                    args_hash,
+                    prior_call_id,
+                )
+                messages.append(
+                    ChatMessage(
+                        role="tool",
+                        name=tc.name,
+                        tool_call_id=tc.id,
+                        content=banner,
+                    )
+                )
+                continue
 
             try:
                 tool_result = await self.call_tool(agent, tc, tool_round=tool_round)
@@ -348,6 +505,12 @@ class StandardMode(BaseExecutionMode):
                         content=tool_result_str,
                     )
                 )
+
+                # Record this call for future dedup *only* if the tool
+                # opted in.  Non-idempotent calls are tracked-not-deduped
+                # (we don't store them, so duplicates always execute).
+                if is_idempotent and tc.id is not None:
+                    dedup_cache[cache_key] = tc.id
             except ToolExecutionError:
                 raise
             except Exception as e:
@@ -398,6 +561,12 @@ class StandardMode(BaseExecutionMode):
         instead of the full deliverable.  Re-calling with the same
         messages but **no tool specs** AND a synthesis nudge forces the
         model into generation mode so it produces the full output.
+
+        Context Mgmt v2 — §7: when a :class:`ContextEngine` is attached
+        we pre-rehydrate recent evidence markers before the synthesis
+        call, because the model cannot call ``recall_tool_result`` in
+        a tools=None pass.  The rehydration is best-effort, fits in
+        budget, and is silently skipped if anything goes wrong.
         """
         synth_messages = list(messages)
         synth_messages.append(
@@ -411,6 +580,18 @@ class StandardMode(BaseExecutionMode):
                 ),
             )
         )
+
+        # I4 — give the Generator the same rehydration the Critic /
+        # Refiner already have.  The engine returns the message list
+        # unchanged when nothing is offloaded (zero-overhead).
+        engine = getattr(agent, "_context_engine", None)
+        if engine is not None:
+            try:
+                synth_messages = engine.prepare_for_synthesis(synth_messages)
+            except Exception as exc:
+                agent._logger.debug(
+                    "Synthesis rehydration skipped (fail-open): %s", exc
+                )
 
         call_kwargs = self.build_call_kwargs(
             agent,

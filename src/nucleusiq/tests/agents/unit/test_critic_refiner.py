@@ -19,7 +19,6 @@ from nucleusiq.agents.components.critic import (
     Verdict,
     _truncate,
 )
-from nucleusiq.agents.components.refiner import Refiner
 from nucleusiq.agents.config.agent_config import AgentConfig, AgentState
 from nucleusiq.agents.plan import Plan, PlanStep
 from nucleusiq.agents.task import Task
@@ -115,6 +114,15 @@ def _make_agent(
 
     agent._executor = MagicMock()
     agent._executor.execute = AsyncMock(return_value="tool result")
+
+    # F6 — Critic's legacy single-call path now routes through
+    # BaseExecutionMode.call_llm, which introspects these subsystems.
+    # Match the real Agent defaults (None) so MagicMock auto-attrs
+    # don't accidentally enable the plugin / tracer / engine branches.
+    agent._plugin_manager = None
+    agent._context_engine = None
+    agent._tracer = None
+    agent._usage_tracker = None
 
     return agent
 
@@ -554,9 +562,7 @@ class TestAutonomousModeFull:
         with patch.object(
             AutonomousMode,
             "_run_critic",
-            new=AsyncMock(
-                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
-            ),
+            new=AsyncMock(return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)),
         ):
             result = await mode.run(agent, task)
 
@@ -662,9 +668,7 @@ class TestAutonomousModeFull:
         with patch.object(
             AutonomousMode,
             "_run_critic",
-            new=AsyncMock(
-                return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)
-            ),
+            new=AsyncMock(return_value=CritiqueResult(verdict=Verdict.PASS, score=1.0)),
         ):
             await mode.run(agent, task)
 

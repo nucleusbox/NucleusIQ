@@ -899,9 +899,7 @@ class TestAutonomousModeStreamCriticRefiner:
         mode = AutonomousMode()
 
         with _patch_critic_pass():
-            events = await _collect(
-                mode.run_stream(agent, _make_task("Add 3 and 7"))
-            )
+            events = await _collect(mode.run_stream(agent, _make_task("Add 3 and 7")))
 
         types = [e.type for e in events]
         assert "thinking" in types

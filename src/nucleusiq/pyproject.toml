@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nucleusiq"
-version = "0.7.6"
+version = "0.7.7"
 description = "NucleusIQ – open-source framework for building autonomous AI agents with advanced prompt engineering, flexible execution modes, and modular architecture."
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
@@ -101,6 +101,7 @@ packages = [
     "nucleusiq.agents.context.strategies",
     "nucleusiq.agents.messaging",
     "nucleusiq.agents.modes",
+    "nucleusiq.agents.modes.autonomous",
     "nucleusiq.agents.observability",
     "nucleusiq.agents.structured_output",
     "nucleusiq.agents.usage",
@@ -122,6 +123,7 @@ packages = [
 python-version = "3.10"
 project-includes = ["core/"]
 project-excludes = ["tests/", "build/"]
+search-path = ["core"]
 ignore-missing-imports = ["sklearn.*"]
 
 # ---------------------------------------------------------------------------

@@ -168,14 +168,16 @@ def _ensure_openai_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, 
                 if "function" in tc:
                     converted.append(tc)
                 else:
-                    converted.append({
-                        "id": tc.get("id"),
-                        "type": "function",
-                        "function": {
-                            "name": tc.get("name", ""),
-                            "arguments": tc.get("arguments", "{}"),
-                        },
-                    })
+                    converted.append(
+                        {
+                            "id": tc.get("id"),
+                            "type": "function",
+                            "function": {
+                                "name": tc.get("name", ""),
+                                "arguments": tc.get("arguments", "{}"),
+                            },
+                        }
+                    )
             msg = {**msg, "tool_calls": converted}
         out.append(msg)
     return out

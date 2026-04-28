@@ -21,12 +21,15 @@ Rehydration (F2):
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from nucleusiq.agents.chat_models import ChatMessage
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,14 @@ class ContentStore:
         """Check if a key exists in the store."""
         return key in self._store
 
+    def __contains__(self, key: object) -> bool:
+        """Support ``key in store`` for tests and mapping-like callers."""
+        return isinstance(key, str) and key in self._store
+
+    def __iter__(self):
+        """Iterate over stored artifact keys."""
+        return iter(self._store)
+
     def remove(self, key: str) -> bool:
         """Remove an artifact. Returns True if it existed."""
         return self._store.pop(key, None) is not None
@@ -145,6 +156,109 @@ class ContentStore:
 
 
 # ------------------------------------------------------------------ #
+# v0.7.8 — Adaptive per-tool-result rehydration cap                   #
+# ------------------------------------------------------------------ #
+
+#: Approximate chars-per-token ratio for English.  Used to convert the
+#: token-based budget computed by ``compute_per_tool_cap`` into a
+#: char-based cap consumed by ``extract_raw_trace``.  Provider-agnostic
+#: on purpose — we are sizing a *char* truncation, not computing an
+#: exact token count, so over-estimating chars is safe.
+_CHARS_PER_TOKEN = 4
+
+
+def compute_per_tool_cap(
+    *,
+    context_window: int,
+    prompt_overhead_tokens: int,
+    response_reserve_tokens: int,
+    num_tool_results: int,
+    min_chars: int,
+    max_chars: int,
+    purpose: Literal["critic", "refiner"] = "critic",
+) -> int:
+    """Return the **per-tool-result char cap** for Critic/Refiner rehydration.
+
+    Replaces the legacy fixed 3K/5K ``CriticLimits.tool_result`` cap
+    with an adaptive budget that scales with the model's actual
+    context window and the number of tool results in the current trace.
+
+    Formula::
+
+        per_tool_tokens = (ctx_window - prompt_overhead - response_reserve)
+                          / max(1, num_tool_results)
+        per_tool_chars  = clamp(per_tool_tokens * 4, min_chars, max_chars)
+
+    Properties:
+
+    * **Provider-agnostic**: works for 8K open-source models as well as
+      2M Gemini — just pass the LLM's ``get_context_window()``.
+    * **Trace-aware**: 60 tool calls in a 32K window collapses toward
+      the floor; 10 tool calls in a 400K window saturates the ceiling.
+    * **Graceful degradation**: when the window is saturated the
+      function emits a warning and returns ``min_chars``, so downstream
+      callers get partial evidence instead of a crash.
+    * **Deterministic**: no I/O, no globals — safe to unit-test.
+
+    Args:
+        context_window: Model context window in tokens (from
+            ``BaseLLM.get_context_window()``).
+        prompt_overhead_tokens: Reserved tokens for prompt framing.
+        response_reserve_tokens: Reserved tokens for the LLM reply.
+        num_tool_results: Number of ``role='tool'`` messages in the
+            trace that will need rehydration.  Uses ``max(1, n)`` so a
+            trace with zero tool calls doesn't divide by zero.
+        min_chars: Floor on the resulting cap.  Below this the cap is
+            useless; the function still returns the floor but logs a
+            warning.
+        max_chars: Ceiling on the resulting cap.  Safety rail for very
+            large context windows.
+        purpose: Only used for log messages — ``"critic"`` or
+            ``"refiner"``.
+
+    Returns:
+        Per-tool-result char cap to pass to
+        ``extract_raw_trace(..., max_chars_per_result=cap)``.
+    """
+    num = max(1, num_tool_results)
+    available_tokens = context_window - prompt_overhead_tokens - response_reserve_tokens
+
+    if available_tokens <= 0:
+        _logger.warning(
+            "compute_per_tool_cap(%s): context_window=%d saturated by "
+            "overhead=%d + reserve=%d; returning min_chars=%d",
+            purpose,
+            context_window,
+            prompt_overhead_tokens,
+            response_reserve_tokens,
+            min_chars,
+        )
+        return min_chars
+
+    per_tool_tokens = available_tokens // num
+    per_tool_chars = per_tool_tokens * _CHARS_PER_TOKEN
+
+    if per_tool_chars < min_chars:
+        _logger.warning(
+            "compute_per_tool_cap(%s): %d tool results × ~%d chars/each "
+            "would exceed budget in a %d-token window; clamping to "
+            "min_chars=%d (expect degraded quality — consider a larger "
+            "context model).",
+            purpose,
+            num,
+            per_tool_chars,
+            context_window,
+            min_chars,
+        )
+        return min_chars
+
+    if per_tool_chars > max_chars:
+        return max_chars
+
+    return per_tool_chars
+
+
+# ------------------------------------------------------------------ #
 # F2 — Rehydration helper                                             #
 # ------------------------------------------------------------------ #
 
@@ -161,11 +275,11 @@ _MASK_PREFIX = "[observation consumed"
 
 
 def extract_raw_trace(
-    messages: "list[ChatMessage]",
-    store: "ContentStore | None",
+    messages: list[ChatMessage],
+    store: ContentStore | None,
     *,
-    max_chars_per_result: int = 8_000,
-) -> "list[ChatMessage]":
+    max_chars_per_result: int = 50_000,
+) -> list[ChatMessage]:
     """Return a copy of ``messages`` with masked tool content rehydrated.
 
     For every ``role='tool'`` message whose content is a masked

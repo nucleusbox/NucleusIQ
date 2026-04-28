@@ -94,9 +94,7 @@ class ParallelRunner:
         *,
         n: int,
         run_one_sync: Callable[[], Awaitable[Any]],
-        run_one_stream: (
-            Callable[[], AsyncGenerator[StreamEvent, None]] | None
-        ) = None,
+        run_one_stream: (Callable[[], AsyncGenerator[StreamEvent, None]] | None) = None,
     ) -> None:
         if n < 2:
             raise ValueError(
@@ -105,8 +103,7 @@ class ParallelRunner:
             )
         if n > MAX_PARALLEL_ATTEMPTS:
             raise ValueError(
-                f"n_parallel_attempts must be <= {MAX_PARALLEL_ATTEMPTS} "
-                f"(got {n})"
+                f"n_parallel_attempts must be <= {MAX_PARALLEL_ATTEMPTS} (got {n})"
             )
         self._n = n
         self._run_one_sync = run_one_sync
@@ -116,7 +113,7 @@ class ParallelRunner:
     # Sync entrypoint                                                     #
     # ------------------------------------------------------------------ #
 
-    async def run_sync(self, agent: "Agent") -> Any:
+    async def run_sync(self, agent: Agent) -> Any:
         attempts = await self._collect_sync_attempts(agent)
         return self._finalize(agent, attempts)
 
@@ -125,7 +122,7 @@ class ParallelRunner:
     # ------------------------------------------------------------------ #
 
     async def run_stream(
-        self, agent: "Agent", task: Task
+        self, agent: Agent, task: Task
     ) -> AsyncGenerator[StreamEvent, None]:
         if self._run_one_stream is None:
             raise RuntimeError(
@@ -163,9 +160,7 @@ class ParallelRunner:
                     abstention = sig
                     last_content = sig.best_candidate
                 except Exception as e:
-                    agent._logger.error(
-                        "Best-of-N attempt %d failed with %s", i + 1, e
-                    )
+                    agent._logger.error("Best-of-N attempt %d failed with %s", i + 1, e)
                     yield StreamEvent.error_event(str(e))
                     continue
 
@@ -181,9 +176,7 @@ class ParallelRunner:
                         result=last_content,
                         critique=critique,
                         abstained=abstained,
-                        abstention_reason=(
-                            abstention.reason if abstention else None
-                        ),
+                        abstention_reason=(abstention.reason if abstention else None),
                         detail=detail_snapshot,
                     )
                 )
@@ -194,18 +187,14 @@ class ParallelRunner:
         try:
             self._finalize(agent, attempts, raise_on_abstain=False)
         except AbstentionSignal as sig:
-            yield StreamEvent.error_event(
-                f"Best-of-{self._n} abstained: {sig.reason}"
-            )
+            yield StreamEvent.error_event(f"Best-of-{self._n} abstained: {sig.reason}")
             raise
 
     # ------------------------------------------------------------------ #
     # Internals                                                           #
     # ------------------------------------------------------------------ #
 
-    async def _collect_sync_attempts(
-        self, agent: "Agent"
-    ) -> list["_AttemptOutcome"]:
+    async def _collect_sync_attempts(self, agent: Agent) -> list[_AttemptOutcome]:
         attempts: list[_AttemptOutcome] = []
         tracer = getattr(agent, "_tracer", None)
         temp_snapshot = _snapshot_temperature(agent)
@@ -233,9 +222,7 @@ class ParallelRunner:
                     abstention = sig
                     result = sig.best_candidate
                 except Exception as e:
-                    agent._logger.error(
-                        "Best-of-N attempt %d failed: %s", i + 1, e
-                    )
+                    agent._logger.error("Best-of-N attempt %d failed: %s", i + 1, e)
                     # Do not append — this attempt produced no candidate;
                     # selection rule will skip over it.  Other attempts
                     # continue.
@@ -253,9 +240,7 @@ class ParallelRunner:
                         result=result,
                         critique=critique,
                         abstained=abstained,
-                        abstention_reason=(
-                            abstention.reason if abstention else None
-                        ),
+                        abstention_reason=(abstention.reason if abstention else None),
                         detail=detail_snapshot,
                     )
                 )
@@ -266,8 +251,8 @@ class ParallelRunner:
 
     def _finalize(
         self,
-        agent: "Agent",
-        attempts: list["_AttemptOutcome"],
+        agent: Agent,
+        attempts: list[_AttemptOutcome],
         *,
         raise_on_abstain: bool = True,
     ) -> Any:
@@ -380,7 +365,8 @@ def _selection_rule(attempts: list[_AttemptOutcome]) -> int:
         raise ValueError("_selection_rule requires at least one attempt")
 
     passes = [
-        a for a in attempts
+        a
+        for a in attempts
         if a.critique is not None and a.critique.verdict == Verdict.PASS
     ]
     if passes:
@@ -388,7 +374,8 @@ def _selection_rule(attempts: list[_AttemptOutcome]) -> int:
         return best.index
 
     uncertain_accept = [
-        a for a in attempts
+        a
+        for a in attempts
         if a.critique is not None
         and a.critique.verdict == Verdict.UNCERTAIN
         and a.critique.score >= _UNCERTAIN_ACCEPT_THRESHOLD
@@ -405,7 +392,7 @@ def _selection_rule(attempts: list[_AttemptOutcome]) -> int:
     # best-candidate payload.
     best = max(
         attempts,
-        key=lambda a: (a.critique.score if a.critique else 0.0),
+        key=lambda a: a.critique.score if a.critique else 0.0,
     )
     return best.index
 
@@ -415,22 +402,20 @@ def _selection_rule(attempts: list[_AttemptOutcome]) -> int:
 # --------------------------------------------------------------------- #
 
 
-def _snapshot_temperature(agent: "Agent") -> dict[str, Any]:
+def _snapshot_temperature(agent: Agent) -> dict[str, Any]:
     """Capture the current ``llm_params`` so attempt overrides can be undone."""
     cfg = agent.config
     params = getattr(cfg, "llm_params", None)
     return {
         "had_params": params is not None,
         "temperature": (
-            getattr(params, "temperature", None)
-            if params is not None
-            else None
+            getattr(params, "temperature", None) if params is not None else None
         ),
     }
 
 
 def _apply_temperature(
-    agent: "Agent",
+    agent: Agent,
     snapshot: dict[str, Any],
     *,
     attempt_index: int,
@@ -445,9 +430,7 @@ def _apply_temperature(
     if attempt_index == 0:
         return  # baseline — never touch config on first attempt
 
-    delta = _TEMPERATURE_DELTAS[
-        min(attempt_index, len(_TEMPERATURE_DELTAS) - 1)
-    ]
+    delta = _TEMPERATURE_DELTAS[min(attempt_index, len(_TEMPERATURE_DELTAS) - 1)]
     base = snapshot.get("temperature")
     if base is None:
         # Provider default is unknown; assume 0.0 baseline so the
@@ -473,7 +456,7 @@ def _apply_temperature(
             pass
 
 
-def _restore_temperature(agent: "Agent", snapshot: dict[str, Any]) -> None:
+def _restore_temperature(agent: Agent, snapshot: dict[str, Any]) -> None:
     """Undo ``_apply_temperature`` so the user's config is unchanged."""
     cfg = agent.config
     if not snapshot.get("had_params"):
@@ -520,9 +503,7 @@ def _build_detail(tracer: Any) -> AutonomousDetail:
         return AutonomousDetail()
 
 
-_DETAIL_FIELDS: frozenset[str] = frozenset(
-    AutonomousDetail.model_fields.keys()
-)
+_DETAIL_FIELDS: frozenset[str] = frozenset(AutonomousDetail.model_fields.keys())
 
 
 def _extract_last_critique(detail: AutonomousDetail) -> CritiqueResult | None:
@@ -555,7 +536,7 @@ def _extract_last_critique(detail: AutonomousDetail) -> CritiqueResult | None:
 
 
 def _set_parallel_detail(
-    agent: "Agent",
+    agent: Agent,
     *,
     attempts: list[_AttemptOutcome] | tuple,
     selected: int,

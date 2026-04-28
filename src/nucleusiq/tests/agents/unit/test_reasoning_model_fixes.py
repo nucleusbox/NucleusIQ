@@ -30,11 +30,9 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.components.critic import (
     Critic,
-    CritiqueResult,
     Verdict,
 )
 from nucleusiq.agents.components.decomposer import Decomposer
@@ -44,7 +42,6 @@ from nucleusiq.agents.config.agent_config import (
     ExecutionMode,
 )
 from nucleusiq.agents.task import Task
-
 
 # ================================================================== #
 # Helpers                                                              #
@@ -77,9 +74,7 @@ def _make_mock_agent(
     llm.is_reasoning_model = is_reasoning
     llm.call = AsyncMock(
         return_value=MagicMock(
-            choices=[
-                MagicMock(message=MagicMock(content=llm_response_content))
-            ],
+            choices=[MagicMock(message=MagicMock(content=llm_response_content))],
         )
     )
     llm.convert_tool_specs = MagicMock(return_value=[])
@@ -203,9 +198,13 @@ class TestCriticUsesUniformBudget:
             ),
         )
 
-        critique_json = json.dumps({
-            "verdict": "pass", "score": 0.9, "feedback": "Looks good",
-        })
+        critique_json = json.dumps(
+            {
+                "verdict": "pass",
+                "score": 0.9,
+                "feedback": "Looks good",
+            }
+        )
         agent.llm.call = AsyncMock(
             return_value=MagicMock(
                 choices=[MagicMock(message=MagicMock(content=critique_json))]
@@ -221,7 +220,10 @@ class TestCriticUsesUniformBudget:
         mode.call_llm = spy_call_llm
 
         result = await mode._run_critic(
-            agent, Critic(), "Test task", "Result text",
+            agent,
+            Critic(),
+            "Test task",
+            "Result text",
             [ChatMessage(role="assistant", content="Result text")],
         )
 
@@ -236,9 +238,13 @@ class TestCriticUsesUniformBudget:
         mode = AutonomousMode()
         agent = _make_mock_agent(model_name="gpt-4.1")
 
-        critique_json = json.dumps({
-            "verdict": "pass", "score": 0.85, "feedback": "OK",
-        })
+        critique_json = json.dumps(
+            {
+                "verdict": "pass",
+                "score": 0.85,
+                "feedback": "OK",
+            }
+        )
         agent.llm.call = AsyncMock(
             return_value=MagicMock(
                 choices=[MagicMock(message=MagicMock(content=critique_json))]
@@ -265,9 +271,7 @@ class TestCriticUsesUniformBudget:
         mode = AutonomousMode()
         agent = _make_mock_agent(model_name="gpt-5.1")
         agent.llm.call = AsyncMock(
-            return_value=MagicMock(
-                choices=[MagicMock(message=MagicMock(content=None))]
-            )
+            return_value=MagicMock(choices=[MagicMock(message=MagicMock(content=None))])
         )
 
         async def passthrough(ag, kwargs, **kw):
@@ -292,12 +296,16 @@ class TestCriticPromptSelection:
     def test_allow_tool_instructions_false_forces_reasoning_prompt(self):
         critic = Critic()
         generator_msgs = [
-            MagicMock(role="assistant", content=None, tool_calls=[
-                MagicMock(
-                    function=MagicMock(name="read_file", arguments='{"path": "x"}'),
-                    id="tc1",
-                )
-            ]),
+            MagicMock(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    MagicMock(
+                        function=MagicMock(name="read_file", arguments='{"path": "x"}'),
+                        id="tc1",
+                    )
+                ],
+            ),
             MagicMock(role="tool", content="file content", tool_call_id="tc1"),
         ]
 
@@ -314,12 +322,16 @@ class TestCriticPromptSelection:
     def test_default_preserves_tool_instructions(self):
         critic = Critic()
         generator_msgs = [
-            MagicMock(role="assistant", content=None, tool_calls=[
-                MagicMock(
-                    function=MagicMock(name="read_file", arguments='{"path": "x"}'),
-                    id="tc1",
-                )
-            ]),
+            MagicMock(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    MagicMock(
+                        function=MagicMock(name="read_file", arguments='{"path": "x"}'),
+                        id="tc1",
+                    )
+                ],
+            ),
             MagicMock(role="tool", content="file content", tool_call_id="tc1"),
         ]
 
@@ -352,10 +364,14 @@ class TestDecomposerUsesUniformBudget:
             ),
         )
 
-        analysis_json = json.dumps({
-            "gate1": False, "gate2": False, "gate3": False,
-            "complexity": "simple",
-        })
+        analysis_json = json.dumps(
+            {
+                "gate1": False,
+                "gate2": False,
+                "gate3": False,
+                "complexity": "simple",
+            }
+        )
         agent.llm.call = AsyncMock(
             return_value=MagicMock(
                 choices=[MagicMock(message=MagicMock(content=analysis_json))]
@@ -382,10 +398,14 @@ class TestDecomposerUsesUniformBudget:
         """With default config, Decomposer gets 2048 (not old hardcoded 512)."""
         agent = _make_mock_agent(model_name="gpt-4.1")
 
-        analysis_json = json.dumps({
-            "gate1": False, "gate2": False, "gate3": False,
-            "complexity": "simple",
-        })
+        analysis_json = json.dumps(
+            {
+                "gate1": False,
+                "gate2": False,
+                "gate3": False,
+                "complexity": "simple",
+            }
+        )
         agent.llm.call = AsyncMock(
             return_value=MagicMock(
                 choices=[MagicMock(message=MagicMock(content=analysis_json))]
@@ -410,9 +430,7 @@ class TestDecomposerUsesUniformBudget:
         """Empty response defaults to SIMPLE, not crash."""
         agent = _make_mock_agent(model_name="gpt-5.1")
         agent.llm.call = AsyncMock(
-            return_value=MagicMock(
-                choices=[MagicMock(message=MagicMock(content=None))]
-            )
+            return_value=MagicMock(choices=[MagicMock(message=MagicMock(content=None))])
         )
 
         result = await Decomposer().analyze(
@@ -442,9 +460,7 @@ class TestSynthesisFallback:
             enable_synthesis=True,
         )
         agent.llm.call = AsyncMock(
-            return_value=MagicMock(
-                choices=[MagicMock(message=MagicMock(content=""))]
-            )
+            return_value=MagicMock(choices=[MagicMock(message=MagicMock(content=""))])
         )
 
         async def mock_call_llm(ag, kwargs, msgs=None, tools=None, purpose=None):
@@ -518,21 +534,39 @@ class TestSynthesisFallback:
                 tool_call.type = "function"
                 tool_call.function = tool_call_fn
                 return MagicMock(
-                    choices=[MagicMock(message=MagicMock(
-                        content=None, tool_calls=[tool_call], refusal=None,
-                    ))]
+                    choices=[
+                        MagicMock(
+                            message=MagicMock(
+                                content=None,
+                                tool_calls=[tool_call],
+                                refusal=None,
+                            )
+                        )
+                    ]
                 )
             elif call_count[0] == 4:
                 return MagicMock(
-                    choices=[MagicMock(message=MagicMock(
-                        content=pre_synth_content, tool_calls=None, refusal=None,
-                    ))]
+                    choices=[
+                        MagicMock(
+                            message=MagicMock(
+                                content=pre_synth_content,
+                                tool_calls=None,
+                                refusal=None,
+                            )
+                        )
+                    ]
                 )
             else:
                 return MagicMock(
-                    choices=[MagicMock(message=MagicMock(
-                        content="", tool_calls=None, refusal=None,
-                    ))]
+                    choices=[
+                        MagicMock(
+                            message=MagicMock(
+                                content="",
+                                tool_calls=None,
+                                refusal=None,
+                            )
+                        )
+                    ]
                 )
 
         mode.call_llm = mock_call_llm
@@ -579,9 +613,15 @@ class TestEmptyRetriesHardcoded:
         async def mock_call_llm(ag, kwargs, msgs=None, tools=None, purpose=None):
             call_count[0] += 1
             return MagicMock(
-                choices=[MagicMock(message=MagicMock(
-                    content=None, tool_calls=None, refusal=None,
-                ))]
+                choices=[
+                    MagicMock(
+                        message=MagicMock(
+                            content=None,
+                            tool_calls=None,
+                            refusal=None,
+                        )
+                    )
+                ]
             )
 
         mode.call_llm = mock_call_llm
@@ -618,14 +658,26 @@ class TestEmptyRetriesHardcoded:
             call_count[0] += 1
             if call_count[0] <= 2:
                 return MagicMock(
-                    choices=[MagicMock(message=MagicMock(
-                        content=None, tool_calls=None, refusal=None,
-                    ))]
+                    choices=[
+                        MagicMock(
+                            message=MagicMock(
+                                content=None,
+                                tool_calls=None,
+                                refusal=None,
+                            )
+                        )
+                    ]
                 )
             return MagicMock(
-                choices=[MagicMock(message=MagicMock(
-                    content="Recovered answer", tool_calls=None, refusal=None,
-                ))]
+                choices=[
+                    MagicMock(
+                        message=MagicMock(
+                            content="Recovered answer",
+                            tool_calls=None,
+                            refusal=None,
+                        )
+                    )
+                ]
             )
 
         mode.call_llm = mock_call_llm
@@ -746,9 +798,7 @@ class TestTaskCConfig:
     """Verify Task C has explicit llm_max_output_tokens."""
 
     def test_task_c_has_explicit_token_budget(self):
-        mod = importlib.import_module(
-            "research.experiments.tasks.task_c_multistep_qa"
-        )
+        mod = importlib.import_module("research.experiments.tasks.task_c_multistep_qa")
         source = inspect.getsource(mod.get_task)
         assert "llm_max_output_tokens" in source
         assert "4096" in source
@@ -776,9 +826,13 @@ class TestUniformBudgetPropagation:
             ),
         )
 
-        critique_json = json.dumps({
-            "verdict": "pass", "score": 0.92, "feedback": "Thorough analysis.",
-        })
+        critique_json = json.dumps(
+            {
+                "verdict": "pass",
+                "score": 0.92,
+                "feedback": "Thorough analysis.",
+            }
+        )
 
         captured_kwargs: dict[str, Any] = {}
 
@@ -791,7 +845,11 @@ class TestUniformBudgetPropagation:
         mode.call_llm = spy_call_llm
 
         result = await mode._run_critic(
-            agent, Critic(), "Analyze TCS", "TCS is bullish", [],
+            agent,
+            Critic(),
+            "Analyze TCS",
+            "TCS is bullish",
+            [],
         )
 
         assert captured_kwargs["max_output_tokens"] == 6000
@@ -809,10 +867,14 @@ class TestUniformBudgetPropagation:
             ),
         )
 
-        analysis_json = json.dumps({
-            "gate1": False, "gate2": False, "gate3": False,
-            "complexity": "simple",
-        })
+        analysis_json = json.dumps(
+            {
+                "gate1": False,
+                "gate2": False,
+                "gate3": False,
+                "complexity": "simple",
+            }
+        )
         agent.llm.call = AsyncMock(
             return_value=MagicMock(
                 choices=[MagicMock(message=MagicMock(content=analysis_json))]
@@ -853,10 +915,13 @@ class TestUniformBudgetPropagation:
         mode = AutonomousMode()
         agent = _make_mock_agent(model_name="gpt-5.1")
 
-        critique_json = json.dumps({
-            "verdict": "pass", "score": 0.92,
-            "feedback": "Analysis is thorough.",
-        })
+        critique_json = json.dumps(
+            {
+                "verdict": "pass",
+                "score": 0.92,
+                "feedback": "Analysis is thorough.",
+            }
+        )
 
         async def budget_aware_llm(ag, kwargs, **kw):
             budget = kwargs.get("max_output_tokens", 0)
@@ -864,14 +929,16 @@ class TestUniformBudgetPropagation:
                 return MagicMock(
                     choices=[MagicMock(message=MagicMock(content=critique_json))]
                 )
-            return MagicMock(
-                choices=[MagicMock(message=MagicMock(content=None))]
-            )
+            return MagicMock(choices=[MagicMock(message=MagicMock(content=None))])
 
         mode.call_llm = budget_aware_llm
 
         result = await mode._run_critic(
-            agent, Critic(), "Analyze TCS", "TCS report...", [],
+            agent,
+            Critic(),
+            "Analyze TCS",
+            "TCS report...",
+            [],
         )
 
         assert result.verdict == Verdict.PASS
@@ -894,19 +961,25 @@ class TestUniformBudgetPropagation:
         async def budget_aware_llm(ag, kwargs, **kw):
             budget = kwargs.get("max_output_tokens", 0)
             if budget <= 1024:
-                return MagicMock(
-                    choices=[MagicMock(message=MagicMock(content=None))]
-                )
+                return MagicMock(choices=[MagicMock(message=MagicMock(content=None))])
             return MagicMock(
-                choices=[MagicMock(message=MagicMock(
-                    content='{"verdict":"pass","score":0.9,"feedback":"ok"}'
-                ))]
+                choices=[
+                    MagicMock(
+                        message=MagicMock(
+                            content='{"verdict":"pass","score":0.9,"feedback":"ok"}'
+                        )
+                    )
+                ]
             )
 
         mode.call_llm = budget_aware_llm
 
         result = await mode._run_critic(
-            agent, Critic(), "Task", "Result", [],
+            agent,
+            Critic(),
+            "Task",
+            "Result",
+            [],
         )
 
         assert result.verdict == Verdict.UNCERTAIN

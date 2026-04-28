@@ -39,13 +39,13 @@ def _assistant_with_tool_call(tc_id: str, tool_name: str, arguments: str):
     )
 
 
-def _mask_one_turn(payload: str, tool_name: str = "reader") -> tuple[
-    list[ChatMessage], ContentStore
-]:
+def _mask_one_turn(
+    payload: str, tool_name: str = "reader"
+) -> tuple[list[ChatMessage], ContentStore]:
     """Build a 4-message conversation, run the masker, return (masked_messages, store).
 
     Keeps test setup DRY: each test gets a realistic masked trace with
-    full F1 marker slots (tool/args/ref/size/summary) already in place.
+    honest F1 marker slots (tool/args/ref/size) already in place.
     """
     store = ContentStore()
     counter = DefaultTokenCounter()
@@ -204,7 +204,18 @@ class TestCriticReasoningTraceWiring:
     """
 
     def test_trace_is_marker_only_when_store_is_none(self):
-        """Without a store, tool evidence is bounded to the marker summary."""
+        """Without a store, tool evidence is bounded to the marker preview.
+
+        v0.7.10 — the marker now carries an inline preview of the
+        first 1500 chars of the original payload (Step 4 — re-fetch
+        loop fix).  Without a store the trace shows only that
+        preview, not the full payload — still BOUNDED, just larger
+        than the pre-v0.7.10 marker.  The 200-char payload here is
+        3200 chars total, so the 1500-char preview leaks ~93 of the
+        200 tokens (less than half).  The contract this test
+        encodes is "without a store you see the preview, not the
+        full payload" — the bound numbers update with the design.
+        """
         from nucleusiq.agents.components.critic import Critic
 
         token = "SECRET_EVIDENCE "
@@ -212,8 +223,13 @@ class TestCriticReasoningTraceWiring:
         trace = Critic._extract_reasoning_trace(masked)
 
         assert "[observation consumed]" in trace
-        # The marker summary caps at ~200 chars, so at most ~12 occurrences leak.
-        assert trace.count(token) < 20
+        # Preview caps at 1500 chars → ~93 of the 200 tokens leak.
+        # Must be strictly less than full (200) to prove preview is
+        # bounded, not a passthrough.
+        leaked = trace.count(token)
+        assert 0 < leaked < 200, (
+            f"Expected bounded preview (0 < count < 200), got {leaked}"
+        )
 
     def test_trace_contains_full_raw_content_when_store_provided(self):
         """With the matching store, the Critic sees far more evidence than
@@ -246,8 +262,17 @@ class TestSummarizeToolResultsWiring:
 
         assert summary is not None
         assert "observation consumed" in summary
-        # Marker summary caps ~200 chars → evidence leak is bounded.
-        assert summary.count(token) < 20
+        # v0.7.10 — the marker now carries an inline preview slot of
+        # the first 1500 chars (Step 4 — re-fetch loop fix).  Summary
+        # callers without a store see that preview but never the full
+        # payload — proving the preview is bounded.  Pre-v0.7.10 the
+        # marker had no content; v0.7.10 deliberately adds bounded
+        # content so the model can reason from the marker without
+        # re-fetching.
+        leaked = summary.count(token)
+        assert 0 < leaked < 200, (
+            f"Expected bounded preview (0 < count < 200), got {leaked}"
+        )
 
     def test_summary_uses_real_content_with_store(self):
         from nucleusiq.agents.modes.autonomous.helpers import summarize_tool_results
@@ -257,6 +282,29 @@ class TestSummarizeToolResultsWiring:
         summary = summarize_tool_results(masked, content_store=store)
 
         assert summary is not None
-        # Rehydrated summary reads from the real 3600-char payload, so the
-        # token count dwarfs the marker summary's ~12-token leak.
-        assert summary.count(token) >= 20
+        # Rehydrated summary reads from the real 3600-char payload in
+        # full (no head-truncation in v0.7.8).
+        assert summary.count(token) == 200
+
+    def test_no_head_truncation_of_rehydrated_content(self):
+        """v0.7.8 regression guard: summarize_tool_results must NOT
+        head-slice rehydrated content.  The pre-audit behaviour sliced
+        the first 500 chars of each tool result — invariably
+        boilerplate for structured payloads — and silently discarded
+        the rest."""
+        from nucleusiq.agents.modes.autonomous.helpers import summarize_tool_results
+
+        # First 500 chars are boilerplate; the real signal is at
+        # position 2000+.  A regression would keep only the boilerplate.
+        boilerplate = "BOILERPLATE " * 42  # ~500 chars of noise
+        signal = "THE_REAL_NUMBER_IS_42_CRORE"
+        payload = boilerplate + ("X" * 1500) + signal + ("Y" * 1000)
+        masked, store = _mask_one_turn(payload)
+
+        summary = summarize_tool_results(masked, content_store=store)
+        assert summary is not None
+        assert signal in summary, (
+            "v0.7.8 regression: summarize_tool_results must pass "
+            "rehydrated content through unchanged — not slice the "
+            "first N chars (which are boilerplate)."
+        )

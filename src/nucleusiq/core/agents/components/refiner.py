@@ -53,7 +53,6 @@ if TYPE_CHECKING:
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.components.critic import CritiqueResult
 
-
 # ------------------------------------------------------------------ #
 # Output model                                                        #
 # ------------------------------------------------------------------ #
@@ -143,7 +142,7 @@ class Refiner:
 
     async def revise(
         self,
-        agent: "Agent",
+        agent: Agent,
         task_objective: str,
         candidate: Any,
         critique: CritiqueResult,
@@ -297,7 +296,7 @@ class Refiner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _count_tool_calls(agent: "Agent") -> int:
+    def _count_tool_calls(agent: Agent) -> int:
         """Best-effort count of tool calls observed so far, from the tracer.
 
         Used to compute the per-revision ``tool_calls_made`` delta.

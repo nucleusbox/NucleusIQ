@@ -108,12 +108,12 @@ EscalationReason = Literal["uncertain_close", "stuck"]
 #: would be futile".  Purely informational today; kept as a literal so
 #: the set of reasons is closed and typed.
 AbstainReason = Literal[
-    "budget_exhausted",            # classical path: ran out of retries
-    "stuck_after_escalation",      # F3.1: delta < IMPROVEMENT_DELTA on the
-                                   # attempt that *followed* an escalation.
-                                   # Spending a second escalation would be
-                                   # futile (Aletheia: "compute spent ==
-                                   # difficulty signal").
+    "budget_exhausted",  # classical path: ran out of retries
+    "stuck_after_escalation",  # F3.1: delta < IMPROVEMENT_DELTA on the
+    # attempt that *followed* an escalation.
+    # Spending a second escalation would be
+    # futile (Aletheia: "compute spent ==
+    # difficulty signal").
 ]
 
 
@@ -177,10 +177,10 @@ class ComputeBudget(BaseModel):
     @classmethod
     def from_config(
         cls,
-        cfg: "AgentConfig",
+        cfg: AgentConfig,
         *,
         total_run_token_budget: int | None = None,
-    ) -> "ComputeBudget":
+    ) -> ComputeBudget:
         """Build the initial budget from ``AgentConfig``.
 
         Reads ``max_retries``, ``llm_max_output_tokens``, and the
@@ -246,7 +246,7 @@ class ComputeBudget(BaseModel):
     # Transitions (all return new budgets)                             #
     # --------------------------------------------------------------- #
 
-    def escalate(self, _reason: EscalationReason) -> "ComputeBudget":
+    def escalate(self, _reason: EscalationReason) -> ComputeBudget:
         """Return a grown budget.
 
         The ``reason`` argument is purely for telemetry traceability —
@@ -283,7 +283,7 @@ class ComputeBudget(BaseModel):
             }
         )
 
-    def record_tokens(self, tokens: int) -> "ComputeBudget":
+    def record_tokens(self, tokens: int) -> ComputeBudget:
         """Return a new budget with ``cumulative_tokens_spent`` bumped.
 
         Tokens may be ``0`` (the LLM call had no usage reported); in
@@ -321,10 +321,19 @@ class EscalationDecision(BaseModel):
     #: telemetry as ``EscalationRecord``.
     escalation_reason: EscalationReason | None = None
 
+    #: F5 — Populated iff ``action == STOP_ABSTAIN``.  Distinguishes
+    #: "ran out of retries" (``"budget_exhausted"``) from "refused to
+    #: spend more compute because it would be futile"
+    #: (``"stuck_after_escalation"``).  Surfaced through
+    #: ``AbstentionSignal.abstain_reason`` so downstream callers can
+    #: react programmatically (e.g. a smarter model vs. hand off to a
+    #: human) instead of string-matching free-form feedback.
+    abstain_reason: AbstainReason | None = None
+
 
 def decide_next_action(
-    critique: "CritiqueResult",
-    critique_history: "list[CritiqueResult]",
+    critique: CritiqueResult,
+    critique_history: list[CritiqueResult],
     budget: ComputeBudget,
     attempt: int,
     uncertain_accept_threshold: float,
@@ -375,9 +384,7 @@ def decide_next_action(
         return EscalationDecision(action=Action.STOP_ACCEPT, budget=budget)
 
     # Compute improvement delta vs previous verdict (if any).
-    prev_score = (
-        critique_history[-2].score if len(critique_history) >= 2 else 0.0
-    )
+    prev_score = critique_history[-2].score if len(critique_history) >= 2 else 0.0
     delta = score - prev_score
 
     budget_exhausted = attempt >= budget.max_retries - 1
@@ -385,9 +392,8 @@ def decide_next_action(
     # Case 1: UNCERTAIN, close to the threshold — "one more nudge"
     # with a larger budget often pushes us over. Eligible even on what
     # *would* be the last attempt, because escalating grows retries.
-    if (
-        verdict == Verdict.UNCERTAIN
-        and score >= (uncertain_accept_threshold - UNCERTAIN_CLOSE_DELTA)
+    if verdict == Verdict.UNCERTAIN and score >= (
+        uncertain_accept_threshold - UNCERTAIN_CLOSE_DELTA
     ):
         if budget.can_escalate():
             return EscalationDecision(
@@ -396,7 +402,11 @@ def decide_next_action(
                 escalation_reason="uncertain_close",
             )
         if budget_exhausted:
-            return EscalationDecision(action=Action.STOP_ABSTAIN, budget=budget)
+            return EscalationDecision(
+                action=Action.STOP_ABSTAIN,
+                budget=budget,
+                abstain_reason="budget_exhausted",
+            )
         return EscalationDecision(action=Action.RETRY, budget=budget)
 
     # Case 2: FAIL.  Two sub-cases.
@@ -408,7 +418,9 @@ def decide_next_action(
                 # Progress is real but the budget is gone; abstain
                 # rather than silently accepting a still-failing answer.
                 return EscalationDecision(
-                    action=Action.STOP_ABSTAIN, budget=budget
+                    action=Action.STOP_ABSTAIN,
+                    budget=budget,
+                    abstain_reason="budget_exhausted",
                 )
             return EscalationDecision(action=Action.RETRY, budget=budget)
 
@@ -437,7 +449,9 @@ def decide_next_action(
             # Abstain now and surface the best candidate we have.
             if budget.escalations_used >= 1:
                 return EscalationDecision(
-                    action=Action.STOP_ABSTAIN, budget=budget
+                    action=Action.STOP_ABSTAIN,
+                    budget=budget,
+                    abstain_reason="stuck_after_escalation",
                 )
             if budget.can_escalate():
                 return EscalationDecision(
@@ -445,17 +459,29 @@ def decide_next_action(
                     budget=budget.escalate("stuck"),
                     escalation_reason="stuck",
                 )
-            return EscalationDecision(action=Action.STOP_ABSTAIN, budget=budget)
+            return EscalationDecision(
+                action=Action.STOP_ABSTAIN,
+                budget=budget,
+                abstain_reason="budget_exhausted",
+            )
 
         # First FAIL of the run — retry at baseline budget.
         if budget_exhausted:
-            return EscalationDecision(action=Action.STOP_ABSTAIN, budget=budget)
+            return EscalationDecision(
+                action=Action.STOP_ABSTAIN,
+                budget=budget,
+                abstain_reason="budget_exhausted",
+            )
         return EscalationDecision(action=Action.RETRY, budget=budget)
 
     # Case 3: UNCERTAIN well below threshold (not "close") — treat like
     # FAIL for control-flow purposes.
     if budget_exhausted:
-        return EscalationDecision(action=Action.STOP_ABSTAIN, budget=budget)
+        return EscalationDecision(
+            action=Action.STOP_ABSTAIN,
+            budget=budget,
+            abstain_reason="budget_exhausted",
+        )
     return EscalationDecision(action=Action.RETRY, budget=budget)
 
 

@@ -124,3 +124,56 @@ class TestContextEngineConfig:
             goals=("deliver v0.7.6",), decisions=("use progressive",)
         )
         assert len(schema.goals) == 1
+
+
+class TestAdaptiveOptimalBudget:
+    """v0.7.9 — engine uses ``resolve_optimal_budget`` at construction time.
+
+    Root cause regression tests: before v0.7.9 the engine hard-coded
+    ``min(config.optimal_budget, resolved_max)`` using a 50K default.
+    On a 128K model this made EmergencyCompactor fire at ~45K —
+    ~35% of real capacity — and nuked context catastrophically for
+    weaker models on tool-heavy tasks.
+    """
+
+    def test_engine_auto_resolves_for_128k_model(self):
+        """Zero-config against a 128K model yields 89_600 token budget."""
+        config = ContextConfig(response_reserve=1_000)
+        engine = ContextEngine(config, DefaultTokenCounter(), max_tokens=128_000)
+        # The ledger's ``max_tokens`` *is* the resolved optimal budget
+        # (it's what utilization is computed against).
+        assert engine.budget.max_tokens == 89_600
+
+    def test_engine_auto_resolves_for_small_window(self):
+        """8K Llama: resolved budget stays proportionally small."""
+        config = ContextConfig(response_reserve=1_000)
+        engine = ContextEngine(config, DefaultTokenCounter(), max_tokens=8_000)
+        assert engine.budget.max_tokens == 5_600
+
+    def test_engine_caps_at_quality_plateau(self):
+        """2M Gemini: capped at the 120K quality plateau."""
+        config = ContextConfig(response_reserve=1_000)
+        engine = ContextEngine(config, DefaultTokenCounter(), max_tokens=2_000_000)
+        assert engine.budget.max_tokens == 120_000
+
+    def test_engine_respects_explicit_override(self):
+        """User-set ``optimal_budget`` wins over auto-resolution."""
+        config = ContextConfig(
+            optimal_budget=30_000,
+            response_reserve=1_000,
+        )
+        engine = ContextEngine(config, DefaultTokenCounter(), max_tokens=128_000)
+        assert engine.budget.max_tokens == 30_000
+
+    def test_telemetry_reports_resolved_budget_not_config(self):
+        """Telemetry must report the effective budget, not the raw config.
+
+        This is critical for experiment reproducibility — research
+        notebooks were mis-reporting ``optimal_budget=50000`` even
+        though the ledger was using a different number.
+        """
+        config = ContextConfig(response_reserve=1_000)
+        engine = ContextEngine(config, DefaultTokenCounter(), max_tokens=128_000)
+        tel = engine.telemetry
+        # 128K × 0.7 = 89_600 — the actual budget used by the ledger.
+        assert tel.optimal_budget == 89_600

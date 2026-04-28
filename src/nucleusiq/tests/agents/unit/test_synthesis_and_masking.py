@@ -109,6 +109,10 @@ class TestCallLlmMaskingConsistency:
             config=ContextConfig(
                 max_context_tokens=200_000,
                 strategy="progressive",
+                # v2 step 1: gate covered in test_squeeze_gate.py.  This
+                # test isolates "masking integrates with call_llm";
+                # disable the gate so the assertion stays focused.
+                squeeze_threshold=0.0,
             ),
             token_counter=DefaultTokenCounter(),
             max_tokens=200_000,
@@ -210,6 +214,9 @@ class TestSynthesisSnapshot:
             config=ContextConfig(
                 max_context_tokens=200_000,
                 strategy="progressive",
+                # v2 step 1: bypass the gate so this test isolates the
+                # "synthesis sees pre-masking snapshot" contract.
+                squeeze_threshold=0.0,
             ),
             token_counter=DefaultTokenCounter(),
             max_tokens=200_000,
@@ -482,6 +489,9 @@ class TestStreamingSynthesisSnapshot:
             config=ContextConfig(
                 max_context_tokens=200_000,
                 strategy="progressive",
+                # v2 step 1: gate disabled so the streaming-snapshot
+                # contract can be tested without budget interaction.
+                squeeze_threshold=0.0,
             ),
             token_counter=DefaultTokenCounter(),
             max_tokens=200_000,
@@ -592,6 +602,9 @@ class TestStreamingSynthesisSnapshot:
             config=ContextConfig(
                 max_context_tokens=200_000,
                 strategy="progressive",
+                # v2 step 1: gate off so this test focuses purely on
+                # whether ``prepare`` is invoked.
+                squeeze_threshold=0.0,
             ),
             token_counter=DefaultTokenCounter(),
             max_tokens=200_000,

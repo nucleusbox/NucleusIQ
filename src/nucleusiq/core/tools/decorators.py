@@ -31,10 +31,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Callable
-from typing import Any, get_origin, overload
+from typing import TYPE_CHECKING, Any, get_origin, overload
 
 from nucleusiq.tools.base_tool import BaseTool
 from nucleusiq.tools.errors import ToolValidationError
+
+if TYPE_CHECKING:
+    from nucleusiq.agents.context.policy import ContextPolicy
 
 __all__ = ["tool"]
 
@@ -209,8 +212,15 @@ class DecoratedTool(BaseTool):
         tool_name: str,
         tool_description: str,
         args_schema: type[Any] | None = None,
+        context_policy: ContextPolicy | None = None,
+        idempotent: bool = False,
     ) -> None:
-        super().__init__(name=tool_name, description=tool_description)
+        super().__init__(
+            name=tool_name,
+            description=tool_description,
+            context_policy=context_policy,
+            idempotent=idempotent,
+        )
         self._fn = fn
         self._is_async = asyncio.iscoroutinefunction(fn)
         self._args_schema = args_schema
@@ -273,6 +283,8 @@ def tool(  # pyrefly: ignore[inconsistent-overload]
     *,
     description: str | None = None,
     args_schema: type[Any] | None = None,
+    context_policy: ContextPolicy | None = None,
+    idempotent: bool = False,
 ) -> Callable[[Callable[..., Any]], DecoratedTool]: ...
 
 
@@ -282,6 +294,8 @@ def tool(
     name: str | None = None,
     description: str | None = None,
     args_schema: type[Any] | None = None,
+    context_policy: ContextPolicy | None = None,
+    idempotent: bool = False,
 ) -> DecoratedTool | Callable[[Callable[..., Any]], DecoratedTool]:
     """Create a ``BaseTool`` from a function via decorator.
 
@@ -301,6 +315,11 @@ def tool(
         @tool(name="custom_name", description="Does X")
         async def my_tool(x: int) -> str: ...
 
+
+        # 4. Declare a context policy (Context Mgmt v2)
+        @tool(context_policy=ContextPolicy.EVIDENCE)
+        async def read_pdf_page(path: str, page: int) -> str: ...
+
     Parameters
     ----------
     fn : callable or str or None
@@ -311,6 +330,32 @@ def tool(
         Description override.  Defaults to first line of docstring.
     args_schema : type[BaseModel] | None
         Pydantic model for parameter validation and schema generation.
+    context_policy : ContextPolicy
+        How this tool's results should be treated by the Context
+        Engine when memory pressure rises.  Defaults to
+        :data:`ContextPolicy.AUTO` (let the heuristic classifier
+        decide per result).  Set to :data:`ContextPolicy.EVIDENCE`
+        for tools whose output you always want recallable
+        (PDF readers, search APIs, document fetchers), or to
+        :data:`ContextPolicy.EPHEMERAL` for trivially recomputable
+        outputs (current time, formatters, validators).  See
+        ``CONTEXT_MANAGEMENT_V2_REDESIGN.md`` §3.
+    idempotent : bool
+        Declare that this tool is *deterministic in its arguments* —
+        i.e. the same ``(args)`` produce the same output for the
+        lifetime of an agent execution.  When True, the agent layer
+        short-circuits duplicate calls (same tool, same args) by
+        returning a pointer banner rather than re-executing the
+        function.  This breaks "amnesia loops" where the model
+        forgets earlier tool results and re-fetches them.
+
+        **Default False (safe).**  Live-data tools (weather, stock
+        prices, current_time, news feeds) MUST keep the default —
+        deduplication would return stale data.  Set True only for
+        tools that read fixed datasets, immutable files, or static
+        documents (e.g. ``read_annual_report_excerpt(filename, page)``
+        is idempotent across an execution because the PDF doesn't
+        change).
 
     Returns
     -------
@@ -332,6 +377,8 @@ def tool(
             tool_name=fn.__name__,
             tool_description=doc_desc,
             args_schema=args_schema,
+            context_policy=context_policy,
+            idempotent=idempotent,
         )
 
     # Case 2: @tool("name") or @tool(name="name", ...)
@@ -347,6 +394,8 @@ def tool(
             tool_name=final_name,
             tool_description=final_desc,
             args_schema=args_schema,
+            context_policy=context_policy,
+            idempotent=idempotent,
         )
 
     return _decorator

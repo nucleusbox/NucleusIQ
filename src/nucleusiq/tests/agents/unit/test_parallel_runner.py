@@ -14,7 +14,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.agent_result import (
     AbstentionSignal,
@@ -29,7 +28,6 @@ from nucleusiq.agents.modes.autonomous.parallel_runner import (
     _selection_rule,
 )
 from nucleusiq.agents.task import Task
-
 
 # --------------------------------------------------------------------- #
 # Helpers
@@ -61,9 +59,7 @@ def _attempt(
     return _AttemptOutcome(
         index=index,
         result=result if result is not None else f"candidate-{index}",
-        critique=CritiqueResult(
-            verdict=verdict, score=score, feedback=feedback
-        ),
+        critique=CritiqueResult(verdict=verdict, score=score, feedback=feedback),
         abstained=abstained,
         abstention_reason=feedback if abstained else None,
         detail=AutonomousDetail(critic_verdicts=(_snap(verdict, score, feedback),)),
@@ -142,9 +138,7 @@ class TestParallelRunnerConstruction:
 
     def test_rejects_n_above_cap(self) -> None:
         with pytest.raises(ValueError):
-            ParallelRunner(
-                n=MAX_PARALLEL_ATTEMPTS + 1, run_one_sync=AsyncMock()
-            )
+            ParallelRunner(n=MAX_PARALLEL_ATTEMPTS + 1, run_one_sync=AsyncMock())
 
 
 # --------------------------------------------------------------------- #
@@ -188,11 +182,7 @@ def _fake_agent() -> Any:
 
         @property
         def autonomous_detail(self) -> dict[str, Any] | None:
-            return (
-                dict(self._autonomous_detail)
-                if self._autonomous_detail
-                else None
-            )
+            return dict(self._autonomous_detail) if self._autonomous_detail else None
 
     class _Cfg:
         llm_params = None
@@ -291,9 +281,7 @@ class TestParallelRunnerSync:
             # Simulate inner runner raising abstention on FAIL:
             raise AbstentionSignal(
                 best_candidate=f"bad-candidate-{i}",
-                critique=CritiqueResult(
-                    verdict=v, score=s, feedback=f"bad-{i}"
-                ),
+                critique=CritiqueResult(verdict=v, score=s, feedback=f"bad-{i}"),
                 reason=f"bad-{i}",
             )
 
@@ -389,9 +377,7 @@ class TestParallelRunnerSync:
 
         async def fake_inner() -> str:
             invocations["n"] += 1
-            tracer.set_autonomous_detail(
-                critic_verdicts=(_snap(Verdict.PASS, 0.9),)
-            )
+            tracer.set_autonomous_detail(critic_verdicts=(_snap(Verdict.PASS, 0.9),))
             return f"c-{invocations['n']}"
 
         runner = ParallelRunner(n=3, run_one_sync=fake_inner)
@@ -418,19 +404,17 @@ class TestAutonomousModeDispatch:
         agent.llm = MagicMock()
         agent._logger = MagicMock()
 
-        with patch.object(
-            AutonomousMode, "store_task_in_memory", AsyncMock()
-        ), patch(
-            "nucleusiq.agents.modes.autonomous_mode.Decomposer"
-        ) as mock_decomp, patch.object(
-            AutonomousMode, "_run_simple", AsyncMock(return_value="SINGLE")
-        ) as mock_simple:
+        with (
+            patch.object(AutonomousMode, "store_task_in_memory", AsyncMock()),
+            patch("nucleusiq.agents.modes.autonomous_mode.Decomposer") as mock_decomp,
+            patch.object(
+                AutonomousMode, "_run_simple", AsyncMock(return_value="SINGLE")
+            ) as mock_simple,
+        ):
             mock_decomp.return_value.analyze = AsyncMock(
                 return_value=MagicMock(is_complex=False, sub_tasks=[])
             )
-            result = await mode.run(
-                agent, Task(id="t", objective="obj")
-            )
+            result = await mode.run(agent, Task(id="t", objective="obj"))
 
         assert result == "SINGLE"
         assert mock_simple.call_count == 1
@@ -452,9 +436,7 @@ class TestAutonomousModeDispatch:
             counter["n"] += 1
             # Populate tracer detail so selection picks one.
             tracer = agent._tracer
-            tracer.autonomous_detail = {
-                "critic_verdicts": (_snap(Verdict.PASS, 0.8),)
-            }
+            tracer.autonomous_detail = {"critic_verdicts": (_snap(Verdict.PASS, 0.8),)}
             tracer._autonomous_detail = dict(tracer.autonomous_detail)
             return f"attempt-{counter['n']}"
 
@@ -473,28 +455,22 @@ class TestAutonomousModeDispatch:
             )
 
         agent._tracer.set_autonomous_detail = _set_detail
-        type(agent._tracer).autonomous_detail = property(
-            lambda self: _get_detail()
-        )
+        type(agent._tracer).autonomous_detail = property(lambda self: _get_detail())
 
         async def fake_simple2(_a: Any, _t: Any) -> str:
             counter["n"] += 1
             _set_detail(critic_verdicts=(_snap(Verdict.PASS, 0.8),))
             return f"attempt-{counter['n']}"
 
-        with patch.object(
-            AutonomousMode, "store_task_in_memory", AsyncMock()
-        ), patch(
-            "nucleusiq.agents.modes.autonomous_mode.Decomposer"
-        ) as mock_decomp, patch.object(
-            AutonomousMode, "_run_simple", side_effect=fake_simple2
+        with (
+            patch.object(AutonomousMode, "store_task_in_memory", AsyncMock()),
+            patch("nucleusiq.agents.modes.autonomous_mode.Decomposer") as mock_decomp,
+            patch.object(AutonomousMode, "_run_simple", side_effect=fake_simple2),
         ):
             mock_decomp.return_value.analyze = AsyncMock(
                 return_value=MagicMock(is_complex=False, sub_tasks=[])
             )
-            result = await mode.run(
-                agent, Task(id="t", objective="obj")
-            )
+            result = await mode.run(agent, Task(id="t", objective="obj"))
 
         assert counter["n"] == 3
         assert result.startswith("attempt-")
@@ -514,12 +490,10 @@ class TestAutonomousModeDispatch:
 
         original_temp = agent.config.llm_params.temperature
 
-        with patch.object(
-            AutonomousMode, "store_task_in_memory", AsyncMock()
-        ), patch(
-            "nucleusiq.agents.modes.autonomous_mode.Decomposer"
-        ) as mock_decomp, patch.object(
-            AutonomousMode, "_run_simple", AsyncMock(return_value="R")
+        with (
+            patch.object(AutonomousMode, "store_task_in_memory", AsyncMock()),
+            patch("nucleusiq.agents.modes.autonomous_mode.Decomposer") as mock_decomp,
+            patch.object(AutonomousMode, "_run_simple", AsyncMock(return_value="R")),
         ):
             mock_decomp.return_value.analyze = AsyncMock(
                 return_value=MagicMock(is_complex=False, sub_tasks=[])
@@ -598,12 +572,10 @@ class TestAgentExecuteAbstention:
         type(tracer).autonomous_detail = property(lambda self: _get())
         agent._tracer = tracer
 
-        with patch.object(
-            AutonomousMode, "store_task_in_memory", AsyncMock()
-        ), patch(
-            "nucleusiq.agents.modes.autonomous_mode.Decomposer"
-        ) as mock_decomp, patch.object(
-            AutonomousMode, "_run_simple", side_effect=fake_simple
+        with (
+            patch.object(AutonomousMode, "store_task_in_memory", AsyncMock()),
+            patch("nucleusiq.agents.modes.autonomous_mode.Decomposer") as mock_decomp,
+            patch.object(AutonomousMode, "_run_simple", side_effect=fake_simple),
         ):
             mock_decomp.return_value.analyze = AsyncMock(
                 return_value=MagicMock(is_complex=False, sub_tasks=[])

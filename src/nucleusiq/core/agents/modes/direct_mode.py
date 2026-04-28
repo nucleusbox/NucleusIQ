@@ -174,8 +174,12 @@ class DirectMode(BaseExecutionMode):
             ChatMessage(role="assistant", content=raw_content, tool_calls=parsed_calls)
         )
 
+        # Recall tools (memory ops) bypass the budget — see §6.4 of
+        # the v2 redesign.  Imported once outside the loop for speed.
+        from nucleusiq.agents.context.recall_tools import is_recall_tool_name
+
         for tc in parsed_calls:
-            if total_calls >= max_tool_calls:
+            if not is_recall_tool_name(tc.name) and total_calls >= max_tool_calls:
                 agent._logger.warning(
                     "Direct mode tool call limit (%d) reached", max_tool_calls
                 )
@@ -203,7 +207,8 @@ class DirectMode(BaseExecutionMode):
                         content=tool_result_str,
                     )
                 )
-                total_calls += 1
+                if not is_recall_tool_name(tc.name):
+                    total_calls += 1
             except Exception as e:
                 agent._logger.error("Tool execution failed: %s", e)
                 agent.state = AgentState.ERROR

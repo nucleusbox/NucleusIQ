@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
+    from nucleusiq.agents.components.compute_budget import AbstainReason
     from nucleusiq.agents.components.critic import CritiqueResult
 
 # ------------------------------------------------------------------ #
@@ -234,7 +235,7 @@ class AutonomousDetail(BaseModel):
     # ``n_parallel_attempts == 1`` (default).  Otherwise contains one
     # ``AutonomousDetail`` per attempt (the detail on the enclosing
     # model describes the selected attempt / abstention outcome).
-    parallel_attempts: tuple["AutonomousDetail", ...] = ()
+    parallel_attempts: tuple[AutonomousDetail, ...] = ()
     # F4 — which attempt produced the returned candidate (0-based index
     # into ``parallel_attempts``).  ``None`` when ``parallel_attempts``
     # is empty (single-attempt runs).
@@ -279,6 +280,15 @@ class AgentResult(BaseModel):
     # full structured critique is available via
     # ``autonomous.critic_verdicts[-1]``.
     abstention_reason: str | None = None
+    # F5 — machine-readable abstention reason.  Today one of
+    # ``"budget_exhausted"`` or ``"stuck_after_escalation"`` (see
+    # ``compute_budget.AbstainReason``).  ``None`` when the run did not
+    # abstain, or when abstention was triggered by a path that does
+    # not flow through the ComputeBudget controller (e.g. Best-of-N
+    # synthesis abstention).  Callers should treat an unknown value as
+    # equivalent to ``None`` so the literal can grow without breaking
+    # clients.
+    abstention_code: str | None = None
 
     # --- Tool observability (populated since 0.7.4) ---
     tool_calls: tuple[ToolCallRecord, ...] = ()
@@ -489,16 +499,24 @@ class AbstentionSignal(Exception):
             ``issues`` and ``suggestions``.
         reason: Human-readable explanation — defaults to
             ``critique.feedback``.
+        abstain_reason: F5 — machine-readable abstention code (one of
+            ``compute_budget.AbstainReason``).  ``None`` when raised
+            from a path outside the budget controller (e.g. Best-of-N
+            synthesis failure).  Surfaced to
+            ``AgentResult.abstention_code``.
     """
 
     def __init__(
         self,
         best_candidate: Any,
-        critique: "CritiqueResult",
+        critique: CritiqueResult,
         reason: str | None = None,
+        *,
+        abstain_reason: AbstainReason | None = None,
     ) -> None:
         self.best_candidate = best_candidate
         self.critique = critique
+        self.abstain_reason = abstain_reason  # F5
         self.reason = reason or (
             getattr(critique, "feedback", None)
             or f"Critic rejected candidate ({getattr(critique, 'verdict', 'unknown')})"

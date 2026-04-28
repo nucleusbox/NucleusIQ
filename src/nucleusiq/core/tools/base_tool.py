@@ -1,4 +1,6 @@
 # File: src/nucleusiq/core/tools/base_tool.py
+from __future__ import annotations
+
 import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -9,6 +11,11 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    # Imported lazily inside the constructor to avoid a hard cycle
+    # with ``nucleusiq.agents.__init__``.  The agents package imports
+    # the Agent class, which transitively imports BaseTool — pulling
+    # ``ContextPolicy`` at module load time here closes the loop.
+    from nucleusiq.agents.context.policy import ContextPolicy
     from pydantic import BaseModel
 
 try:
@@ -21,6 +28,13 @@ except ImportError:
     BaseModel = None
 
 from nucleusiq.tools.errors import ToolValidationError
+
+
+def _default_context_policy() -> ContextPolicy:
+    """Return ``ContextPolicy.AUTO`` (lazy — see module-level note)."""
+    from nucleusiq.agents.context.policy import ContextPolicy as _CP
+
+    return _CP.AUTO
 
 
 def _parse_annotation(annotation: Any) -> str:
@@ -146,6 +160,8 @@ class BaseTool(ABC):
     name: str
     description: str
     version: str | None
+    context_policy: ContextPolicy
+    idempotent: bool
 
     def __init__(
         self,
@@ -153,10 +169,33 @@ class BaseTool(ABC):
         name: str,
         description: str,
         version: str | None = None,
+        context_policy: ContextPolicy | None = None,
+        idempotent: bool = False,
     ):
         self.name = name
         self.description = description
         self.version = version
+        # Context Mgmt v2 — Step 2.  AUTO means "let the heuristic
+        # classifier decide per result"; EVIDENCE / EPHEMERAL are
+        # author-declared overrides that short-circuit the heuristic
+        # (see PolicyClassifier.classify).
+        # ``None`` is normalised to AUTO via a lazy import to avoid
+        # the ``nucleusiq.agents`` ↔ ``nucleusiq.tools`` cycle.
+        self.context_policy = (
+            context_policy if context_policy is not None else _default_context_policy()
+        )
+        # Context Mgmt v2 — Step 4 (re-fetch loop fix).
+        # When True, the agent layer treats (tool_name, args) pairs as
+        # deterministic: a second identical invocation in the same
+        # execution short-circuits to a banner pointing the model back
+        # at the prior result instead of re-executing.  Default False
+        # is the safe choice — live-data tools (weather, stock prices,
+        # current_time, news feeds) MUST NOT set this, otherwise they
+        # would return stale data.  Set True only for tools whose
+        # output is determined entirely by their arguments (file reads
+        # of immutable data, queries against frozen datasets, fixed
+        # document retrieval, etc.).
+        self.idempotent = idempotent
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -208,7 +247,8 @@ class BaseTool(ABC):
         name: str | None = None,
         description: str | None = None,
         args_schema: type[Any] | None = None,
-    ) -> "BaseTool":
+        idempotent: bool = False,
+    ) -> BaseTool:
         """
         Wrap any Python function as a tool with auto-generated spec.
 
@@ -218,16 +258,26 @@ class BaseTool(ABC):
             description: Optional tool description (defaults to function docstring)
             args_schema: Optional Pydantic BaseModel for parameter schema.
                         If provided, uses Pydantic schema instead of function signature.
+            idempotent: If True, declares (tool_name, args) → result is
+                deterministic across the lifetime of an agent execution.
+                Enables agent-layer dedup: a duplicate call returns a
+                pointer banner instead of re-executing the function.
+                Default False (safe — live-data tools work normally).
 
         Returns:
             BaseTool instance wrapping the function
         """
         tool_name = name or fn.__name__
         tool_desc = description or fn.__doc__ or ""
+        tool_idempotent = idempotent
 
         class FunctionTool(BaseTool):
             def __init__(self):
-                super().__init__(name=tool_name, description=tool_desc)
+                super().__init__(
+                    name=tool_name,
+                    description=tool_desc,
+                    idempotent=tool_idempotent,
+                )
                 self.fn = fn
                 self.args_schema = args_schema
 

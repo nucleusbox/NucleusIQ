@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Mapping
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -40,7 +41,9 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
     from nucleusiq.agents.context.store import ContentStore
+    from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 
+from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.plan import Plan, PlanStep
 
 # ------------------------------------------------------------------ #
@@ -246,7 +249,8 @@ class Critic:
         generator_messages: list[Any] | None = None,
         *,
         allow_tool_instructions: bool = True,
-        content_store: "ContentStore | None" = None,
+        content_store: ContentStore | None = None,
+        per_tool_char_cap: int | None = None,
     ) -> str:
         """Build an adaptive verification prompt for the Verifier Agent.
 
@@ -281,13 +285,24 @@ class Critic:
                 sees the raw tool evidence instead of
                 ``[observation consumed]`` placeholders — which is the
                 whole point of running an independent Critic.
+            per_tool_char_cap: Optional **adaptive** override for the
+                per-tool-result char cap (v0.7.8).  When provided,
+                supersedes the legacy fixed ``CriticLimits.tool_result``
+                and is computed by ``compute_per_tool_cap`` at call
+                time from the model's actual context window and the
+                number of tool results in the trace.  Callers that do
+                not pass this parameter fall back to the legacy fixed
+                limits for backward compatibility.
 
         Returns:
             Prompt string to use as the Verifier Agent's task objective.
         """
         lim = self._limits
         trace = self._extract_reasoning_trace(
-            generator_messages, lim, content_store=content_store
+            generator_messages,
+            lim,
+            content_store=content_store,
+            per_tool_char_cap=per_tool_char_cap,
         )
         used_tools = bool(trace and "[Tool Call]" in trace)
 
@@ -372,9 +387,7 @@ class Critic:
         trace_section = ""
         if trace:
             trace_section = (
-                "## EXECUTION TRACE (partial — may be truncated)\n"
-                + trace
-                + "\n\n"
+                "## EXECUTION TRACE (partial — may be truncated)\n" + trace + "\n\n"
                 "Note: This trace shows the agent's tool calls and "
                 "intermediate results. It may be incomplete. Do NOT "
                 "treat missing trace data as evidence of an error.\n\n"
@@ -383,9 +396,7 @@ class Critic:
         return (
             "You are an independent Verifier. Assess whether the "
             "answer below adequately addresses the task.\n\n"
-            f"## TASK\n{task_objective}\n\n"
-            + trace_section
-            + f"## ANSWER TO VERIFY\n"
+            f"## TASK\n{task_objective}\n\n" + trace_section + f"## ANSWER TO VERIFY\n"
             f"{_truncate(str(final_result), limits.claimed_answer)}\n\n"
             "## ASSESSMENT CRITERIA\n\n"
             "1. **Task Alignment** — Does the answer directly address "
@@ -427,13 +438,14 @@ class Critic:
         messages: list[Any] | None,
         limits: CriticLimits | None = None,
         *,
-        content_store: "ContentStore | None" = None,
+        content_store: ContentStore | None = None,
+        per_tool_char_cap: int | None = None,
     ) -> str:
         """Extract the Generator's execution trace from its conversation.
 
         Captures the full sequence of what the Generator did:
         - Tool calls (function name + arguments)
-        - Tool results (return values, truncated per ``limits``)
+        - Tool results (return values, truncated per cap)
         - Assistant text (explanations, truncated per ``limits``)
 
         Skips system and user messages (the Verifier already has the task).
@@ -444,29 +456,46 @@ class Critic:
         has collapsed earlier tool results into markers, the trace is
         rehydrated so the Critic sees real tool output instead of
         opaque ``[observation consumed]`` placeholders (F2).
+
+        ``per_tool_char_cap`` (v0.7.8) supersedes the legacy fixed
+        ``limits.tool_result`` when provided.  Callers that can see
+        both the LLM's context window and the number of tool results
+        (e.g. ``CriticRunner``) should always pass it so the Critic
+        gets a budget-aware view of the evidence.
         """
         if not messages:
             return ""
         if limits is None:
             limits = STANDARD_LIMITS
+
+        effective_tool_cap = (
+            per_tool_char_cap if per_tool_char_cap is not None else limits.tool_result
+        )
+
         if content_store is not None:
             from nucleusiq.agents.context.store import extract_raw_trace
 
             messages = extract_raw_trace(
                 messages,
                 content_store,
-                max_chars_per_result=limits.tool_result,
+                max_chars_per_result=effective_tool_cap,
             )
         lines: list[str] = []
         for msg in messages:
-            role = msg.role if hasattr(msg, "role") else msg.get("role", "?")
+            if isinstance(msg, ChatMessage):
+                role = msg.role
+                raw_content = msg.content
+                tool_calls = msg.tool_calls
+            elif isinstance(msg, Mapping):
+                role = str(msg.get("role", "?"))
+                raw_content = msg.get("content", "")
+                tool_calls = msg.get("tool_calls")
+            else:
+                role = getattr(msg, "role", "?")
+                raw_content = getattr(msg, "content", "")
+                tool_calls = getattr(msg, "tool_calls", None)
             content = (
-                msg.content if hasattr(msg, "content") else msg.get("content", "")
-            ) or ""
-            tool_calls = (
-                getattr(msg, "tool_calls", None)
-                if hasattr(msg, "tool_calls")
-                else msg.get("tool_calls")
+                raw_content if isinstance(raw_content, str) else str(raw_content or "")
             )
 
             if role in ("system", "user"):
@@ -485,7 +514,7 @@ class Critic:
                             f"[Tool Call] {name}({_truncate(str(args), limits.tool_args)})"
                         )
             elif role == "tool":
-                lines.append(f"[Tool Result] {_truncate(content, limits.tool_result)}")
+                lines.append(f"[Tool Result] {_truncate(content, effective_tool_cap)}")
 
         max_lines = limits.trace_lines
         if len(lines) > max_lines:
@@ -839,12 +868,37 @@ class Critic:
         """Single LLM call without tools (text-only verification).
 
         Used by the legacy ``review_step`` / ``review_final`` API.
-        For the full Verifier subagent path, AutonomousMode runs
-        ``build_verification_messages`` through ``StandardMode._tool_call_loop``.
+
+        F6 — Routed through ``BaseExecutionMode.call_llm`` so this path
+        fires the same engine / usage-tracker / tracer hooks as every
+        other LLM call in the framework:
+
+        * ``ContextEngine.prepare`` runs before the call so compaction
+          is applied consistently.
+        * ``UsageTracker.record_from_response`` is invoked with
+          ``CallPurpose.CRITIC`` so Critic tokens are correctly
+          categorised (previously they were counted as untagged
+          "other" traffic).
+        * ``ContextEngine.post_response`` runs after so observation
+          masking fires on the Critic's slice of the conversation.
+        * The call is recorded on the tracer as an
+          ``LLMCallRecord(purpose=critic)``.
+
+        For the full Verifier subagent path, ``AutonomousMode`` runs
+        ``build_verification_messages`` through
+        ``StandardMode._tool_call_loop`` — which reaches ``call_llm``
+        by a different route.  Both paths now converge on the same
+        observability surface.
         """
         assert agent.llm is not None, "agent.llm must be set for Critic"
+
+        from nucleusiq.agents.chat_models import ChatMessage
+        from nucleusiq.agents.usage.usage_tracker import CallPurpose
+
+        exec_mode = self._get_exec_mode()
+
         try:
-            call_kwargs = {
+            call_kwargs: dict[str, Any] = {
                 "model": getattr(agent.llm, "model_name", "default"),
                 "messages": [{"role": "user", "content": prompt}],
                 "max_output_tokens": getattr(
@@ -852,7 +906,15 @@ class Critic:
                 ),
             }
             call_kwargs.update(getattr(agent, "_current_llm_overrides", {}))
-            response = await agent.llm.call(**call_kwargs)
+
+            prompt_messages = [ChatMessage(role="user", content=prompt)]
+
+            response = await exec_mode.call_llm(
+                agent,
+                call_kwargs,
+                messages=prompt_messages,
+                purpose=CallPurpose.CRITIC,
+            )
             return self._parse_response(response)
         except Exception as e:
             self._logger.warning("Critic LLM call failed: %s", e)
@@ -861,6 +923,22 @@ class Critic:
                 score=0.5,
                 feedback=f"Critique failed: {e}",
             )
+
+    @classmethod
+    def _get_exec_mode(cls) -> BaseExecutionMode:
+        """Lazily obtain a stateless ``StandardMode`` for ``call_llm``.
+
+        ``BaseExecutionMode`` holds no state — a single shared instance
+        is safe across all Critic invocations and avoids per-call
+        allocation overhead.
+        """
+        cached = getattr(cls, "_cached_exec_mode", None)
+        if cached is None:
+            from nucleusiq.agents.modes.standard_mode import StandardMode
+
+            cached = StandardMode()
+            cls._cached_exec_mode = cached
+        return cached
 
     def _parse_response(self, response: Any) -> CritiqueResult:
         """Extract CritiqueResult from an LLM response object.

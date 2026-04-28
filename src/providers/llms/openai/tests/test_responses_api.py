@@ -950,7 +950,9 @@ class TestMessageConversionEdgeCases:
         ]
         _, items = messages_to_responses_input(messages, None)
 
-        assert all(getattr(item, "type", None) != "function_call_output" for item in items)
+        assert all(
+            getattr(item, "type", None) != "function_call_output" for item in items
+        )
 
     def test_continuation_drops_stale_pre_assistant_tool_outputs(self):
         """In chain mode, only emit outputs for the most recent assistant's tool_calls.

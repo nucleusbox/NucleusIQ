@@ -359,6 +359,35 @@ class BaseExecutionMode(ABC):
     # Plugin-aware LLM and Tool invocation                               #
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _finalize_post_response(agent: "Agent", messages: list[ChatMessage]) -> None:
+        """F7 — Run ``engine.post_response`` on the **terminal** state.
+
+        ``call_llm`` / the streaming tool loop already invoke
+        ``post_response`` on every intermediate round.  But both paths
+        historically skipped masking after the terminal assistant was
+        appended — leaving the last round's tool results unmasked for
+        downstream consumers (Critic, Refiner) in Autonomous mode.
+
+        This helper closes the gap so streaming and non-streaming end
+        in an identical, fully-masked conversation state.  It is an
+        idempotent no-op when:
+
+        * no ``ContextEngine`` is attached (e.g. in unit tests);
+        * the engine has nothing left to mask;
+        * any exception is raised internally (swallowed, same as the
+          per-round hook — masking failures must never break the
+          user's task).
+        """
+        engine = getattr(agent, "_context_engine", None)
+        if engine is None or not messages:
+            return
+        try:
+            masked = engine.post_response(messages)
+            messages[:] = masked
+        except Exception:
+            pass
+
     async def call_llm(
         self,
         agent: "Agent",
@@ -655,10 +684,19 @@ class BaseExecutionMode(ABC):
                     )
                 )
 
+                from nucleusiq.agents.context.recall_tools import (
+                    is_recall_tool_name,
+                )
+
                 for tc in parsed_calls:
                     if not tc.name:
                         continue
-                    if tool_call_count >= max_tool_calls:
+                    # Recall tools (memory operations) bypass the
+                    # tool-call budget — see §6.4 of the v2 redesign.
+                    if (
+                        not is_recall_tool_name(tc.name)
+                        and tool_call_count >= max_tool_calls
+                    ):
                         agent._logger.warning(
                             "Tool call limit (%d) reached", max_tool_calls
                         )
@@ -670,6 +708,59 @@ class BaseExecutionMode(ABC):
                         args = {}
 
                     yield StreamEvent.tool_start_event(tc.name, args)
+
+                    # Context Mgmt v2 — Step 4: idempotent-tool dedup
+                    # mirrored from StandardMode._process_tool_calls.
+                    # See standard_mode.py for the rationale.
+                    from nucleusiq.agents.modes.standard_mode import (
+                        _IDEMPOTENT_DEDUP_BANNER,
+                        _get_tool_by_name,
+                        _hash_tool_args,
+                    )
+
+                    dedup_cache: dict[tuple[str, str], str] = (
+                        getattr(agent, "_tool_dedup_cache", None) or {}
+                    )
+                    agent._tool_dedup_cache = dedup_cache
+
+                    tool_obj = _get_tool_by_name(agent, tc.name)
+                    is_idempotent = bool(getattr(tool_obj, "idempotent", False))
+                    args_hash = _hash_tool_args(tc.arguments or "")
+                    cache_key = (tc.name, args_hash)
+                    prior_call_id = dedup_cache.get(cache_key)
+
+                    if is_idempotent and prior_call_id is not None:
+                        from nucleusiq.agents.context.compactor import (
+                            _build_args_preview,
+                        )
+
+                        args_preview = _build_args_preview(
+                            {"function": {"arguments": tc.arguments or "{}"}}
+                        )
+                        banner = _IDEMPOTENT_DEDUP_BANNER.format(
+                            tool_name=tc.name,
+                            args_preview=args_preview,
+                            original_call_id=prior_call_id,
+                        )
+                        agent._logger.info(
+                            "Tool dedup (stream): %s args_hash=%s already "
+                            "called (original_call_id=%s) — short-circuit",
+                            tc.name,
+                            args_hash,
+                            prior_call_id,
+                        )
+                        messages.append(
+                            ChatMessage(
+                                role="tool",
+                                name=tc.name,
+                                tool_call_id=tc.id,
+                                content=banner,
+                            )
+                        )
+                        yield StreamEvent.tool_end_event(tc.name, banner)
+                        if not is_recall_tool_name(tc.name):
+                            tool_call_count += 1
+                        continue
 
                     try:
                         result = await self.call_tool(agent, tc, tool_round=call_round)
@@ -693,7 +784,15 @@ class BaseExecutionMode(ABC):
                             )
                         )
                         yield StreamEvent.tool_end_event(tc.name, result_str)
-                        tool_call_count += 1
+                        # Auto-injected recall tools do not count against
+                        # the user's tool budget — they are memory ops,
+                        # not external actions.  See §6.4 of the v2
+                        # redesign doc.  ``is_recall_tool_name`` is
+                        # imported once at the top of the loop above.
+                        if not is_recall_tool_name(tc.name):
+                            tool_call_count += 1
+                        if is_idempotent and tc.id is not None:
+                            dedup_cache[cache_key] = tc.id
                     except Exception as e:
                         yield StreamEvent.error_event(f"Tool '{tc.name}' failed: {e}")
                         return
@@ -712,9 +811,7 @@ class BaseExecutionMode(ABC):
 
             # --- Content returned, no tools → synthesis or done ---
             if full_content.strip():
-                synth_threshold = getattr(
-                    agent.config, "synthesis_word_threshold", 500
-                )
+                synth_threshold = getattr(agent.config, "synthesis_word_threshold", 500)
                 if (
                     pre_synth_snapshot is not None
                     and len(full_content.split()) < synth_threshold
@@ -747,6 +844,17 @@ class BaseExecutionMode(ABC):
                             synth_msgs = await engine.prepare(synth_msgs)
                         except Exception:
                             pass
+                        # v2 §7 — rehydrate evidence markers so the
+                        # tools=None synthesis call has the original
+                        # bytes, not just markers.  Fail-open.
+                        try:
+                            synth_msgs = engine.prepare_for_synthesis(synth_msgs)
+                        except Exception as exc:
+                            agent._logger.debug(
+                                "Streaming synthesis rehydration skipped "
+                                "(fail-open): %s",
+                                exc,
+                            )
 
                     synth_kwargs = self.build_call_kwargs(
                         agent,
@@ -796,6 +904,14 @@ class BaseExecutionMode(ABC):
                                     content=synth_event.content or "",
                                 )
                             )
+                            # F7 — synthesis terminal masking.
+                            # The non-streaming synthesis path reaches
+                            # post_response via its inner ``call_llm``;
+                            # the streaming synthesis path bypasses
+                            # ``call_llm`` entirely, so we must call it
+                            # explicitly here to keep both paths
+                            # converging on the same masked final state.
+                            self._finalize_post_response(agent, messages)
                             yield StreamEvent.complete_event(
                                 synth_event.content or "",
                                 metadata=synth_event.metadata,
@@ -806,9 +922,12 @@ class BaseExecutionMode(ABC):
                             "preserving pre-synthesis content"
                         )
 
-                messages.append(
-                    ChatMessage(role="assistant", content=full_content)
-                )
+                messages.append(ChatMessage(role="assistant", content=full_content))
+                # F7 — terminal post_response symmetry (streaming path).
+                # Mirrors ``StandardMode._tool_call_loop`` so both modes
+                # end in an identical masked state for downstream
+                # consumers (Critic/Refiner in Autonomous mode).
+                self._finalize_post_response(agent, messages)
                 yield StreamEvent.complete_event(
                     full_content, metadata=complete_event.metadata
                 )

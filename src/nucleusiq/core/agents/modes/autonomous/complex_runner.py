@@ -42,7 +42,6 @@ from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
-    from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
     from nucleusiq.agents.modes.standard_mode import StandardMode
 
 
@@ -55,8 +54,8 @@ class ComplexRunner:
 
     def __init__(
         self,
-        mode: "AutonomousMode",
-        std_mode: "StandardMode",
+        mode: Any,
+        std_mode: StandardMode,
         validation: ValidationPipeline,
         critic: Critic,
         refiner: Refiner,
@@ -79,7 +78,7 @@ class ComplexRunner:
 
     async def run_sync(
         self,
-        agent: "Agent",
+        agent: Agent,
         task: Task,
         decomposer: Decomposer,
         analysis: TaskAnalysis,
@@ -127,6 +126,8 @@ class ComplexRunner:
         critique_history: list[CritiqueResult] = []
         best_content: Any = None
         best_critique: CritiqueResult | None = None
+        # F5 — propagate STOP_ABSTAIN reason into AbstentionSignal.
+        last_abstain_reason = None
 
         attempt = 0
         final_attempt_index = 0
@@ -159,9 +160,7 @@ class ComplexRunner:
 
                 if use_refiner:
                     if tool_summary_cache is None:
-                        tool_summary_cache = helpers.summarize_tool_results(
-                            messages
-                        )
+                        tool_summary_cache = helpers.summarize_tool_results(messages)
                     revision = await self._mode._run_refiner(
                         agent,
                         self._refiner,
@@ -171,7 +170,6 @@ class ComplexRunner:
                         messages,
                     )
                     if revision is not None:
-                        refined_at_least_once = True
                         telemetry.record_revision(
                             agent,
                             attempt + 1,
@@ -195,9 +193,7 @@ class ComplexRunner:
                         fallback_msg = helpers.build_fallback_revision_message(
                             last_critique  # type: ignore[arg-type]
                         )
-                        messages.append(
-                            ChatMessage(role="user", content=fallback_msg)
-                        )
+                        messages.append(ChatMessage(role="user", content=fallback_msg))
                         last_critique = None
                         tool_summary_cache = None
                         try:
@@ -244,9 +240,7 @@ class ComplexRunner:
                 if not vr.valid:
                     if attempt < budget.max_retries - 1:
                         retry_msg = helpers.build_validation_retry(vr)
-                        messages.append(
-                            ChatMessage(role="user", content=retry_msg)
-                        )
+                        messages.append(ChatMessage(role="user", content=retry_msg))
                     last_critique = None
                     attempt += 1
                     continue
@@ -270,8 +264,7 @@ class ComplexRunner:
                     delta = critique.score - critique_history[-2].score
                     delta_str = f" (delta={delta:+.2f})"
                 agent._logger.info(
-                    "Synthesis attempt %d/%d [CRITIC]: %s (score=%.2f)%s "
-                    "— %s",
+                    "Synthesis attempt %d/%d [CRITIC]: %s (score=%.2f)%s — %s",
                     attempt + 1,
                     budget.max_retries,
                     critique.verdict.value,
@@ -321,6 +314,7 @@ class ComplexRunner:
                 if decision.action == Action.STOP_ABSTAIN:
                     last_critique = critique
                     final_attempt_index = attempt
+                    last_abstain_reason = decision.abstain_reason  # F5
                     break
 
                 if decision.escalation_reason is not None:
@@ -357,9 +351,7 @@ class ComplexRunner:
         if last_critique is not None:
             assert best_critique is not None
             first_critique = critique_history[0]
-            if SimpleRunner._should_accept_with_warning(
-                best_critique, first_critique
-            ):
+            if SimpleRunner._should_accept_with_warning(best_critique, first_critique):
                 warning = SimpleRunner._build_warning(
                     best_critique, first_critique, attempts_completed
                 )
@@ -404,6 +396,7 @@ class ComplexRunner:
                     or "Critic rejected all synthesis candidates across the "
                     "retry budget"
                 ),
+                abstain_reason=last_abstain_reason,  # F5
             )
 
         synth_step.mark_completed(str(result))
@@ -417,7 +410,7 @@ class ComplexRunner:
 
     async def run_stream(
         self,
-        agent: "Agent",
+        agent: Agent,
         task: Task,
         decomposer: Decomposer,
         analysis: TaskAnalysis,
@@ -460,7 +453,8 @@ class ComplexRunner:
         critique_history: list[CritiqueResult] = []
         best_content: str | None = None
         best_critique: CritiqueResult | None = None
-        refined_at_least_once = False
+        # F5 — propagate STOP_ABSTAIN reason into AbstentionSignal.
+        last_abstain_reason = None
 
         attempt = 0
         final_attempt_index = 0
@@ -496,9 +490,7 @@ class ComplexRunner:
                         f"score={last_critique.score:.2f})…"  # type: ignore[union-attr]
                     )
                     if tool_summary_cache is None:
-                        tool_summary_cache = helpers.summarize_tool_results(
-                            messages
-                        )
+                        tool_summary_cache = helpers.summarize_tool_results(messages)
                     revision = await self._mode._run_refiner(
                         agent,
                         self._refiner,
@@ -508,7 +500,6 @@ class ComplexRunner:
                         messages,
                     )
                     if revision is not None:
-                        refined_at_least_once = True
                         telemetry.record_revision(
                             agent,
                             attempt + 1,
@@ -535,9 +526,7 @@ class ComplexRunner:
                         fallback_msg = helpers.build_fallback_revision_message(
                             last_critique  # type: ignore[arg-type]
                         )
-                        messages.append(
-                            ChatMessage(role="user", content=fallback_msg)
-                        )
+                        messages.append(ChatMessage(role="user", content=fallback_msg))
                         last_critique = None
                         tool_summary_cache = None
                         final_content = None
@@ -572,25 +561,19 @@ class ComplexRunner:
 
                 budget = SimpleRunner._sync_budget_with_tracer(agent, budget)
 
-                vr = await self._validation.validate(
-                    agent, final_content, messages
-                )
+                vr = await self._validation.validate(agent, final_content, messages)
                 if not vr.valid:
                     if attempt < budget.max_retries - 1:
                         yield StreamEvent.thinking_event(
                             f"Validation failed ({vr.reason}), retrying…"
                         )
                         retry_msg = helpers.build_validation_retry(vr)
-                        messages.append(
-                            ChatMessage(role="user", content=retry_msg)
-                        )
+                        messages.append(ChatMessage(role="user", content=retry_msg))
                     last_critique = None
                     attempt += 1
                     continue
 
-                yield StreamEvent.thinking_event(
-                    "Verifying synthesis with Critic…"
-                )
+                yield StreamEvent.thinking_event("Verifying synthesis with Critic…")
                 critique = await self._mode._run_critic(
                     agent, self._critic, task.objective, final_content, messages
                 )
@@ -603,8 +586,7 @@ class ComplexRunner:
                     delta = critique.score - critique_history[-2].score
                     delta_str = f" (delta={delta:+.2f})"
                 agent._logger.info(
-                    "Synthesis attempt %d/%d [CRITIC]: %s (score=%.2f)%s "
-                    "— %s",
+                    "Synthesis attempt %d/%d [CRITIC]: %s (score=%.2f)%s — %s",
                     attempt + 1,
                     budget.max_retries,
                     critique.verdict.value,
@@ -636,6 +618,7 @@ class ComplexRunner:
                 if decision.action == Action.STOP_ABSTAIN:
                     last_critique = critique
                     final_attempt_index = attempt
+                    last_abstain_reason = decision.abstain_reason  # F5
                     break
 
                 if decision.escalation_reason is not None:
@@ -668,9 +651,7 @@ class ComplexRunner:
         if last_critique is not None:
             assert best_critique is not None
             first_critique = critique_history[0]
-            if SimpleRunner._should_accept_with_warning(
-                best_critique, first_critique
-            ):
+            if SimpleRunner._should_accept_with_warning(best_critique, first_critique):
                 warning = SimpleRunner._build_warning(
                     best_critique, first_critique, attempts_completed
                 )
@@ -718,6 +699,7 @@ class ComplexRunner:
                     or "Critic rejected all synthesis candidates across the "
                     "retry budget"
                 ),
+                abstain_reason=last_abstain_reason,  # F5
             )
 
         agent.state = AgentState.COMPLETED

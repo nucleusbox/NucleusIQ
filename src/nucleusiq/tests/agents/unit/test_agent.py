@@ -428,6 +428,87 @@ class TestAgentExecute:
         assert "Standard mode execution failed" in (result.error or "")
         assert agent.state == AgentState.ERROR
 
+    @pytest.mark.asyncio
+    async def test_agent_execute_error_string_sets_error_status(self):
+        """Legacy mode error-string sentinels surface as AgentResult errors."""
+
+        class ErrorMode:
+            async def run(self, agent, task):
+                agent.state = AgentState.ERROR
+                return "Error: Maximum tool calls (2) reached"
+
+        agent = Agent(
+            name="TestAgent",
+            role="Assistant",
+            objective="Help users",
+            prompt=make_test_prompt(),
+            llm=MockLLM(),
+            config=AgentConfig(verbose=False),
+        )
+        agent._resolve_mode = lambda: ErrorMode()
+        await agent.initialize()
+
+        result = await agent.execute({"id": "task1", "objective": "Test task"})
+
+        assert result.status.value == "error"
+        assert result.error_type == "ToolCallLimitError"
+        assert result.error == "Error: Maximum tool calls (2) reached"
+        assert str(result) == "Error: Maximum tool calls (2) reached"
+
+
+class TestRecallToolInjection:
+    """Auto-injection of recall tools (Context Mgmt v2 — Step 2).
+
+    Recall tools are only useful when the agent has *user* tools that
+    could produce offloaded tool results. Injecting them on a
+    tool-less agent confuses naive LLMs that pick ``tools[0]``
+    blindly and tries to call ``recall_tool_result`` without a
+    ``ref`` argument. This contract test locks in the gate.
+    """
+
+    @pytest.mark.asyncio
+    async def test_no_recall_tools_when_agent_has_no_user_tools(self):
+        from nucleusiq.agents.context.recall_tools import is_recall_tool_name
+
+        agent = Agent(
+            name="TestAgent",
+            role="Assistant",
+            objective="Help users",
+            prompt=make_test_prompt(),
+            llm=MockLLM(),
+            config=AgentConfig(verbose=False),
+        )
+        await agent.initialize()
+        await agent.execute({"id": "t", "objective": "Hello"})
+
+        assert all(
+            not is_recall_tool_name(getattr(t, "name", None)) for t in agent.tools
+        )
+
+    @pytest.mark.asyncio
+    async def test_recall_tools_injected_when_user_tools_present(self):
+        from nucleusiq.agents.context.recall_tools import (
+            RECALL_TOOL_NAME,
+            is_recall_tool_name,
+        )
+
+        agent = Agent(
+            name="TestAgent",
+            role="Calculator",
+            objective="Calculate",
+            prompt=make_test_prompt(),
+            llm=MockLLM(),
+            tools=[MockCalculatorTool()],
+            config=AgentConfig(verbose=False),
+        )
+        await agent.initialize()
+        await agent.execute({"id": "t", "objective": "What is 2 + 3?"})
+
+        recall_names = {
+            t.name for t in agent.tools if is_recall_tool_name(getattr(t, "name", None))
+        }
+        assert RECALL_TOOL_NAME in recall_names
+
 
 class TestAgentStateTransitions:
     """Test Agent state transitions."""

@@ -6,7 +6,9 @@ Quick start::
 
     from nucleusiq.agents.context import ContextConfig, ContextEngine
 
-    # Zero-config: uses optimal_budget=50K, observation masking ON
+    # Zero-config: optimal_budget auto-resolves from the model's
+    # real context window (70% × ctx_window, capped at 120K),
+    # observation masking ON.
     config = ContextConfig()
 
     # Explicit configuration
@@ -19,18 +21,28 @@ Quick start::
     # Mode-aware defaults
     config = ContextConfig.for_mode("autonomous")
 
-Architecture:
+Architecture (Context Mgmt v2 — Step 3):
     ContextEngine (Facade)
-    ├── ObservationMasker (Tier 0 — always, post-response)
-    ├── ContextLedger (region-aware token accounting)
-    ├── CompactionPipeline (progressive strategy chain)
-    │   ├── ToolResultCompactor  (@ 60% — Minor GC)
-    │   ├── ConversationCompactor (@ 75% — Major GC)
-    │   └── EmergencyCompactor   (@ 90% — Full GC)
-    └── ContentStore (offloaded artifact storage)
+    ├── Compactor (priority-ordered single class — replaces v1's
+    │   pipeline + 4 strategies; see ``compactor.py``)
+    ├── PolicyClassifier  (EVIDENCE / EPHEMERAL classification)
+    ├── ContextLedger     (region-aware token accounting)
+    ├── ContentStore      (offloaded artefact storage)
+    ├── RecallTracker     (hot-set tracking for recall pinning)
+    └── recall_tools      (auto-injected ``recall_tool_result``)
 """
 
 from nucleusiq.agents.context.budget import ContextBudget, ContextLedger, Region
+from nucleusiq.agents.context.compactor import (
+    CompactionPipeline,
+    CompactionResult,
+    CompactionStrategy,
+    Compactor,
+    ConversationCompactor,
+    EmergencyCompactor,
+    ObservationMasker,
+    ToolResultCompactor,
+)
 from nucleusiq.agents.context.config import (
     ContextConfig,
     ContextStrategy,
@@ -38,19 +50,11 @@ from nucleusiq.agents.context.config import (
 )
 from nucleusiq.agents.context.counter import DefaultTokenCounter, TokenCounter
 from nucleusiq.agents.context.engine import ContextEngine
-from nucleusiq.agents.context.pipeline import CompactionPipeline
 from nucleusiq.agents.context.store import ContentRef, ContentStore
-from nucleusiq.agents.context.strategies import (
-    CompactionResult,
-    CompactionStrategy,
-    ConversationCompactor,
-    EmergencyCompactor,
-    ObservationMasker,
-    ToolResultCompactor,
-)
 from nucleusiq.agents.context.telemetry import CompactionEvent, ContextTelemetry
 
 __all__ = [
+    "Compactor",
     "CompactionEvent",
     "CompactionPipeline",
     "CompactionResult",

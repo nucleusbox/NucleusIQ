@@ -21,7 +21,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from nucleusiq.agents.agent_result import (
     CritiqueSnapshot,
     RevisionRecord,
@@ -32,7 +31,6 @@ from nucleusiq.agents.components.refiner import Refiner, RevisionCandidate
 from nucleusiq.agents.config.agent_config import AgentConfig
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 from nucleusiq.agents.usage.usage_tracker import CallPurpose
-
 
 # ------------------------------------------------------------------ #
 # Helpers                                                             #
@@ -286,18 +284,32 @@ class TestSummarizeToolResults:
         ]
         assert AutonomousMode._summarize_tool_results(messages) is None
 
-    def test_truncates_each_item_and_total(self):
-        long_tool = "z" * 2_000
+    def test_total_cap_bounds_aggregate_output(self):
+        # v0.7.8: per-tool head-truncation has been removed.  The
+        # remaining bound is the aggregate ``total_char_cap``.
+        # Use 200-char entries so the cap stops us mid-stream rather
+        # than before the first entry.
+        tool_body = "z" * 200
         messages = [
-            ChatMessage(role="tool", name="fetch", content=long_tool)
-            for _ in range(20)
+            ChatMessage(role="tool", name="fetch", content=tool_body) for _ in range(20)
         ]
-        summary = AutonomousMode._summarize_tool_results(
-            messages, max_chars=1_000, per_item_chars=200
-        )
+        summary = AutonomousMode._summarize_tool_results(messages, total_char_cap=1_000)
         assert summary is not None
         assert len(summary) <= 1_000
         assert "[fetch]" in summary
+        # Not all 20 entries fit; we stopped early.
+        assert summary.count("[fetch]") < 20
+
+    def test_no_truncation_by_default(self):
+        # v0.7.8: without caps the helper passes content through.
+        messages = [
+            ChatMessage(role="tool", name="fetch", content="x" * 3_000),
+            ChatMessage(role="tool", name="fetch", content="y" * 3_000),
+        ]
+        summary = AutonomousMode._summarize_tool_results(messages)
+        assert summary is not None
+        assert summary.count("x") == 3_000
+        assert summary.count("y") == 3_000
 
 
 class TestRunRefiner:
@@ -329,9 +341,7 @@ class TestRunRefiner:
 
         expected = RevisionCandidate(content="revised")
 
-        with patch.object(
-            Refiner, "revise", new=AsyncMock(return_value=expected)
-        ):
+        with patch.object(Refiner, "revise", new=AsyncMock(return_value=expected)):
             out = await mode._run_refiner(
                 agent,
                 refiner,
@@ -360,7 +370,9 @@ class TestTelemetryRecording:
             duration_ms=123.4,
         )
 
-        AutonomousMode._record_revision(agent, attempt=2, critique=critique, revision=rev)
+        AutonomousMode._record_revision(
+            agent, attempt=2, critique=critique, revision=rev
+        )
 
         ad = agent._tracer.autonomous_detail
         revisions = ad["revisions"]

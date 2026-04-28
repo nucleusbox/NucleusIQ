@@ -125,6 +125,7 @@ class Agent(BaseAgent):
     _tracer: DefaultExecutionTracer | None = PrivateAttr(default=None)
     _context_engine: Any = PrivateAttr(default=None)
     _last_messages: list | None = PrivateAttr(default=None)
+    _tool_dedup_cache: dict[tuple[str, str], str] = PrivateAttr(default_factory=dict)
     _execution_progress: Any = PrivateAttr(default=None)
     _sub_agent_context_tels: list = PrivateAttr(default_factory=list)
 
@@ -304,6 +305,78 @@ class Agent(BaseAgent):
             self._logger.debug("Context engine creation failed, proceeding without it")
             return None
 
+    def _inject_recall_tools_for_execution(self) -> None:
+        """Append the auto-injected recall tools to ``self.tools``.
+
+        Context Mgmt v2 — Step 2 (§6.2 of the redesign): the recall
+        tools (``recall_tool_result``, ``list_recalled_evidence``)
+        are auto-discovered by the model whenever a
+        :class:`ContextEngine` is attached to this agent.  Discovery
+        works because every LLM call serialises ``self.tools`` into
+        the tool-spec list; appending here makes the tools visible
+        without any explicit user wiring.
+
+        Idempotent across executions: any pre-existing recall tools
+        from a previous ``execute()`` call are stripped first
+        (because their engine binding is stale), then a fresh pair
+        is built against the new engine and appended.
+
+        Executor wiring is conditional. The :class:`Executor` is
+        created lazily by some execution modes (e.g. Standard's
+        ``_ensure_executor``) on the *first* tool call, which happens
+        after ``_setup_execution`` returns.  When ``_executor`` is
+        already set we register the recall tools in its tool table
+        directly; when it is ``None`` we still append to
+        ``self.tools`` so the lazy constructor — which iterates
+        ``self.tools`` — picks them up.  Either path leaves the
+        executor with the recall pair available, which is the only
+        invariant the agent loop cares about.
+
+        No-op only when ``_context_engine`` is ``None`` (context
+        management disabled — zero overhead).
+        """
+        from nucleusiq.agents.context.recall_tools import (
+            build_recall_tools,
+            is_recall_tool_name,
+        )
+
+        # Always strip stale recall tools (their engine binding is
+        # tied to the previous execution).
+        self.tools = [
+            t for t in self.tools if not is_recall_tool_name(getattr(t, "name", None))
+        ]
+        if self._executor is not None:
+            self._executor.tools = {
+                name: tool
+                for name, tool in self._executor.tools.items()
+                if not is_recall_tool_name(name)
+            }
+
+        if self._context_engine is None:
+            return
+
+        # Recall tools only make sense when the agent has user tools that
+        # could produce offloaded results. Without user tools nothing is
+        # ever ingested into the ContentStore, so injecting recall tools
+        # only confuses naive LLMs (and naive mocks pick tools[0] blindly).
+        if not self.tools:
+            self._logger.debug(
+                "Skipping recall tool injection: agent has no user tools"
+            )
+            return
+
+        recall_tools = build_recall_tools(self._context_engine)
+        self.tools.extend(recall_tools)
+        if self._executor is not None:
+            for t in recall_tools:
+                self._executor.tools[t.name] = t
+
+        self._logger.debug(
+            "Auto-injected %d recall tool(s) for context engine: %s",
+            len(recall_tools),
+            [t.name for t in recall_tools],
+        )
+
     def _build_token_counter(self) -> Any:
         """Build a TokenCounter from the LLM's estimate_tokens method."""
         from nucleusiq.agents.context.counter import DefaultTokenCounter
@@ -389,6 +462,15 @@ class Agent(BaseAgent):
         self._context_engine = self._create_context_engine()
         self._sub_agent_context_tels = []
 
+        # Context Mgmt v2 — Step 2: auto-inject the recall tools so
+        # the model can rehydrate offloaded evidence on demand.  The
+        # tools are bound to the engine just created above; on a
+        # subsequent execute() call the engine is replaced and we
+        # re-inject fresh tools.  This is the only place that mutates
+        # ``self.tools`` after construction, kept here so the
+        # max-tools check below sees the final list.
+        self._inject_recall_tools_for_execution()
+
         agent_ctx = AgentContext(
             agent_name=self.name,
             task=task,
@@ -399,14 +481,23 @@ class Agent(BaseAgent):
         agent_ctx = await self._plugin_manager.run_before_agent(agent_ctx)
 
         max_tools = self.config.get_effective_max_tool_calls()
-        if len(self.tools) > max_tools:
+        # Auto-injected recall tools must not count against the user's
+        # tool budget — the user did not opt into them, the framework
+        # added them.  See ``recall_tools.is_recall_tool_name`` for the
+        # canonical list.
+        from nucleusiq.agents.context.recall_tools import is_recall_tool_name
+
+        user_tool_count = sum(
+            1 for t in self.tools if not is_recall_tool_name(getattr(t, "name", None))
+        )
+        if user_tool_count > max_tools:
             mode_value = (
                 self.config.execution_mode.value
                 if hasattr(self.config.execution_mode, "value")
                 else str(self.config.execution_mode)
             )
             raise AgentConfigError(
-                f"Agent '{self.name}' has {len(self.tools)} tools but "
+                f"Agent '{self.name}' has {user_tool_count} tools but "
                 f"{mode_value.upper()} mode allows max {max_tools}. "
                 f"Reduce tools or switch to a higher execution mode.",
                 mode=mode_value,
@@ -418,6 +509,23 @@ class Agent(BaseAgent):
     # ------------------------------------------------------------------ #
     # EXECUTION — non-streaming                                            #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _is_framework_error_output(output: Any) -> bool:
+        """Return True for legacy mode error-string sentinels."""
+        return isinstance(output, str) and output.strip().startswith("Error:")
+
+    @staticmethod
+    def _classify_framework_error(output: Any) -> str:
+        """Map legacy error-string sentinels to stable ``AgentResult`` types."""
+        text = str(output)
+        if "Maximum tool calls" in text:
+            return "ToolCallLimitError"
+        if "LLM did not respond" in text:
+            return "EmptyLLMResponseError"
+        if "Tool '" in text and "execution failed" in text:
+            return "ToolExecutionError"
+        return "AgentRuntimeError"
 
     async def execute(
         self,
@@ -460,6 +568,7 @@ class Agent(BaseAgent):
 
             status = ResultStatus.SUCCESS
             abstention_reason: str | None = None
+            abstention_code: str | None = None
             try:
                 output = await mode.run(self, task_obj)
             except PluginHalt as halt:
@@ -469,14 +578,37 @@ class Agent(BaseAgent):
                 # F2: Autonomous mode exhausted retries with Critic still
                 # failing. Surface as a first-class outcome rather than
                 # silently returning a bad answer.
+                # F5: also carry the machine-readable abstain_reason so
+                # programmatic callers can react without string-matching
+                # free-form feedback.
                 status = ResultStatus.ABSTAINED
                 output = signal.best_candidate
                 abstention_reason = signal.reason
+                abstention_code = getattr(signal, "abstain_reason", None)
 
             if self._plugin_manager is not None:
                 output = await self._plugin_manager.run_after_agent(agent_ctx, output)
+
+            error: str | None = None
+            error_type: str | None = None
+            if (
+                status == ResultStatus.SUCCESS
+                and self.state == AgentState.ERROR
+                and self._is_framework_error_output(output)
+            ):
+                status = ResultStatus.ERROR
+                error = str(output)
+                error_type = self._classify_framework_error(output)
+
             return self._build_result(
-                task_obj, status, output, None, None, t0, abstention_reason
+                task_obj,
+                status,
+                output,
+                error,
+                error_type,
+                t0,
+                abstention_reason,
+                abstention_code,
             )
 
         except Exception as exc:
@@ -502,6 +634,7 @@ class Agent(BaseAgent):
         error_type: str | None,
         t0: float,
         abstention_reason: str | None = None,
+        abstention_code: str | None = None,
     ) -> AgentResult:
         """Construct a frozen :class:`AgentResult` from execution data."""
         from nucleusiq.agents.agent_result import MemorySnapshot
@@ -601,6 +734,7 @@ class Agent(BaseAgent):
             error_type=error_type,
             duration_ms=(time.perf_counter() - t0) * 1000,
             abstention_reason=abstention_reason,
+            abstention_code=abstention_code,
             usage=usage_dict,
             tool_calls=tool_calls_t,
             llm_calls=llm_calls_t,
@@ -675,11 +809,16 @@ class Agent(BaseAgent):
                 # UIs that only consume final text still work, but wrap
                 # the signal's reason in an error_event so abstention is
                 # distinguishable from a clean pass.
+                # F5: prefix the error_event with the structured reason
+                # code (e.g. "budget_exhausted") so programmatic stream
+                # consumers can branch without string-matching feedback.
                 final_result = (
                     str(signal.best_candidate) if signal.best_candidate else ""
                 )
                 yield StreamEvent.complete_event(final_result)
-                yield StreamEvent.error_event(f"ABSTAINED: {signal.reason}")
+                code = getattr(signal, "abstain_reason", None)
+                prefix = f"ABSTAINED[{code}]" if code else "ABSTAINED"
+                yield StreamEvent.error_event(f"{prefix}: {signal.reason}")
 
             if self._plugin_manager and final_result is not None:
                 await self._plugin_manager.run_after_agent(agent_ctx, final_result)

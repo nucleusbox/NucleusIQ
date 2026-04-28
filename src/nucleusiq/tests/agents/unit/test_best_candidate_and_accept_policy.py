@@ -8,7 +8,6 @@ is covered by the broader autonomous-mode suite.
 from __future__ import annotations
 
 import pytest
-
 from nucleusiq.agents.components.critic import CritiqueResult, Verdict
 from nucleusiq.agents.modes.autonomous.simple_runner import (
     _ACCEPT_WITH_WARNING_FLOOR,
@@ -117,9 +116,7 @@ class TestAcceptWithWarningPolicy:
         # Floor met AND improvement >= threshold → accept with warning.
         best = _c(Verdict.UNCERTAIN, 0.65)
         first = _c(Verdict.FAIL, 0.2)
-        assert (
-            best.score - first.score >= _ACCEPT_WITH_WARNING_IMPROVEMENT
-        )
+        assert best.score - first.score >= _ACCEPT_WITH_WARNING_IMPROVEMENT
         assert SimpleRunner._should_accept_with_warning(best, first) is True
 
     def test_regression_below_first_rejects(self) -> None:

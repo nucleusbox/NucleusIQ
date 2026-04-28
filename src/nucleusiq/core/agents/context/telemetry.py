@@ -63,6 +63,16 @@ class ContextTelemetry(BaseModel):
     observations_masked: int = 0
     tokens_masked: int = 0
 
+    # --- Context Mgmt v2 — Step 1: masker gating ---
+    # masker_triggered_count = number of post_response calls where masking ran
+    # masker_skipped_count   = number of post_response calls gated off because
+    #                          util < squeeze_threshold
+    # The ratio is the cleanest single signal for "is the gate doing useful
+    # work?": skipped >> triggered means short run with the gate saving the
+    # quality regression v1 used to cause.
+    masker_triggered_count: int = 0
+    masker_skipped_count: int = 0
+
     # --- Phase 2: quality-optimized budget ---
     optimal_budget: int = 0
 
@@ -70,6 +80,26 @@ class ContextTelemetry(BaseModel):
     estimated_cost_without_mgmt: float = 0.0
     estimated_cost_with_mgmt: float = 0.0
     estimated_savings_pct: float = 0.0
+
+    # --- Context Mgmt v2 — Step 2: recall + policy observability ---
+    # ``recall_count``   = how many times ``recall_tool_result`` ran in this
+    #                      execution.  High counts on a model + task pair
+    #                      mean the masker is too aggressive (or the budget
+    #                      too small) — telemetry is the way operators
+    #                      notice.
+    # ``recall_tokens``  = total tokens *returned* by recall calls (not the
+    #                      tokens stored — see ``artifacts_offloaded`` for
+    #                      that).  Useful for budgeting: if the model recalls
+    #                      30K tokens to answer one question, the masker
+    #                      probably should have left them in place.
+    # ``policy_breakdown`` and ``policy_source_breakdown`` show how the
+    # ``PolicyClassifier`` is partitioning tool results.  An imbalance
+    # ("AUTO classifies 95% as EVIDENCE") usually means the size threshold
+    # needs tuning, not that the classifier is broken.
+    recall_count: int = 0
+    recall_tokens: int = 0
+    policy_breakdown: dict[str, int] = Field(default_factory=dict)
+    policy_source_breakdown: dict[str, int] = Field(default_factory=dict)
 
     # ------------------------------------------------------------------ #
     # Merge support (autonomous sub-agent rollup)                          #
@@ -103,8 +133,15 @@ class ContextTelemetry(BaseModel):
         regions: dict[str, int] = dict(p.region_breakdown)
         obs_masked = p.observations_masked
         tok_masked = p.tokens_masked
+        masker_trig = p.masker_triggered_count
+        masker_skip = p.masker_skipped_count
         cost_without = p.estimated_cost_without_mgmt
         cost_with = p.estimated_cost_with_mgmt
+        # v2 Step 2 — additive recall + policy stats.
+        recall_count = p.recall_count
+        recall_tokens = p.recall_tokens
+        policy_breakdown: dict[str, int] = dict(p.policy_breakdown)
+        policy_source_breakdown: dict[str, int] = dict(p.policy_source_breakdown)
         warns = list(p.warnings)
 
         for child in children:
@@ -117,8 +154,16 @@ class ContextTelemetry(BaseModel):
             offloaded += child.artifacts_offloaded
             obs_masked += child.observations_masked
             tok_masked += child.tokens_masked
+            masker_trig += child.masker_triggered_count
+            masker_skip += child.masker_skipped_count
             cost_without += child.estimated_cost_without_mgmt
             cost_with += child.estimated_cost_with_mgmt
+            recall_count += child.recall_count
+            recall_tokens += child.recall_tokens
+            for k, v in child.policy_breakdown.items():
+                policy_breakdown[k] = policy_breakdown.get(k, 0) + v
+            for k, v in child.policy_source_breakdown.items():
+                policy_source_breakdown[k] = policy_source_breakdown.get(k, 0) + v
             warns.extend(child.warnings)
             for rgn, tokens in child.region_breakdown.items():
                 regions[rgn] = regions.get(rgn, 0) + tokens
@@ -142,8 +187,14 @@ class ContextTelemetry(BaseModel):
             warnings=tuple(warns),
             observations_masked=obs_masked,
             tokens_masked=tok_masked,
+            masker_triggered_count=masker_trig,
+            masker_skipped_count=masker_skip,
             optimal_budget=p.optimal_budget,
             estimated_cost_without_mgmt=cost_without,
             estimated_cost_with_mgmt=cost_with,
             estimated_savings_pct=savings_pct,
+            recall_count=recall_count,
+            recall_tokens=recall_tokens,
+            policy_breakdown=policy_breakdown,
+            policy_source_breakdown=policy_source_breakdown,
         )

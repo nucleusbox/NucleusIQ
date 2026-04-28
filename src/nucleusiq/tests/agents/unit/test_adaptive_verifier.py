@@ -12,9 +12,9 @@ import json
 
 from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.critic import (
+    STANDARD_LIMITS,
     Critic,
     CritiqueResult,
-    STANDARD_LIMITS,
     Verdict,
 )
 

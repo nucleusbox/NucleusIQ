@@ -17,18 +17,16 @@ Validates the three core concerns:
 from __future__ import annotations
 
 import json
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.components.critic import (
+    REASONING_LIMITS,
+    STANDARD_LIMITS,
     Critic,
     CriticLimits,
     CritiqueResult,
-    REASONING_LIMITS,
-    STANDARD_LIMITS,
     Verdict,
     _truncate,
 )
@@ -39,7 +37,6 @@ from nucleusiq.agents.config.agent_config import (
     ExecutionMode,
 )
 from nucleusiq.agents.task import Task
-
 
 # ================================================================== #
 # Helpers                                                              #
@@ -72,9 +69,7 @@ def _make_mock_agent(
     llm.is_reasoning_model = False
     llm.call = AsyncMock(
         return_value=MagicMock(
-            choices=[
-                MagicMock(message=MagicMock(content=llm_response_content))
-            ],
+            choices=[MagicMock(message=MagicMock(content=llm_response_content))],
         )
     )
     llm.convert_tool_specs = MagicMock(return_value=[])
@@ -117,9 +112,13 @@ class TestCriticTruncationLimits:
         long_answer = "B" * 25_000
 
         gen_msgs = [
-            MagicMock(role="assistant", content=None, tool_calls=[
-                MagicMock(name="read_file", arguments='{"path": "x"}'),
-            ]),
+            MagicMock(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    MagicMock(name="read_file", arguments='{"path": "x"}'),
+                ],
+            ),
             MagicMock(role="tool", content="result data", tool_calls=None),
         ]
 
@@ -144,7 +143,7 @@ class TestCriticTruncationLimits:
 
         trace = critic._extract_reasoning_trace(gen_msgs)
 
-        result_line = [l for l in trace.split("\n") if "[Tool Result]" in l][0]
+        result_line = [line for line in trace.split("\n") if "[Tool Result]" in line][0]
         content_part = result_line.replace("[Tool Result] ", "")
         assert len(content_part) >= STANDARD_LIMITS.tool_result - 3
 
@@ -159,7 +158,9 @@ class TestCriticTruncationLimits:
 
         trace = critic._extract_reasoning_trace(gen_msgs)
 
-        assistant_line = [l for l in trace.split("\n") if "[Assistant]" in l][0]
+        assistant_line = [line for line in trace.split("\n") if "[Assistant]" in line][
+            0
+        ]
         content_part = assistant_line.replace("[Assistant] ", "")
         assert len(content_part) >= STANDARD_LIMITS.assistant_content - 3
 
@@ -169,13 +170,17 @@ class TestCriticTruncationLimits:
         long_args = "F" * (STANDARD_LIMITS.tool_args + 200)
 
         gen_msgs = [
-            {"role": "assistant", "content": None, "tool_calls": [
-                {"function": {"name": "my_tool", "arguments": long_args}},
-            ]},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"function": {"name": "my_tool", "arguments": long_args}},
+                ],
+            },
         ]
 
         trace = critic._extract_reasoning_trace(gen_msgs)
-        tool_line = [l for l in trace.split("\n") if "[Tool Call]" in l][0]
+        tool_line = [line for line in trace.split("\n") if "[Tool Call]" in line][0]
         assert len(tool_line) > STANDARD_LIMITS.tool_args
 
     def test_trace_line_cap(self):
@@ -212,16 +217,20 @@ class TestCriticTruncationLimits:
         critic = Critic()
         gen_msgs = [
             MagicMock(
-                role="assistant", content="X" * (STANDARD_LIMITS.assistant_content + 500),
+                role="assistant",
+                content="X" * (STANDARD_LIMITS.assistant_content + 500),
                 tool_calls=None,
             ),
             MagicMock(
-                role="tool", content="Y" * (STANDARD_LIMITS.tool_result + 500),
+                role="tool",
+                content="Y" * (STANDARD_LIMITS.tool_result + 500),
                 tool_calls=None,
             ),
         ]
         prompt = critic._build_conversation_review_prompt(
-            "task", "Z" * (STANDARD_LIMITS.claimed_answer + 5000), gen_msgs,
+            "task",
+            "Z" * (STANDARD_LIMITS.claimed_answer + 5000),
+            gen_msgs,
         )
 
         assert "Agent's Final Answer" in prompt
@@ -283,9 +292,11 @@ class TestErrorRetryNotBailout:
 
         async def mock_validate(self_vp, ag, result, msgs):
             from nucleusiq.agents.components.validation import ValidationResult
+
             return ValidationResult(valid=True, layer="none", reason="ok")
 
         from nucleusiq.agents.components.validation import ValidationPipeline
+
         original_validate = ValidationPipeline.validate
         ValidationPipeline.validate = mock_validate
 
@@ -326,7 +337,6 @@ class TestErrorRetryNotBailout:
         async def always_error(ag, task, msgs, specs):
             return "Error: LLM did not respond."
 
-        from nucleusiq.agents.modes.standard_mode import StandardMode
         import nucleusiq.agents.modes.autonomous_mode as auto_mod
 
         original_std = auto_mod.StandardMode
@@ -421,8 +431,7 @@ class TestRefinerReSynthesis:
         msg = self._build(critique)
 
         assert (
-            "If you need to re-call a tool with different arguments, do so"
-            not in msg
+            "If you need to re-call a tool with different arguments, do so" not in msg
         )
 
     def test_revision_prompt_includes_issues_and_suggestions(self):
@@ -564,8 +573,8 @@ class TestErrorRetryCriticIntegration:
     @pytest.mark.asyncio
     async def test_error_then_success_then_critic_pass(self):
         """Simulates: attempt 1 = error, attempt 2 = valid, Critic = PASS."""
-        from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
         import nucleusiq.agents.modes.autonomous_mode as auto_mod
+        from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
         mode = AutonomousMode()
         agent = _make_mock_agent(
@@ -598,21 +607,29 @@ class TestErrorRetryCriticIntegration:
 
         async def mock_validate(self_vp, ag, result, msgs):
             from nucleusiq.agents.components.validation import ValidationResult
+
             return ValidationResult(valid=True, layer="none", reason="ok")
 
         from nucleusiq.agents.components.validation import ValidationPipeline
+
         original_validate = ValidationPipeline.validate
         ValidationPipeline.validate = mock_validate
 
         async def mock_call_llm(ag, kwargs, **kw):
             return MagicMock(
-                choices=[MagicMock(message=MagicMock(
-                    content=json.dumps({
-                        "verdict": "pass",
-                        "score": 0.92,
-                        "feedback": "Thorough analysis",
-                    })
-                ))]
+                choices=[
+                    MagicMock(
+                        message=MagicMock(
+                            content=json.dumps(
+                                {
+                                    "verdict": "pass",
+                                    "score": 0.92,
+                                    "feedback": "Thorough analysis",
+                                }
+                            )
+                        )
+                    )
+                ]
             )
 
         mode.call_llm = mock_call_llm

@@ -41,7 +41,6 @@ from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
 if TYPE_CHECKING:
     from nucleusiq.agents.agent import Agent
-    from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
     from nucleusiq.agents.modes.standard_mode import StandardMode
 
 
@@ -69,8 +68,8 @@ class SimpleRunner:
 
     def __init__(
         self,
-        mode: "AutonomousMode",
-        std_mode: "StandardMode",
+        mode: Any,
+        std_mode: StandardMode,
         validation: ValidationPipeline,
         critic: Critic,
         refiner: Refiner,
@@ -92,7 +91,7 @@ class SimpleRunner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _snapshot_budget_on_config(agent: "Agent") -> dict[str, Any]:
+    def _snapshot_budget_on_config(agent: Agent) -> dict[str, Any]:
         """Snapshot budget-relevant ``AgentConfig`` values for restore.
 
         The runner mutates ``llm_max_output_tokens`` and
@@ -108,7 +107,7 @@ class SimpleRunner:
         }
 
     @staticmethod
-    def _restore_config(agent: "Agent", snapshot: dict[str, Any]) -> None:
+    def _restore_config(agent: Agent, snapshot: dict[str, Any]) -> None:
         cfg = agent.config
         for key, value in snapshot.items():
             try:
@@ -117,7 +116,7 @@ class SimpleRunner:
                 pass
 
     @staticmethod
-    def _apply_budget_to_config(agent: "Agent", budget: ComputeBudget) -> None:
+    def _apply_budget_to_config(agent: Agent, budget: ComputeBudget) -> None:
         """Mirror the current budget onto ``agent.config``.
 
         ``StandardMode._tool_call_loop`` reads these values to build its
@@ -209,9 +208,7 @@ class SimpleRunner:
         )
 
     @staticmethod
-    def _sync_budget_with_tracer(
-        agent: "Agent", budget: ComputeBudget
-    ) -> ComputeBudget:
+    def _sync_budget_with_tracer(agent: Agent, budget: ComputeBudget) -> ComputeBudget:
         """Update ``budget.cumulative_tokens_spent`` from the tracer.
 
         The tracer already tracks per-call token usage (used for usage
@@ -233,7 +230,7 @@ class SimpleRunner:
     # Sync entrypoint                                                     #
     # ------------------------------------------------------------------ #
 
-    async def run_sync(self, agent: "Agent", task: Task) -> Any:
+    async def run_sync(self, agent: Agent, task: Task) -> Any:
         """Execute the simple path, returning the final result.
 
         F3 — the outer loop is driven by ``ComputeBudget``.  Each Critic
@@ -261,6 +258,12 @@ class SimpleRunner:
         # the most recent one.
         best_content: Any = None
         best_critique: CritiqueResult | None = None
+        # F5: last STOP_ABSTAIN decision's machine-readable reason so we
+        # can thread it through ``AbstentionSignal.abstain_reason``.
+        # ``None`` means the loop exited via a path that did not go
+        # through the budget controller (e.g. natural exhaustion before
+        # a decision was produced).
+        last_abstain_reason = None
 
         attempt = 0
         final_attempt_index = 0
@@ -290,9 +293,7 @@ class SimpleRunner:
 
                 if use_refiner:
                     if tool_summary_cache is None:
-                        tool_summary_cache = helpers.summarize_tool_results(
-                            messages
-                        )
+                        tool_summary_cache = helpers.summarize_tool_results(messages)
                     revision = await self._mode._run_refiner(
                         agent,
                         self._refiner,
@@ -326,9 +327,7 @@ class SimpleRunner:
                         fallback_msg = helpers.build_fallback_revision_message(
                             last_critique  # type: ignore[arg-type]
                         )
-                        messages.append(
-                            ChatMessage(role="user", content=fallback_msg)
-                        )
+                        messages.append(ChatMessage(role="user", content=fallback_msg))
                         last_critique = None
                         tool_summary_cache = None
                         try:
@@ -400,9 +399,7 @@ class SimpleRunner:
                 if not vr.valid:
                     if attempt < budget.max_retries - 1:
                         retry_msg = helpers.build_validation_retry(vr)
-                        messages.append(
-                            ChatMessage(role="user", content=retry_msg)
-                        )
+                        messages.append(ChatMessage(role="user", content=retry_msg))
                     last_critique = None
                     attempt += 1
                     continue
@@ -457,8 +454,7 @@ class SimpleRunner:
 
                 if decision.action == Action.STOP_ACCEPT:
                     agent._logger.info(
-                        "Attempt %d/%d [ACCEPT]: %s (score=%.2f) — "
-                        "returning result",
+                        "Attempt %d/%d [ACCEPT]: %s (score=%.2f) — returning result",
                         attempt + 1,
                         budget.max_retries,
                         critique.verdict.value,
@@ -480,12 +476,12 @@ class SimpleRunner:
                 if decision.action == Action.STOP_ABSTAIN:
                     last_critique = critique
                     final_attempt_index = attempt
+                    last_abstain_reason = decision.abstain_reason  # F5
                     break
 
                 if decision.escalation_reason is not None:
                     agent._logger.info(
-                        "Attempt %d/%d [ESCALATE]: %s — retries %d→%d, "
-                        "tokens %d→%d",
+                        "Attempt %d/%d [ESCALATE]: %s — retries %d→%d, tokens %d→%d",
                         attempt + 1,
                         budget.max_retries,
                         decision.escalation_reason,
@@ -577,6 +573,7 @@ class SimpleRunner:
                     best_critique.feedback
                     or "Critic rejected all candidates across the retry budget"
                 ),
+                abstain_reason=last_abstain_reason,  # F5
             )
 
         step.mark_completed(str(result))
@@ -589,7 +586,7 @@ class SimpleRunner:
     # ------------------------------------------------------------------ #
 
     async def run_stream(
-        self, agent: "Agent", task: Task
+        self, agent: Agent, task: Task
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream the simple path: primary agent → validate → Critic → Refiner.
 
@@ -614,6 +611,8 @@ class SimpleRunner:
         best_content: str | None = None
         best_critique: CritiqueResult | None = None
         refined_at_least_once = False
+        # F5: capture STOP_ABSTAIN reason for AbstentionSignal plumbing.
+        last_abstain_reason = None
 
         attempt = 0
         final_attempt_index = 0
@@ -648,9 +647,7 @@ class SimpleRunner:
                         f"score={last_critique.score:.2f})…"  # type: ignore[union-attr]
                     )
                     if tool_summary_cache is None:
-                        tool_summary_cache = helpers.summarize_tool_results(
-                            messages
-                        )
+                        tool_summary_cache = helpers.summarize_tool_results(messages)
                     revision = await self._mode._run_refiner(
                         agent,
                         self._refiner,
@@ -687,9 +684,7 @@ class SimpleRunner:
                         fallback_msg = helpers.build_fallback_revision_message(
                             last_critique  # type: ignore[arg-type]
                         )
-                        messages.append(
-                            ChatMessage(role="user", content=fallback_msg)
-                        )
+                        messages.append(ChatMessage(role="user", content=fallback_msg))
                         last_critique = None
                         tool_summary_cache = None
                         final_content = None
@@ -753,18 +748,14 @@ class SimpleRunner:
                     attempt += 1
                     continue
 
-                vr = await self._validation.validate(
-                    agent, final_content, messages
-                )
+                vr = await self._validation.validate(agent, final_content, messages)
                 if not vr.valid:
                     if attempt < budget.max_retries - 1:
                         yield StreamEvent.thinking_event(
                             f"Validation failed ({vr.reason}), retrying…"
                         )
                         retry_msg = helpers.build_validation_retry(vr)
-                        messages.append(
-                            ChatMessage(role="user", content=retry_msg)
-                        )
+                        messages.append(ChatMessage(role="user", content=retry_msg))
                     last_critique = None
                     attempt += 1
                     continue
@@ -825,6 +816,7 @@ class SimpleRunner:
                 if decision.action == Action.STOP_ABSTAIN:
                     last_critique = critique
                     final_attempt_index = attempt
+                    last_abstain_reason = decision.abstain_reason  # F5
                     break
 
                 if decision.escalation_reason is not None:
@@ -915,6 +907,7 @@ class SimpleRunner:
                     best_critique.feedback
                     or "Critic rejected all candidates across the retry budget"
                 ),
+                abstain_reason=last_abstain_reason,  # F5
             )
 
         step.mark_completed(str(final_content))
