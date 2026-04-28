@@ -23,9 +23,8 @@ Design principles validated:
 
 from __future__ import annotations
 
-import importlib
-import inspect
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -798,8 +797,9 @@ class TestTaskCConfig:
     """Verify Task C has explicit llm_max_output_tokens."""
 
     def test_task_c_has_explicit_token_budget(self):
-        mod = importlib.import_module("research.experiments.tasks.task_c_multistep_qa")
-        source = inspect.getsource(mod.get_task)
+        repo_root = Path(__file__).resolve().parents[5]
+        task_c = repo_root / "research" / "experiments" / "tasks" / "task_c_multistep_qa.py"
+        source = task_c.read_text(encoding="utf-8")
         assert "llm_max_output_tokens" in source
         assert "4096" in source
 
