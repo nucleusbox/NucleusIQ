@@ -14,8 +14,9 @@ from nucleusiq.agents.context.evidence_tools import (
 )
 from nucleusiq.agents.context.workspace_tools import is_context_management_tool_name
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools.decorators import tool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 
 @tool

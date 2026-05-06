@@ -26,6 +26,9 @@ from typing import Literal
 from nucleusiq.llms.llm_params import LLMParams
 from pydantic import BaseModel, ConfigDict, Field
 
+AudioOutputFormat = Literal["wav", "mp3", "aac", "flac", "opus", "pcm16"]
+_DEFAULT_AUDIO_FORMAT: AudioOutputFormat = "mp3"
+
 # ======================================================================== #
 # Nested config models                                                     #
 # ======================================================================== #
@@ -43,8 +46,8 @@ class AudioOutputConfig(BaseModel):
             "coral, echo, fable, nova, onyx, sage, shimmer, marin, cedar."
         ),
     )
-    format: Literal["wav", "mp3", "aac", "flac", "opus", "pcm16"] = Field(
-        default="mp3",
+    format: AudioOutputFormat = Field(
+        default=_DEFAULT_AUDIO_FORMAT,
         description="Audio output format.",
     )
 
