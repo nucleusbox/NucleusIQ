@@ -44,7 +44,7 @@ class AudioOutputConfig(BaseModel):
         ),
     )
     format: Literal["wav", "mp3", "aac", "flac", "opus", "pcm16"] = Field(
-        "mp3",
+        default="mp3",
         description="Audio output format.",
     )
 

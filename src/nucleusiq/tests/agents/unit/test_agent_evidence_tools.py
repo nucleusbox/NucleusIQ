@@ -5,18 +5,17 @@ from __future__ import annotations
 import pytest
 from nucleusiq.agents import Agent
 from nucleusiq.agents.config import AgentConfig
+from nucleusiq.agents.context.document_corpus_tools import (
+    SEARCH_DOCUMENT_CORPUS_TOOL_NAME,
+)
 from nucleusiq.agents.context.evidence_tools import (
     ADD_EVIDENCE_TOOL_NAME,
     is_evidence_tool_name,
 )
-from nucleusiq.agents.context.document_corpus_tools import (
-    SEARCH_DOCUMENT_CORPUS_TOOL_NAME,
-)
 from nucleusiq.agents.context.workspace_tools import is_context_management_tool_name
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tools.decorators import tool
-
 from nucleusiq.tests.conftest import make_test_prompt
+from nucleusiq.tools.decorators import tool
 
 
 @tool

@@ -27,6 +27,7 @@ from nucleusiq.agents.chat_models import (
 )
 from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.messaging.message_builder import MessageBuilder
+from nucleusiq.agents.modes.tool_payload import tool_result_to_context_string
 from nucleusiq.agents.observability import (
     build_llm_call_record,
     build_llm_call_record_from_stream,
@@ -34,7 +35,6 @@ from nucleusiq.agents.observability import (
 )
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.usage.usage_tracker import CallPurpose
-from nucleusiq.agents.modes.tool_payload import tool_result_to_context_string
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
