@@ -419,6 +419,7 @@ def _offload_tool_content(
         original_tokens=original_tokens,
         preview_lines=_PREVIEW_HEAD_LINES,
         preview_max_chars=preview_char_budget,
+        tool_name=tool_name,
     )
     marker_text = ref.to_marker()
     new_tokens = token_counter.count(marker_text)
@@ -676,6 +677,7 @@ class Compactor:
                     key=key,
                     content=msg.content,
                     original_tokens=original_tokens,
+                    tool_name=tool_name,
                 )
 
                 originating_call = (

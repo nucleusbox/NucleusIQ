@@ -57,6 +57,18 @@ class ContentRef:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class ContentMetadata:
+    """Selection metadata for an offloaded artifact."""
+
+    key: str
+    original_tokens: int
+    preview: str
+    trusted: bool = True
+    tool_name: str | None = None
+    order: int = 0
+
+
 class ContentStore:
     """In-memory store for offloaded tool results.
 
@@ -64,10 +76,12 @@ class ContentStore:
     without breaking existing consumers.
     """
 
-    __slots__ = ("_store",)
+    __slots__ = ("_metadata", "_order", "_store")
 
     def __init__(self) -> None:
         self._store: dict[str, tuple[str, str]] = {}  # key → (full_content, preview)
+        self._metadata: dict[str, ContentMetadata] = {}
+        self._order: int = 0
 
     def store(
         self,
@@ -78,6 +92,7 @@ class ContentStore:
         preview_lines: int = 10,
         preview_max_chars: int | None = None,
         trusted: bool = True,
+        tool_name: str | None = None,
     ) -> ContentRef:
         """Offload content and return a reference.
 
@@ -108,6 +123,15 @@ class ContentStore:
                 preview += f"\n... ({remaining:,} chars remaining)"
 
         self._store[key] = (content, preview)
+        self._order += 1
+        self._metadata[key] = ContentMetadata(
+            key=key,
+            original_tokens=original_tokens,
+            preview=preview,
+            trusted=trusted,
+            tool_name=tool_name,
+            order=self._order,
+        )
         return ContentRef(
             key=key,
             original_tokens=original_tokens,
@@ -125,6 +149,10 @@ class ContentStore:
         entry = self._store.get(key)
         return entry[1] if entry else None
 
+    def metadata(self, key: str) -> ContentMetadata | None:
+        """Retrieve selection metadata for a stored artifact."""
+        return self._metadata.get(key)
+
     def contains(self, key: str) -> bool:
         """Check if a key exists in the store."""
         return key in self._store
@@ -139,11 +167,15 @@ class ContentStore:
 
     def remove(self, key: str) -> bool:
         """Remove an artifact. Returns True if it existed."""
-        return self._store.pop(key, None) is not None
+        existed = self._store.pop(key, None) is not None
+        self._metadata.pop(key, None)
+        return existed
 
     def clear(self) -> None:
         """Remove all stored artifacts."""
         self._store.clear()
+        self._metadata.clear()
+        self._order = 0
 
     @property
     def size(self) -> int:

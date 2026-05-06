@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.8](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.8) — 2026-05-06
+
+### Added
+
+#### Run-local context state (L4 / analyst state)
+
+- **`InMemoryWorkspace`** (`nucleusiq.agents.context.workspace`) — bounded per-run notebook: notes, artifacts, summaries with `WorkspaceEntry`, `WorkspaceStats`, and `WorkspaceLimitError` for cap violations.
+- **Workspace tools** (`nucleusiq.agents.context.workspace_tools`) — factory **`build_workspace_tools`**: `write_workspace_note`, `write_workspace_artifact`, `list_workspace_entries`, `read_workspace_entry`, `summarize_workspace`. Helpers **`is_workspace_tool_name`** and **`is_context_management_tool_name`** (framework-injected context tools that should not consume the user’s external tool budget).
+- **`InMemoryEvidenceDossier`** + **`EvidenceItem`** (`nucleusiq.agents.context.evidence`) — structured claims with status, confidence, tags, quotes, and provenance (`source` ref / locator / tool metadata).
+- **Evidence tools** (`nucleusiq.agents.context.evidence_tools`) — **`build_evidence_tools`**: `add_evidence`, `add_evidence_gap`, `list_evidence`, `summarize_evidence`, `evidence_coverage` plus **`is_evidence_tool_name`**.
+
+#### L5 document corpus (lexical, in-memory)
+
+- **`InMemoryDocumentCorpus`** (`nucleusiq.agents.context.document_search`) — indexes caller-provided text into bounded chunks with **`DocumentRef`**, **`DocumentChunk`**, **`ChunkHit`**, and lexical search (no PDF parsing, embeddings, or Task E logic). Exposes **`DocumentSearchStats`** (`documents_indexed`, `chunks_indexed`, search/retrieval counts, chars returned, promotions to evidence).
+- **Document corpus tools** (`nucleusiq.agents.context.document_corpus_tools`) — **`build_document_corpus_tools(corpus, evidence=…)`**: `search_document_corpus`, `get_document_chunk`, `list_indexed_documents`, **`promote_document_chunk_to_evidence`** (optional dossier link). **`is_document_corpus_tool_name`** for injection/budget rules.
+
+#### L4.5 automatic activation
+
+- **`ContextStateActivator`** (`nucleusiq.agents.context.state_activator`) — after each **business** tool result (skips framework context tools), applies:
+  - **Strict heuristics** to promote evidence-shaped facts into the dossier and optional **gap** items.
+  - **Light ingest** — durable workspace notes + L5 corpus indexing for substantive read/search/file-style outputs (tool-name hints, length gates, acronym/false-positive guards for short tokens like `"ai"`).
+- **`ContextActivationMetrics`** — cumulative counters (tool results seen/activated, workspace/evidence promotions, light ingests, skips, synthesis-package / critic-package flags, etc.) surfaced via **`AgentResult.metadata["context_activation"]`**.
+
+#### L6 phase telemetry and evidence gate (framework-visible)
+
+- **`PhaseController`** + **`AgentPhase`** literals (`nucleusiq.agents.context.phase_control`) — records ordered phase transitions, durations, evidence-gate outcomes, and flags such as **`synthesis_used_package`**, **`critic_used_package`**, **`refiner_used_gaps`**. Snapshot **`PhaseStats.to_dict()`** exposed as **`AgentResult.metadata["phase_control"]`**.
+- **`EvidenceGate`** + **`EvidenceGateDecision`** (`nucleusiq.agents.context.phase_control`) — optional tag-based completeness check against the dossier (`passed`, `blocked`, missing/gap tags).
+- **`AgentConfig`** (`nucleusiq.agents.config.agent_config`) — new fields: **`evidence_gate_required_tags`**, **`evidence_gate_enforce`**, **`context_tool_result_corpus_max_chars`** (per-result cap for auto-indexing into L5; `0` disables), **`context_activation_ingest_min_chars`** (minimum text size for light ingest when not evidence-shaped).
+
+#### Synthesis package
+
+- **`SynthesisPackage`** + **`build_synthesis_package`** (`nucleusiq.agents.context.synthesis_package`) — deterministic, bounded final-answer input from workspace + evidence (supported claims, gaps, source index, recalled snippets) with omission metadata. **`Agent.build_synthesis_package`** and **`_last_synthesis_package`**; package metadata may appear as **`AgentResult.metadata["synthesis_package"]`**.
+
+#### Agent wiring and observability
+
+- **`Agent`** (`nucleusiq.agents.agent`) — lazy accessors: **`workspace`**, **`evidence_dossier`**, **`document_corpus`**, **`phase_controller`**, **`evidence_gate`**, **`build_synthesis_package`**. Autonomous initialization can provision workspace, dossier, corpus, phase controller, gate, and activator together.
+- **`AgentResult.metadata`** extensions when state exists: **`workspace`**, **`evidence`**, **`document_search`** (corpus stats), **`phase_control`**, **`context_activation`**, **`synthesis_package`** (alongside existing **`context_telemetry`** on the result object).
+
+#### Shared tool-result serialization
+
+- **`tool_result_to_context_string`** (`nucleusiq.agents.modes.tool_payload`) — single implementation used by **`BaseExecutionMode`**, **`StandardMode`**, and **`DirectMode`** for appending tool outputs to context (strings pass through; other values JSON-serialized with safe fallback).
+
+#### Tests
+
+- Broad unit and integration coverage for document search/corpus tools, workspace/evidence tools, synthesis package, phase control, state activator, tool payload, `AgentResult`/metadata wiring, and context integration (see `tests/unit/context/` and `tests/agents/unit/`).
+
+### Changed
+
+- **`CriticRunner`** (`nucleusiq.agents.modes.autonomous.critic_runner`): on **any** exception during critique (infra/LLM/parser), returns **`Verdict.UNCERTAIN`** with score **`0.0`** and explicit feedback instead of treating failures as a synthetic pass — safer default for autonomous orchestration.
+- **Autonomous simple path** (`nucleusiq.agents.modes.autonomous.simple_runner`): after a successful **Refiner** pass, **`agent._last_messages`** is refreshed so a subsequent **Critic** sees the revised trace.
+- **`ContextStateActivator`** (`nucleusiq.agents.context.state_activator`): stricter topic/heuristic gates (e.g. reduced false positives from bare **`"ai"`** substring matches) and tuned ingest/evidence promotion behavior.
+- **Context compaction / masking** (`nucleusiq.agents.context.compactor`, `nucleusiq.agents.context.strategies.conversation`, `nucleusiq.agents.context.strategies.emergency`, `nucleusiq.agents.context.strategies.observation_masker`) — updates to stay consistent with the state stack and new regression coverage (no user-facing API breaks intended).
+
+### Fixed
+
+- Tool results that are **already `str`** are no longer **double-encoded** (e.g. JSON-wrapped twice) when merged into the visible context in **standard**, **direct**, and **base** modes (**`tool_result_to_context_string`** behavior).
+
+### Provider updates
+
+- **`nucleusiq-openai` (0.6.3)** — dependency floor raised to **`nucleusiq>=0.7.8`** (package version unchanged).
+- **`nucleusiq-gemini` (0.2.5)** — same **`nucleusiq>=0.7.8`** floor.
+
+### Validation
+
+- **2554 passed**, **2 skipped** with `pytest tests --ignore=tests/memory/integration` (local gate, ~2026-05-06).
+- **`tests/memory/integration`** may still report failures when the configured OpenAI project cannot call **`gpt-4o-mini`** (`403 model_not_found`); treat as **provider access**, not a core regression.
+
+### Packages
+
+| Package            | Version   | Note                                                                 |
+| ------------------ | --------- | -------------------------------------------------------------------- |
+| `nucleusiq`        | **0.7.8** | Context state stack + L5 corpus tools + Critic/tool-payload fixes     |
+| `nucleusiq-openai` | **0.6.3** | `nucleusiq>=0.7.8`                                                    |
+| `nucleusiq-gemini` | **0.2.5** | `nucleusiq>=0.7.8`                                                    |
+
+---
+
 ## [0.7.7](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.7) — 2026-04-27
 
 ### Added

@@ -56,18 +56,65 @@ class CriticRunner:
         configured ``llm_max_output_tokens``.
 
         On *any* exception the Critic is treated as non-fatal: we log a
-        warning and return a synthetic ``PASS`` verdict so the candidate
-        is accepted rather than the whole task failing on a verifier
-        infrastructure problem.
+        warning and return ``UNCERTAIN`` with score ``0.0`` so the
+        orchestrator can retry or abstain instead of falsely passing.
         """
+        phase_controller = getattr(agent, "_phase_controller", None)
+        if phase_controller is not None:
+            phase_controller.enter("VALIDATE")
         try:
             engine = getattr(agent, "_context_engine", None)
             content_store = getattr(engine, "store", None) if engine else None
             per_tool_cap = _compute_critic_per_tool_cap(agent, messages)
+            build_package_messages = getattr(
+                agent, "_build_synthesis_messages_from_context", None
+            )
+            package_messages = (
+                build_package_messages(
+                    task=task_objective,
+                    output_shape=(
+                        "Use this curated package as the primary verification "
+                        "context before considering any raw trace."
+                    ),
+                )
+                if build_package_messages is not None
+                else None
+            )
+            package_text = (
+                package_messages[0].content
+                if package_messages and package_messages[0].content
+                else ""
+            )
+            last_pkg = getattr(agent, "_last_synthesis_package", None)
+            omitted = (
+                last_pkg.metadata.get("omitted_sections") or []
+                if last_pkg is not None
+                else []
+            )
+            evidence_not_in_package = "Supported Evidence" in omitted
+
+            if package_text and not evidence_not_in_package:
+                activator = getattr(agent, "_context_state_activator", None)
+                if activator is not None:
+                    activator.metrics.critic_used_package = True
+                if phase_controller is not None:
+                    phase_controller.critic_used_package = True
+                task_for_critic = (
+                    f"{task_objective}\n\n"
+                    "## CURATED SYNTHESIS PACKAGE FOR VERIFICATION\n"
+                    f"{package_text}"
+                )
+                generator_messages = None
+            else:
+                activator = getattr(agent, "_context_state_activator", None)
+                if activator is not None:
+                    activator.metrics.raw_trace_fallback_used = True
+                task_for_critic = task_objective
+                generator_messages = messages
             verification_prompt = self._critic.build_verification_prompt(
-                task_objective=task_objective,
+                task_objective=task_for_critic,
                 final_result=result,
-                generator_messages=messages,
+                generator_messages=generator_messages,
                 allow_tool_instructions=False,
                 content_store=content_store,
                 per_tool_char_cap=per_tool_cap,
@@ -97,11 +144,11 @@ class CriticRunner:
             return self._critic.parse_result_text(text)
 
         except Exception as e:
-            agent._logger.warning("Critic failed (non-fatal, accepting result): %s", e)
+            agent._logger.warning("Critic failed (non-fatal, uncertain verdict): %s", e)
             return CritiqueResult(
-                verdict=Verdict.PASS,
-                score=0.5,
-                feedback=f"Critic error: {e}",
+                verdict=Verdict.UNCERTAIN,
+                score=0.0,
+                feedback=f"Critic infrastructure error: {e}",
             )
 
 

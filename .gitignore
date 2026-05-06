@@ -190,3 +190,5 @@ scripts/demo_*.py
 
 # Research workspace (experiments, drafts, raw data — not for release)
 research/
+
+logs/

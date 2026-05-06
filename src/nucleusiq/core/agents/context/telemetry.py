@@ -50,6 +50,8 @@ class ContextTelemetry(BaseModel):
     final_utilization: float = 0.0
     compaction_count: int = 0
     compaction_events: tuple[CompactionEvent, ...] = ()
+    tokens_before_mgmt: int = 0
+    tokens_after_mgmt: int = 0
     tokens_freed_total: int = 0
     compactor_tokens_freed: int = 0  # F3
     masker_tokens_freed: int = 0  # F3
@@ -98,6 +100,10 @@ class ContextTelemetry(BaseModel):
     # needs tuning, not that the classifier is broken.
     recall_count: int = 0
     recall_tokens: int = 0
+    synthesis_rehydrated_count: int = 0
+    synthesis_rehydrated_tokens: int = 0
+    synthesis_refs_selected: tuple[str, ...] = ()
+    synthesis_refs_skipped: tuple[str, ...] = ()
     policy_breakdown: dict[str, int] = Field(default_factory=dict)
     policy_source_breakdown: dict[str, int] = Field(default_factory=dict)
 
@@ -126,6 +132,8 @@ class ContextTelemetry(BaseModel):
         peak = p.peak_utilization
         comp_count = p.compaction_count
         comp_events = list(p.compaction_events)
+        before_mgmt = p.tokens_before_mgmt
+        after_mgmt = p.tokens_after_mgmt
         freed = p.tokens_freed_total
         compactor_freed = p.compactor_tokens_freed
         masker_freed = p.masker_tokens_freed
@@ -140,6 +148,10 @@ class ContextTelemetry(BaseModel):
         # v2 Step 2 — additive recall + policy stats.
         recall_count = p.recall_count
         recall_tokens = p.recall_tokens
+        synthesis_count = p.synthesis_rehydrated_count
+        synthesis_tokens = p.synthesis_rehydrated_tokens
+        synthesis_selected = list(p.synthesis_refs_selected)
+        synthesis_skipped = list(p.synthesis_refs_skipped)
         policy_breakdown: dict[str, int] = dict(p.policy_breakdown)
         policy_source_breakdown: dict[str, int] = dict(p.policy_source_breakdown)
         warns = list(p.warnings)
@@ -148,6 +160,8 @@ class ContextTelemetry(BaseModel):
             peak = max(peak, child.peak_utilization)
             comp_count += child.compaction_count
             comp_events.extend(child.compaction_events)
+            before_mgmt += child.tokens_before_mgmt
+            after_mgmt += child.tokens_after_mgmt
             freed += child.tokens_freed_total
             compactor_freed += child.compactor_tokens_freed
             masker_freed += child.masker_tokens_freed
@@ -160,6 +174,10 @@ class ContextTelemetry(BaseModel):
             cost_with += child.estimated_cost_with_mgmt
             recall_count += child.recall_count
             recall_tokens += child.recall_tokens
+            synthesis_count += child.synthesis_rehydrated_count
+            synthesis_tokens += child.synthesis_rehydrated_tokens
+            synthesis_selected.extend(child.synthesis_refs_selected)
+            synthesis_skipped.extend(child.synthesis_refs_skipped)
             for k, v in child.policy_breakdown.items():
                 policy_breakdown[k] = policy_breakdown.get(k, 0) + v
             for k, v in child.policy_source_breakdown.items():
@@ -177,6 +195,8 @@ class ContextTelemetry(BaseModel):
             final_utilization=p.final_utilization,
             compaction_count=comp_count,
             compaction_events=tuple(comp_events),
+            tokens_before_mgmt=before_mgmt,
+            tokens_after_mgmt=after_mgmt,
             tokens_freed_total=freed,
             compactor_tokens_freed=compactor_freed,
             masker_tokens_freed=masker_freed,
@@ -195,6 +215,10 @@ class ContextTelemetry(BaseModel):
             estimated_savings_pct=savings_pct,
             recall_count=recall_count,
             recall_tokens=recall_tokens,
+            synthesis_rehydrated_count=synthesis_count,
+            synthesis_rehydrated_tokens=synthesis_tokens,
+            synthesis_refs_selected=tuple(synthesis_selected),
+            synthesis_refs_skipped=tuple(synthesis_skipped),
             policy_breakdown=policy_breakdown,
             policy_source_breakdown=policy_source_breakdown,
         )

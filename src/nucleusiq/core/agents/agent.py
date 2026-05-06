@@ -124,6 +124,13 @@ class Agent(BaseAgent):
     _usage_tracker: UsageTracker = PrivateAttr(default_factory=UsageTracker)
     _tracer: DefaultExecutionTracer | None = PrivateAttr(default=None)
     _context_engine: Any = PrivateAttr(default=None)
+    _workspace: Any = PrivateAttr(default=None)
+    _evidence_dossier: Any = PrivateAttr(default=None)
+    _document_corpus: Any = PrivateAttr(default=None)
+    _phase_controller: Any = PrivateAttr(default=None)
+    _evidence_gate: Any = PrivateAttr(default=None)
+    _context_state_activator: Any = PrivateAttr(default=None)
+    _last_synthesis_package: Any = PrivateAttr(default=None)
     _last_messages: list | None = PrivateAttr(default=None)
     _tool_dedup_cache: dict[tuple[str, str], str] = PrivateAttr(default_factory=dict)
     _execution_progress: Any = PrivateAttr(default=None)
@@ -306,7 +313,7 @@ class Agent(BaseAgent):
             return None
 
     def _inject_recall_tools_for_execution(self) -> None:
-        """Append the auto-injected recall tools to ``self.tools``.
+        """Append auto-injected context-management tools to ``self.tools``.
 
         Context Mgmt v2 — Step 2 (§6.2 of the redesign): the recall
         tools (``recall_tool_result``, ``list_recalled_evidence``)
@@ -316,65 +323,82 @@ class Agent(BaseAgent):
         the tool-spec list; appending here makes the tools visible
         without any explicit user wiring.
 
-        Idempotent across executions: any pre-existing recall tools
+        Idempotent across executions: any pre-existing context-management tools
         from a previous ``execute()`` call are stripped first
-        (because their engine binding is stale), then a fresh pair
-        is built against the new engine and appended.
+        (because their engine/workspace binding is stale), then fresh tools
+        are built against the new run state and appended.
 
         Executor wiring is conditional. The :class:`Executor` is
         created lazily by some execution modes (e.g. Standard's
         ``_ensure_executor``) on the *first* tool call, which happens
         after ``_setup_execution`` returns.  When ``_executor`` is
-        already set we register the recall tools in its tool table
+        already set we register the context tools in its tool table
         directly; when it is ``None`` we still append to
         ``self.tools`` so the lazy constructor — which iterates
         ``self.tools`` — picks them up.  Either path leaves the
-        executor with the recall pair available, which is the only
+        executor with the context tools available, which is the only
         invariant the agent loop cares about.
-
-        No-op only when ``_context_engine`` is ``None`` (context
-        management disabled — zero overhead).
         """
-        from nucleusiq.agents.context.recall_tools import (
-            build_recall_tools,
-            is_recall_tool_name,
+        from nucleusiq.agents.context.document_corpus_tools import (
+            build_document_corpus_tools,
+        )
+        from nucleusiq.agents.context.evidence_tools import build_evidence_tools
+        from nucleusiq.agents.context.recall_tools import build_recall_tools
+        from nucleusiq.agents.context.workspace_tools import (
+            build_workspace_tools,
+            is_context_management_tool_name,
         )
 
-        # Always strip stale recall tools (their engine binding is
-        # tied to the previous execution).
+        # Always strip stale context tools (their run-local binding is tied to
+        # the previous execution).
         self.tools = [
-            t for t in self.tools if not is_recall_tool_name(getattr(t, "name", None))
+            t
+            for t in self.tools
+            if not is_context_management_tool_name(getattr(t, "name", None))
         ]
         if self._executor is not None:
             self._executor.tools = {
                 name: tool
                 for name, tool in self._executor.tools.items()
-                if not is_recall_tool_name(name)
+                if not is_context_management_tool_name(name)
             }
 
-        if self._context_engine is None:
-            return
-
-        # Recall tools only make sense when the agent has user tools that
-        # could produce offloaded results. Without user tools nothing is
-        # ever ingested into the ContentStore, so injecting recall tools
-        # only confuses naive LLMs (and naive mocks pick tools[0] blindly).
+        # Context tools only make sense when the agent has user tools. Without
+        # user tools, helper tools can confuse naive LLMs and simple mocks that
+        # blindly pick tools[0].
         if not self.tools:
             self._logger.debug(
-                "Skipping recall tool injection: agent has no user tools"
+                "Skipping context tool injection: agent has no user tools"
             )
             return
 
-        recall_tools = build_recall_tools(self._context_engine)
-        self.tools.extend(recall_tools)
+        context_tools = []
+        if self._context_engine is not None:
+            context_tools.extend(build_recall_tools(self._context_engine))
+        if self._workspace is not None:
+            context_tools.extend(build_workspace_tools(self._workspace))
+        if self._evidence_dossier is not None:
+            context_tools.extend(build_evidence_tools(self._evidence_dossier))
+        if self._document_corpus is not None and self._evidence_dossier is not None:
+            context_tools.extend(
+                build_document_corpus_tools(
+                    self._document_corpus,
+                    evidence=self._evidence_dossier,
+                )
+            )
+
+        if not context_tools:
+            return
+
+        self.tools.extend(context_tools)
         if self._executor is not None:
-            for t in recall_tools:
+            for t in context_tools:
                 self._executor.tools[t.name] = t
 
         self._logger.debug(
-            "Auto-injected %d recall tool(s) for context engine: %s",
-            len(recall_tools),
-            [t.name for t in recall_tools],
+            "Auto-injected %d context tool(s): %s",
+            len(context_tools),
+            [t.name for t in context_tools],
         )
 
     def _build_token_counter(self) -> Any:
@@ -414,6 +438,166 @@ class Agent(BaseAgent):
                 return total
 
         return _LLMTokenCounter(self.llm)
+
+    @property
+    def workspace(self) -> Any:
+        """Run-local in-memory workspace for the current execution."""
+        if self._workspace is None:
+            from nucleusiq.agents.context.workspace import InMemoryWorkspace
+
+            self._workspace = InMemoryWorkspace()
+        return self._workspace
+
+    @property
+    def evidence_dossier(self) -> Any:
+        """Run-local in-memory evidence dossier for the current execution."""
+        if self._evidence_dossier is None:
+            from nucleusiq.agents.context.evidence import InMemoryEvidenceDossier
+
+            self._evidence_dossier = InMemoryEvidenceDossier()
+        return self._evidence_dossier
+
+    def build_synthesis_package(
+        self,
+        *,
+        task: str,
+        output_shape: str = "",
+        recalled_snippets: tuple[str, ...] = (),
+        max_chars: int = 12_000,
+    ) -> Any:
+        """Build a bounded synthesis package from this run's curated state."""
+        from nucleusiq.agents.context.synthesis_package import build_synthesis_package
+
+        return build_synthesis_package(
+            task=task,
+            output_shape=output_shape,
+            workspace=self.workspace,
+            evidence=self.evidence_dossier,
+            recalled_snippets=recalled_snippets,
+            max_chars=max_chars,
+        )
+
+    @property
+    def document_corpus(self) -> Any:
+        """Run-local in-memory document corpus for L5 retrieval."""
+        if self._document_corpus is None:
+            from nucleusiq.agents.context.document_search import InMemoryDocumentCorpus
+
+            self._document_corpus = InMemoryDocumentCorpus()
+        return self._document_corpus
+
+    @property
+    def phase_controller(self) -> Any:
+        """Run-local phase telemetry controller for L6."""
+        if self._phase_controller is None:
+            from nucleusiq.agents.context.phase_control import PhaseController
+
+            self._phase_controller = PhaseController()
+        return self._phase_controller
+
+    @property
+    def evidence_gate(self) -> Any:
+        """Run-local evidence completeness gate for L6."""
+        if self._evidence_gate is None:
+            from nucleusiq.agents.context.phase_control import EvidenceGate
+
+            self._evidence_gate = EvidenceGate(
+                required_tags=tuple(self.config.evidence_gate_required_tags),
+                enforce=self.config.evidence_gate_enforce,
+            )
+        return self._evidence_gate
+
+    def _has_context_state(self) -> bool:
+        """Return True when workspace/evidence has state worth packaging."""
+        try:
+            if self.workspace.stats().entry_count > 0:
+                return True
+        except Exception:
+            pass
+        try:
+            if self.evidence_dossier.stats().item_count > 0:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _build_synthesis_messages_from_context(
+        self,
+        *,
+        task: str,
+        output_shape: str = "",
+        max_chars: int = 12_000,
+    ) -> list[Any] | None:
+        """Build package-based synthesis messages when curated state exists."""
+        if not self._has_context_state():
+            return None
+
+        from nucleusiq.agents.chat_models import ChatMessage
+
+        package = self.build_synthesis_package(
+            task=task,
+            output_shape=output_shape,
+            max_chars=max_chars,
+        )
+        self._last_synthesis_package = package
+        phase_controller = getattr(self, "_phase_controller", None)
+        if phase_controller is not None:
+            phase_controller.enter("ORGANIZE_EVIDENCE")
+            phase_controller.enter("SYNTHESIZE")
+            evidence_gate = getattr(self, "_evidence_gate", None)
+            if evidence_gate is not None:
+                try:
+                    decision = evidence_gate.evaluate(
+                        self.evidence_dossier,
+                        record_gaps=bool(evidence_gate.required_tags),
+                    )
+                    phase_controller.record_evidence_gate(decision)
+                except Exception:
+                    pass
+        activator = getattr(self, "_context_state_activator", None)
+        if activator is not None:
+            activator.metrics.synthesis_package_used = True
+            activator.metrics.synthesis_package_char_count = package.metadata.get(
+                "char_count", len(package.text)
+            )
+        if phase_controller is not None:
+            phase_controller.synthesis_used_package = True
+
+        return [
+            ChatMessage(
+                role="user",
+                content=(
+                    f"{package.text}\n\n"
+                    "Using only the curated package above, produce the complete "
+                    "final answer requested by the task. Clearly qualify any known gaps."
+                ),
+            )
+        ]
+
+    def _activate_context_state_for_tool_result(
+        self,
+        *,
+        tool_name: str | None,
+        tool_call_id: str | None,
+        tool_result: Any,
+        tool_args: dict[str, Any] | None = None,
+    ) -> None:
+        """Internal L4.5 route from business tool result to context state."""
+        activator = getattr(self, "_context_state_activator", None)
+        if activator is None:
+            return
+        phase_controller = getattr(self, "_phase_controller", None)
+        if phase_controller is not None:
+            phase_controller.enter("RESEARCH")
+        try:
+            activator.activate_tool_result(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                tool_result=tool_result,
+                tool_args=tool_args,
+            )
+        except Exception as exc:
+            self._logger.debug("Context state activation skipped: %s", exc)
 
     async def _setup_execution(
         self,
@@ -461,6 +645,30 @@ class Agent(BaseAgent):
         # Context window management — create ContextEngine if configured
         self._context_engine = self._create_context_engine()
         self._sub_agent_context_tels = []
+        from nucleusiq.agents.context.document_search import InMemoryDocumentCorpus
+        from nucleusiq.agents.context.evidence import InMemoryEvidenceDossier
+        from nucleusiq.agents.context.phase_control import EvidenceGate, PhaseController
+        from nucleusiq.agents.context.state_activator import ContextStateActivator
+        from nucleusiq.agents.context.workspace import InMemoryWorkspace
+
+        self._workspace = InMemoryWorkspace()
+        self._evidence_dossier = InMemoryEvidenceDossier()
+        self._document_corpus = InMemoryDocumentCorpus()
+        self._phase_controller = PhaseController()
+        self._evidence_gate = EvidenceGate(
+            required_tags=tuple(self.config.evidence_gate_required_tags),
+            enforce=self.config.evidence_gate_enforce,
+        )
+        self._phase_controller.enter("PLAN")
+        self._context_state_activator = ContextStateActivator(
+            workspace=self._workspace,
+            evidence=self._evidence_dossier,
+            document_corpus=self._document_corpus,
+            required_tags=tuple(self.config.evidence_gate_required_tags),
+            max_corpus_index_chars=self.config.context_tool_result_corpus_max_chars,
+            ingest_min_chars=self.config.context_activation_ingest_min_chars,
+        )
+        self._last_synthesis_package = None
 
         # Context Mgmt v2 — Step 2: auto-inject the recall tools so
         # the model can rehydrate offloaded evidence on demand.  The
@@ -481,14 +689,18 @@ class Agent(BaseAgent):
         agent_ctx = await self._plugin_manager.run_before_agent(agent_ctx)
 
         max_tools = self.config.get_effective_max_tool_calls()
-        # Auto-injected recall tools must not count against the user's
+        # Auto-injected context-management tools must not count against the user's
         # tool budget — the user did not opt into them, the framework
-        # added them.  See ``recall_tools.is_recall_tool_name`` for the
+        # added them.  See ``workspace_tools.is_context_management_tool_name`` for the
         # canonical list.
-        from nucleusiq.agents.context.recall_tools import is_recall_tool_name
+        from nucleusiq.agents.context.workspace_tools import (
+            is_context_management_tool_name,
+        )
 
         user_tool_count = sum(
-            1 for t in self.tools if not is_recall_tool_name(getattr(t, "name", None))
+            1
+            for t in self.tools
+            if not is_context_management_tool_name(getattr(t, "name", None))
         )
         if user_tool_count > max_tools:
             mode_value = (
@@ -722,6 +934,49 @@ class Agent(BaseAgent):
             except Exception:
                 pass
 
+        metadata: dict[str, Any] = {}
+        phase_controller = getattr(self, "_phase_controller", None)
+        if phase_controller is not None:
+            try:
+                phase_controller.finish()
+            except Exception:
+                pass
+        workspace = getattr(self, "_workspace", None)
+        if workspace is not None:
+            try:
+                metadata["workspace"] = workspace.stats().to_dict()
+            except Exception:
+                pass
+        evidence_dossier = getattr(self, "_evidence_dossier", None)
+        if evidence_dossier is not None:
+            try:
+                metadata["evidence"] = evidence_dossier.stats().to_dict()
+            except Exception:
+                pass
+        document_corpus = getattr(self, "_document_corpus", None)
+        if document_corpus is not None:
+            try:
+                metadata["document_search"] = document_corpus.stats().to_dict()
+            except Exception:
+                pass
+        if phase_controller is not None:
+            try:
+                metadata["phase_control"] = phase_controller.stats().to_dict()
+            except Exception:
+                pass
+        activator = getattr(self, "_context_state_activator", None)
+        if activator is not None:
+            try:
+                metadata["context_activation"] = activator.metrics.to_dict()
+            except Exception:
+                pass
+        package = getattr(self, "_last_synthesis_package", None)
+        if package is not None:
+            try:
+                metadata["synthesis_package"] = dict(package.metadata)
+            except Exception:
+                pass
+
         return AgentResult(
             agent_id=str(self.id),
             agent_name=self.name,
@@ -743,6 +998,7 @@ class Agent(BaseAgent):
             autonomous=autonomous_out,
             context_telemetry=context_tel,
             warnings=warnings_t,
+            metadata=metadata,
         )
 
     # ------------------------------------------------------------------ #

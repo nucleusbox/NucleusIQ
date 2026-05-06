@@ -34,6 +34,7 @@ from nucleusiq.agents.observability import (
 )
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.usage.usage_tracker import CallPurpose
+from nucleusiq.agents.modes.tool_payload import tool_result_to_context_string
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
@@ -684,8 +685,8 @@ class BaseExecutionMode(ABC):
                     )
                 )
 
-                from nucleusiq.agents.context.recall_tools import (
-                    is_recall_tool_name,
+                from nucleusiq.agents.context.workspace_tools import (
+                    is_context_management_tool_name,
                 )
 
                 for tc in parsed_calls:
@@ -694,7 +695,7 @@ class BaseExecutionMode(ABC):
                     # Recall tools (memory operations) bypass the
                     # tool-call budget — see §6.4 of the v2 redesign.
                     if (
-                        not is_recall_tool_name(tc.name)
+                        not is_context_management_tool_name(tc.name)
                         and tool_call_count >= max_tool_calls
                     ):
                         agent._logger.warning(
@@ -758,17 +759,19 @@ class BaseExecutionMode(ABC):
                             )
                         )
                         yield StreamEvent.tool_end_event(tc.name, banner)
-                        if not is_recall_tool_name(tc.name):
+                        if not is_context_management_tool_name(tc.name):
                             tool_call_count += 1
                         continue
 
                     try:
                         result = await self.call_tool(agent, tc, tool_round=call_round)
-                        result_str = (
-                            json.dumps(result)
-                            if not isinstance(result, str)
-                            else result
+                        agent._activate_context_state_for_tool_result(
+                            tool_name=tc.name,
+                            tool_call_id=tc.id,
+                            tool_result=result,
+                            tool_args=args,
                         )
+                        result_str = tool_result_to_context_string(result)
 
                         # Context window management: compress large tool results
                         engine = getattr(agent, "_context_engine", None)
@@ -784,12 +787,10 @@ class BaseExecutionMode(ABC):
                             )
                         )
                         yield StreamEvent.tool_end_event(tc.name, result_str)
-                        # Auto-injected recall tools do not count against
-                        # the user's tool budget — they are memory ops,
-                        # not external actions.  See §6.4 of the v2
-                        # redesign doc.  ``is_recall_tool_name`` is
-                        # imported once at the top of the loop above.
-                        if not is_recall_tool_name(tc.name):
+                        # Auto-injected context-management tools do not count
+                        # against the user's tool budget — they are memory ops,
+                        # not external actions.
+                        if not is_context_management_tool_name(tc.name):
                             tool_call_count += 1
                         if is_idempotent and tc.id is not None:
                             dedup_cache[cache_key] = tc.id
@@ -824,19 +825,33 @@ class BaseExecutionMode(ABC):
                     call_round += 1
                     yield StreamEvent.llm_start_event(call_round)
 
-                    synth_msgs = list(pre_synth_snapshot)
-                    synth_msgs.append(
-                        ChatMessage(
-                            role="user",
-                            content=(
-                                "All data gathering is complete. "
-                                "Now produce the COMPLETE, FULL-LENGTH "
-                                "deliverable exactly as described in your "
-                                "instructions. Do not summarize — write "
-                                "the entire output."
-                            ),
-                        )
+                    task_obj = getattr(agent, "_current_task", None) or {}
+                    task_text = (
+                        task_obj.get("objective", "")
+                        if isinstance(task_obj, dict)
+                        else str(task_obj or "")
                     )
+                    synth_msgs = agent._build_synthesis_messages_from_context(
+                        task=task_text or "Complete the requested task.",
+                        output_shape=(
+                            "Produce the COMPLETE, FULL-LENGTH deliverable "
+                            "exactly as described in the user's instructions."
+                        ),
+                    )
+                    if synth_msgs is None:
+                        synth_msgs = list(pre_synth_snapshot)
+                        synth_msgs.append(
+                            ChatMessage(
+                                role="user",
+                                content=(
+                                    "All data gathering is complete. "
+                                    "Now produce the COMPLETE, FULL-LENGTH "
+                                    "deliverable exactly as described in your "
+                                    "instructions. Do not summarize — write "
+                                    "the entire output."
+                                ),
+                            )
+                        )
 
                     engine = getattr(agent, "_context_engine", None)
                     if engine is not None:

@@ -47,6 +47,7 @@ class RefinerRunner:
         * The previous candidate answer (truncated inside ``Refiner``).
         * The ``Critic``'s structured critique.
         * A bounded tool-result summary (``summarize_tool_results``).
+        * Known evidence gaps from the dossier, when present.
 
         It does NOT see the primary agent's raw conversation — that
         would re-introduce the same bias the ``Critic`` just flagged
@@ -61,6 +62,11 @@ class RefinerRunner:
                 per_tool_char_cap=per_tool_cap,
                 total_char_cap=total_cap,
                 content_store=content_store,
+            )
+            tool_summary = _append_evidence_gaps_summary(
+                agent,
+                tool_summary,
+                total_char_cap=total_cap,
             )
             return await self._refiner.revise(
                 agent=agent,
@@ -124,4 +130,76 @@ def _compute_refiner_char_caps(
     return per_tool_cap, total_cap
 
 
-__all__ = ["RefinerRunner"]
+def _append_evidence_gaps_summary(
+    agent: Agent,
+    tool_summary: str | None,
+    *,
+    total_char_cap: int | None,
+) -> str | None:
+    """Append bounded dossier gaps to the Refiner evidence summary."""
+    gap_summary = _summarize_dossier_gaps(
+        agent, max_chars=_gap_summary_cap(total_char_cap)
+    )
+    if not gap_summary:
+        return tool_summary
+
+    phase_controller = getattr(agent, "_phase_controller", None)
+    if phase_controller is not None:
+        phase_controller.refiner_used_gaps = True
+
+    if not tool_summary:
+        return gap_summary
+    remaining = (
+        None
+        if total_char_cap is None
+        else max(0, total_char_cap - len(gap_summary) - 2)
+    )
+    bounded_tool_summary = (
+        tool_summary if remaining is None else tool_summary[:remaining]
+    )
+    return f"{bounded_tool_summary}\n\n{gap_summary}".strip()
+
+
+def _summarize_dossier_gaps(agent: Agent, *, max_chars: int = 2_000) -> str:
+    """Return a compact, deterministic gap section from the evidence dossier."""
+    if max_chars <= 0:
+        return ""
+    dossier = getattr(agent, "_evidence_dossier", None)
+    if dossier is None:
+        dossier = getattr(agent, "evidence_dossier", None)
+    if dossier is None:
+        return ""
+    try:
+        gaps = dossier.list(status="gap")
+    except Exception:
+        return ""
+    if not gaps:
+        return ""
+
+    lines = ["## Known Evidence Gaps From Dossier"]
+    for gap in gaps:
+        tags = f" [{', '.join(gap.tags)}]" if getattr(gap, "tags", ()) else ""
+        reason = ""
+        try:
+            reason = gap.metadata.get("reason") or gap.quote or ""
+        except Exception:
+            reason = getattr(gap, "quote", "") or ""
+        reason_text = f" reason={reason}" if reason else ""
+        lines.append(f"- {gap.claim}{reason_text}{tags}")
+        text = "\n".join(lines)
+        if len(text) >= max_chars:
+            return text[: max(0, max_chars - 3)].rstrip() + "..."
+    return "\n".join(lines)[:max_chars]
+
+
+def _gap_summary_cap(total_char_cap: int | None) -> int:
+    if total_char_cap is None:
+        return 2_000
+    return max(0, min(2_000, total_char_cap // 4))
+
+
+__all__ = [
+    "RefinerRunner",
+    "_append_evidence_gaps_summary",
+    "_summarize_dossier_gaps",
+]

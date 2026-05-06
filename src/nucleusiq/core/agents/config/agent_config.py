@@ -7,7 +7,7 @@ from typing import Literal
 from nucleusiq.agents.config.observability_config import ObservabilityConfig
 from nucleusiq.agents.context.config import ContextConfig
 from nucleusiq.llms.llm_params import LLMParams
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExecutionMode(str, Enum):
@@ -178,7 +178,59 @@ class AgentConfig(BaseModel):
         ),
     )
 
+    evidence_gate_required_tags: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "Optional evidence tags the framework checks before package synthesis. "
+            "Callers (tasks, rubrics) supply tag names; empty = no gate."
+        ),
+    )
+    evidence_gate_enforce: bool = Field(
+        default=False,
+        description=(
+            "When True, treat missing required evidence tags as a blocked gate. "
+            "When False, record coverage and optional gaps without blocking."
+        ),
+    )
+    context_tool_result_corpus_max_chars: int = Field(
+        default=500_000,
+        ge=0,
+        description=(
+            "Max characters of each ingested business tool result text indexed into "
+            "the run-local document corpus (L5). 0 disables automatic indexing."
+        ),
+    )
+    context_activation_ingest_min_chars: int = Field(
+        default=200,
+        ge=0,
+        description=(
+            "Minimum inspected characters for a business tool result to qualify for "
+            "L4.5 light ingest (workspace note + corpus index) when the output does "
+            "not match strict evidence-shaped heuristics. 0 allows any non-empty text. "
+            "Set very high to approximate legacy behavior (promotion/indexing only "
+            "when evidence-shaped)."
+        ),
+    )
+
     _MODE_TOOL_DEFAULTS: dict = {"direct": 25, "standard": 80, "autonomous": 300}
+
+    @field_validator("evidence_gate_required_tags", mode="before")
+    @classmethod
+    def _coerce_evidence_gate_tags(cls, value: object) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            stripped = value.strip()
+            return (stripped,) if stripped else ()
+        if isinstance(value, (list, tuple)):
+            out: list[str] = []
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    out.append(item.strip())
+            return tuple(out)
+        raise TypeError(
+            "evidence_gate_required_tags must be None, str, list[str], or tuple[str, ...]"
+        )
 
     @property
     def effective_tracing(self) -> bool:

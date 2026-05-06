@@ -17,14 +17,19 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from nucleusiq.agents.chat_models import ChatMessage
-from nucleusiq.agents.components.critic import Critic
+from nucleusiq.agents.components.critic import Critic, CritiqueResult, Verdict
+from nucleusiq.agents.components.refiner import RevisionCandidate
 from nucleusiq.agents.context.config import ContextConfig
+from nucleusiq.agents.context.evidence import InMemoryEvidenceDossier
 from nucleusiq.agents.modes.autonomous.critic_runner import (
     _compute_critic_per_tool_cap,
 )
 from nucleusiq.agents.modes.autonomous.refiner_runner import (
+    RefinerRunner,
     _compute_refiner_char_caps,
+    _summarize_dossier_gaps,
 )
 
 
@@ -111,6 +116,82 @@ class TestRefinerRunnerCapWiring:
         # window — it's paying for the space to write the full answer.
         assert refiner_cap is not None and critic_cap is not None
         assert refiner_cap <= critic_cap
+
+    def test_refiner_gap_summary_reads_dossier_gaps(self):
+        agent = _make_agent(ctx_window=128_000)
+        dossier = InMemoryEvidenceDossier()
+        dossier.add_gap(
+            question="Need operating margin evidence.",
+            reason="Required metric missing before synthesis.",
+            tags=("metric:margin",),
+        )
+        agent._evidence_dossier = dossier
+
+        summary = _summarize_dossier_gaps(agent, max_chars=500)
+
+        assert "Known Evidence Gaps From Dossier" in summary
+        assert "Need operating margin evidence" in summary
+        assert "metric:margin" in summary
+
+    def test_refiner_gap_summary_is_bounded(self):
+        agent = _make_agent(ctx_window=128_000)
+        dossier = InMemoryEvidenceDossier()
+        dossier.add_gap(
+            question="Need " + ("very long missing evidence " * 40),
+            reason="Missing",
+            tags=("topic:long",),
+        )
+        agent._evidence_dossier = dossier
+
+        summary = _summarize_dossier_gaps(agent, max_chars=120)
+
+        assert len(summary) <= 120
+
+    @pytest.mark.asyncio
+    async def test_refiner_runner_passes_dossier_gaps_to_refiner(self):
+        class _CaptureRefiner:
+            def __init__(self) -> None:
+                self.summary: str | None = None
+
+            async def revise(self, **kwargs):
+                self.summary = kwargs["tool_result_summary"]
+                return RevisionCandidate(content="revised")
+
+        agent = _make_agent(ctx_window=128_000, context_cfg=None)
+        agent._logger = MagicMock()
+        agent._context_engine = None
+        phase_controller = MagicMock()
+        phase_controller.refiner_used_gaps = False
+        agent._phase_controller = phase_controller
+        dossier = InMemoryEvidenceDossier()
+        dossier.add_gap(
+            question="Need revenue evidence.",
+            reason="Required metric missing.",
+            tags=("metric:revenue",),
+        )
+        agent._evidence_dossier = dossier
+        refiner = _CaptureRefiner()
+        runner = RefinerRunner(refiner)  # type: ignore[arg-type]
+
+        revision = await runner.run(
+            agent=agent,
+            task_objective="Answer accurately.",
+            candidate="draft",
+            critique=CritiqueResult(
+                verdict=Verdict.FAIL,
+                score=0.2,
+                feedback="Missing evidence",
+                issues=("Missing evidence",),
+                suggestions=("Use dossier gaps",),
+            ),
+            messages=[ChatMessage(role="user", content="hello")],
+        )
+
+        assert revision is not None
+        assert refiner.summary is not None
+        assert "Known Evidence Gaps From Dossier" in refiner.summary
+        assert "Need revenue evidence" in refiner.summary
+        assert phase_controller.refiner_used_gaps is True
 
 
 class TestCriticHonoursExplicitCap:

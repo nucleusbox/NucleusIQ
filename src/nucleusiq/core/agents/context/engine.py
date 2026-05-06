@@ -119,6 +119,12 @@ class ContextEngine:
         "_observations_masked",
         "_tokens_masked",
         "_total_tokens_sent",
+        "_tokens_before_mgmt",
+        "_tokens_after_mgmt",
+        "_synthesis_rehydrated_count",
+        "_synthesis_rehydrated_tokens",
+        "_synthesis_refs_selected",
+        "_synthesis_refs_skipped",
         "_resolved_max",
         "_resolved_optimal",
         "_masker_triggered_count",
@@ -176,6 +182,12 @@ class ContextEngine:
         self._observations_masked: int = 0
         self._tokens_masked: int = 0
         self._total_tokens_sent: int = 0
+        self._tokens_before_mgmt: int = 0
+        self._tokens_after_mgmt: int = 0
+        self._synthesis_rehydrated_count: int = 0
+        self._synthesis_rehydrated_tokens: int = 0
+        self._synthesis_refs_selected: tuple[str, ...] = ()
+        self._synthesis_refs_skipped: tuple[str, ...] = ()
         self._masker_triggered_count: int = 0
         self._masker_skipped_count: int = 0
 
@@ -204,6 +216,8 @@ class ContextEngine:
 
         self._recount(messages)
         budget = self._ledger.snapshot()
+        self._tokens_before_mgmt = budget.allocated
+        self._tokens_after_mgmt = budget.allocated
         self._peak_utilization = max(self._peak_utilization, budget.utilization)
         self._total_tokens_sent += budget.allocated
 
@@ -264,6 +278,7 @@ class ContextEngine:
                         self._warnings.append(w)
 
             self._recount(compacted)
+            self._tokens_after_mgmt = self._counter.count_messages(compacted)
             return compacted
 
         return messages
@@ -308,6 +323,10 @@ class ContextEngine:
         if not self._masking_enabled:
             return messages
 
+        before_tokens = self._counter.count_messages(messages)
+        self._tokens_before_mgmt = before_tokens
+        self._tokens_after_mgmt = before_tokens
+
         if self._config.squeeze_threshold > 0.0:
             self._recount(messages)
             utilization = self._ledger.snapshot().utilization
@@ -325,6 +344,7 @@ class ContextEngine:
         masked, count, freed = self._compactor.mask(
             messages, self._counter, self._store
         )
+        self._tokens_after_mgmt = self._counter.count_messages(masked)
         self._masker_triggered_count += 1
 
         if count > 0:
@@ -398,6 +418,10 @@ class ContextEngine:
             New message list with selected markers rehydrated.
         """
         if not messages:
+            self._synthesis_rehydrated_count = 0
+            self._synthesis_rehydrated_tokens = 0
+            self._synthesis_refs_selected = ()
+            self._synthesis_refs_skipped = ()
             return list(messages)
 
         try:
@@ -419,14 +443,19 @@ class ContextEngine:
             logger.debug("prepare_for_synthesis: budget calc failed: %s", exc)
             return list(messages)
 
+        self._synthesis_rehydrated_count = 0
+        self._synthesis_rehydrated_tokens = 0
+        selected_refs: list[str] = []
+        skipped_refs: list[str] = []
+
         if available <= 0:
+            self._synthesis_refs_selected = ()
+            self._synthesis_refs_skipped = ()
             return list(messages)
 
         max_chars = max(1, int(self._config.tool_result_per_call_max_chars))
 
         # Newest-first traversal — index walking so we can write back in place.
-        rehydrated_count = 0
-        rehydrated_tokens = 0
         out: list[ChatMessage] = list(messages)
 
         for i in range(len(out) - 1, -1, -1):
@@ -452,6 +481,7 @@ class ContextEngine:
                 continue
 
             if raw is None:
+                skipped_refs.append(key)
                 continue
 
             if len(raw) > max_chars:
@@ -467,6 +497,7 @@ class ContextEngine:
             # If this rehydration would over-spend, stop — older markers
             # are even larger and cheaper to keep masked.
             if delta > available:
+                skipped_refs.append(key)
                 break
 
             out[i] = CM(
@@ -476,15 +507,19 @@ class ContextEngine:
                 tool_call_id=msg.tool_call_id,
             )
             available -= delta
-            rehydrated_count += 1
-            rehydrated_tokens += raw_tokens
+            self._synthesis_rehydrated_count += 1
+            self._synthesis_rehydrated_tokens += raw_tokens
+            selected_refs.append(key)
 
-        if rehydrated_count > 0:
+        self._synthesis_refs_selected = tuple(selected_refs)
+        self._synthesis_refs_skipped = tuple(skipped_refs)
+
+        if self._synthesis_rehydrated_count > 0:
             logger.info(
                 "Synthesis rehydration: rehydrated %d evidence marker(s), "
                 "%d tokens added to synthesis prompt",
-                rehydrated_count,
-                rehydrated_tokens,
+                self._synthesis_rehydrated_count,
+                self._synthesis_rehydrated_tokens,
             )
         return out
 
@@ -735,6 +770,8 @@ class ContextEngine:
             final_utilization=budget.utilization,
             compaction_count=len(self._events),
             compaction_events=tuple(self._events),
+            tokens_before_mgmt=self._tokens_before_mgmt,
+            tokens_after_mgmt=self._tokens_after_mgmt,
             tokens_freed_total=total_freed,
             compactor_tokens_freed=compactor_freed,
             masker_tokens_freed=masker_freed,
@@ -753,6 +790,10 @@ class ContextEngine:
             estimated_savings_pct=round(savings_pct, 2),
             recall_count=self._recall_tracker.recall_count,
             recall_tokens=self._recall_tracker.total_recalled_tokens,
+            synthesis_rehydrated_count=self._synthesis_rehydrated_count,
+            synthesis_rehydrated_tokens=self._synthesis_rehydrated_tokens,
+            synthesis_refs_selected=self._synthesis_refs_selected,
+            synthesis_refs_skipped=self._synthesis_refs_skipped,
             policy_breakdown=dict(self._policy_breakdown),
             policy_source_breakdown=dict(self._policy_source_breakdown),
         )

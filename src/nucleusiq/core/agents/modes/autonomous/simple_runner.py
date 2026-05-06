@@ -323,6 +323,7 @@ class SimpleRunner:
                             getattr(revision, "tool_calls_made", 0) or 0,
                         )
                         result = revision.content
+                        agent._last_messages = messages
                     else:
                         fallback_msg = helpers.build_fallback_revision_message(
                             last_critique  # type: ignore[arg-type]
@@ -677,6 +678,7 @@ class SimpleRunner:
                             getattr(revision, "tool_calls_made", 0) or 0,
                         )
                         final_content = revision.content
+                        agent._last_messages = messages
                     else:
                         yield StreamEvent.thinking_event(
                             "Refiner failed, falling back to primary-agent retry…"

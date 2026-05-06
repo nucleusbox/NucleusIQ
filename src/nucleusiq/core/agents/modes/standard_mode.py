@@ -26,6 +26,7 @@ from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.executor import Executor
 from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
+from nucleusiq.agents.modes.tool_payload import tool_result_to_context_string
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.usage.usage_tracker import CallPurpose
 from nucleusiq.plugins.errors import PluginHalt
@@ -288,14 +289,14 @@ class StandardMode(BaseExecutionMode):
                 # the canonical name regardless of wire format.  Without
                 # this, OpenAI-shaped recall calls would be counted
                 # because ``getattr(tc, "name", None)`` returns ``None``.
-                from nucleusiq.agents.context.recall_tools import (
-                    is_recall_tool_name,
+                from nucleusiq.agents.context.workspace_tools import (
+                    is_context_management_tool_name,
                 )
 
                 tool_call_count += sum(
                     1
                     for tc in tool_calls
-                    if not is_recall_tool_name(self._parse_tool_call(tc)[1])
+                    if not is_context_management_tool_name(self._parse_tool_call(tc)[1])
                 )
                 continue
 
@@ -488,7 +489,17 @@ class StandardMode(BaseExecutionMode):
 
             try:
                 tool_result = await self.call_tool(agent, tc, tool_round=tool_round)
-                tool_result_str = json.dumps(tool_result)
+                try:
+                    tool_args = json.loads(tc.arguments) if tc.arguments else {}
+                except (json.JSONDecodeError, TypeError):
+                    tool_args = {}
+                agent._activate_context_state_for_tool_result(
+                    tool_name=tc.name,
+                    tool_call_id=tc.id,
+                    tool_result=tool_result,
+                    tool_args=tool_args,
+                )
+                tool_result_str = tool_result_to_context_string(tool_result)
 
                 # Context window management: compress large tool results
                 engine = getattr(agent, "_context_engine", None)
@@ -568,18 +579,32 @@ class StandardMode(BaseExecutionMode):
         a tools=None pass.  The rehydration is best-effort, fits in
         budget, and is silently skipped if anything goes wrong.
         """
-        synth_messages = list(messages)
-        synth_messages.append(
-            ChatMessage(
-                role="user",
-                content=(
-                    "All data gathering is complete. "
-                    "Now produce the COMPLETE, FULL-LENGTH deliverable "
-                    "exactly as described in your instructions. "
-                    "Do not summarize — write the entire output."
-                ),
-            )
+        task_obj = getattr(agent, "_current_task", None) or {}
+        task_text = (
+            task_obj.get("objective", "")
+            if isinstance(task_obj, dict)
+            else str(task_obj or "")
         )
+        synth_messages = agent._build_synthesis_messages_from_context(
+            task=task_text or "Complete the requested task.",
+            output_shape=(
+                "Produce the COMPLETE, FULL-LENGTH deliverable exactly as "
+                "described in the user's instructions."
+            ),
+        )
+        if synth_messages is None:
+            synth_messages = list(messages)
+            synth_messages.append(
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "All data gathering is complete. "
+                        "Now produce the COMPLETE, FULL-LENGTH deliverable "
+                        "exactly as described in your instructions. "
+                        "Do not summarize — write the entire output."
+                    ),
+                )
+            )
 
         # I4 — give the Generator the same rehydration the Critic /
         # Refiner already have.  The engine returns the message list

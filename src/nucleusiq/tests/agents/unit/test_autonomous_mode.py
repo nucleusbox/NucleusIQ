@@ -922,8 +922,8 @@ class TestCriticIntegration:
         assert result.verdict == Verdict.PASS
         assert result.score == 0.9
 
-    async def test_run_critic_falls_back_to_pass_on_error(self):
-        """If Critic itself errors, result is accepted (non-fatal)."""
+    async def test_run_critic_falls_back_to_uncertain_on_error(self):
+        """If Critic infrastructure errors, verdict is UNCERTAIN (not synthetic PASS)."""
         agent = _make_agent()
         agent.llm.call = AsyncMock(side_effect=RuntimeError("LLM error"))
 
@@ -932,4 +932,6 @@ class TestCriticIntegration:
         critic = Critic()
         mode = AutonomousMode()
         result = await mode._run_critic(agent, critic, "test task", "result 42", [])
-        assert result.verdict == Verdict.PASS
+        assert result.verdict == Verdict.UNCERTAIN
+        assert result.score == 0.0
+        assert "Critic infrastructure error" in (result.feedback or "")

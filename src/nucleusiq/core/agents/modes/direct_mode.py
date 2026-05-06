@@ -22,6 +22,7 @@ from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.executor import Executor
 from nucleusiq.agents.config.agent_config import AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
+from nucleusiq.agents.modes.tool_payload import tool_result_to_context_string
 from nucleusiq.agents.task import Task
 from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.streaming.events import StreamEvent
@@ -174,12 +175,17 @@ class DirectMode(BaseExecutionMode):
             ChatMessage(role="assistant", content=raw_content, tool_calls=parsed_calls)
         )
 
-        # Recall tools (memory ops) bypass the budget — see §6.4 of
-        # the v2 redesign.  Imported once outside the loop for speed.
-        from nucleusiq.agents.context.recall_tools import is_recall_tool_name
+        # Context-management tools (memory ops) bypass the user tool budget.
+        # Imported once outside the loop for speed.
+        from nucleusiq.agents.context.workspace_tools import (
+            is_context_management_tool_name,
+        )
 
         for tc in parsed_calls:
-            if not is_recall_tool_name(tc.name) and total_calls >= max_tool_calls:
+            if (
+                not is_context_management_tool_name(tc.name)
+                and total_calls >= max_tool_calls
+            ):
                 agent._logger.warning(
                     "Direct mode tool call limit (%d) reached", max_tool_calls
                 )
@@ -190,7 +196,17 @@ class DirectMode(BaseExecutionMode):
             agent._logger.info("Tool requested: %s", tc.name)
             try:
                 tool_result = await self.call_tool(agent, tc, tool_round=1)
-                tool_result_str = json.dumps(tool_result)
+                try:
+                    tool_args = json.loads(tc.arguments) if tc.arguments else {}
+                except (json.JSONDecodeError, TypeError):
+                    tool_args = {}
+                agent._activate_context_state_for_tool_result(
+                    tool_name=tc.name,
+                    tool_call_id=tc.id,
+                    tool_result=tool_result,
+                    tool_args=tool_args,
+                )
+                tool_result_str = tool_result_to_context_string(tool_result)
 
                 # Context window management: compress large tool results
                 engine = getattr(agent, "_context_engine", None)
@@ -207,7 +223,7 @@ class DirectMode(BaseExecutionMode):
                         content=tool_result_str,
                     )
                 )
-                if not is_recall_tool_name(tc.name):
+                if not is_context_management_tool_name(tc.name):
                     total_calls += 1
             except Exception as e:
                 agent._logger.error("Tool execution failed: %s", e)
