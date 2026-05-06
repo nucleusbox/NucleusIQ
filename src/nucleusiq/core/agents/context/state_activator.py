@@ -274,16 +274,22 @@ class ContextStateActivator:
         meta: dict[str, Any] = {"tool_name": tool_name}
         if tool_call_id:
             meta["tool_call_id"] = tool_call_id
-        for k in ("company", "entity", "year", "filename", "document_id", "path", "file"):
+        for k in (
+            "company",
+            "entity",
+            "year",
+            "filename",
+            "document_id",
+            "path",
+            "file",
+        ):
             if k in tool_args and tool_args[k] is not None:
                 meta[k] = tool_args[k]
         title: str | None = None
         if isinstance(tool_args.get("title"), str):
             title = tool_args["title"]
         elif isinstance(tool_args.get("filename"), str):
-            title = os.path.basename(
-                tool_args["filename"].strip().replace("\\", "/")
-            )
+            title = os.path.basename(tool_args["filename"].strip().replace("\\", "/"))
         else:
             title = tool_name
         self._document_corpus.index_document(
@@ -479,12 +485,7 @@ def _infer_tags(
             break
 
     did = tool_args.get("document_id")
-    if (
-        isinstance(did, str)
-        and did.strip()
-        and "/" not in did
-        and "\\" not in did
-    ):
+    if isinstance(did, str) and did.strip() and "/" not in did and "\\" not in did:
         slug = _slug_from_label(did.strip())
         if slug:
             tags.add(f"document:{slug.lower()}")

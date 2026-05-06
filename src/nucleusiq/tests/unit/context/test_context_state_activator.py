@@ -172,8 +172,7 @@ def test_activator_indexes_into_document_corpus_when_configured() -> None:
         tool_call_id="call_1",
         tool_args={"filename": "ACME_FY25.pdf"},
         tool_result=(
-            "ACME FY25 annual report excerpt. "
-            "Revenue from operations was Rs 100 crore."
+            "ACME FY25 annual report excerpt. Revenue from operations was Rs 100 crore."
         ),
     )
 

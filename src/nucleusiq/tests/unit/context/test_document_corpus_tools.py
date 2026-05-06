@@ -31,7 +31,9 @@ async def test_search_and_get_chunk_tools() -> None:
     assert GET_DOCUMENT_CHUNK_TOOL_NAME in tools
     assert PROMOTE_DOCUMENT_CHUNK_TOOL_NAME in tools
 
-    hits = await tools[SEARCH_DOCUMENT_CORPUS_TOOL_NAME].execute(query="revenue", limit=3)
+    hits = await tools[SEARCH_DOCUMENT_CORPUS_TOOL_NAME].execute(
+        query="revenue", limit=3
+    )
     assert isinstance(hits, list)
     assert hits
     chunk_id = hits[0]["chunk_id"]
