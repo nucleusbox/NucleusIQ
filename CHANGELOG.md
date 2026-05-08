@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Groq inference provider (standalone package)
+
+- **`nucleusiq-groq` (`0.1.0a1`, alpha)** — new installable provider under `src/providers/inference/groq/`: `BaseGroq`, `GroqLLMParams`, Chat Completions + streaming, local tools, structured output, retries. Install: `pip install nucleusiq-groq` (with `nucleusiq>=0.7.8`). Docs: `src/providers/inference/groq/README.md`, `docs/design/GROQ_PROVIDER.md`.
+
 #### Run-local context state (L4 / analyst state)
 
 - **`InMemoryWorkspace`** (`nucleusiq.agents.context.workspace`) — bounded per-run notebook: notes, artifacts, summaries with `WorkspaceEntry`, `WorkspaceStats`, and `WorkspaceLimitError` for cap violations.
@@ -55,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`scripts/verify_core_package_layout.py`** — now checks **Hatch** wheels for OpenAI, Gemini, and **Groq** providers: `packages = ["…"]` matches the on-disk import root, and every package directory that contains `.py` modules includes **`__init__.py`** (classic layout / import–wheel alignment). Still validates **`nucleusiq`** setuptools `packages` vs `core/` on disk.
+- **`nucleusiq_groq/_shared/__init__.py`** — added so `_shared` matches the same layout rules as other providers.
 - **`CriticRunner`** (`nucleusiq.agents.modes.autonomous.critic_runner`): on **any** exception during critique (infra/LLM/parser), returns **`Verdict.UNCERTAIN`** with score **`0.0`** and explicit feedback instead of treating failures as a synthetic pass — safer default for autonomous orchestration.
 - **Autonomous simple path** (`nucleusiq.agents.modes.autonomous.simple_runner`): after a successful **Refiner** pass, **`agent._last_messages`** is refreshed so a subsequent **Critic** sees the revised trace.
 - **`ContextStateActivator`** (`nucleusiq.agents.context.state_activator`): stricter topic/heuristic gates (e.g. reduced false positives from bare **`"ai"`** substring matches) and tuned ingest/evidence promotion behavior.
@@ -66,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Provider updates
 
+- **`nucleusiq-groq` (0.1.0a1)** — new **alpha** Groq provider: Chat Completions via the official **`groq`** SDK; local function calling, structured output (`json_schema` where the model supports it), streaming, retries, and wire compatibility fixes for Groq’s OpenAI-shaped API. Requires **`nucleusiq>=0.7.8`**. Developer README: `src/providers/inference/groq/README.md`; design tracker: `docs/design/GROQ_PROVIDER.md`.
 - **`nucleusiq-openai` (0.6.3)** — dependency floor raised to **`nucleusiq>=0.7.8`** (package version unchanged).
 - **`nucleusiq-gemini` (0.2.5)** — same **`nucleusiq>=0.7.8`** floor.
 
@@ -76,11 +83,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Packages
 
-| Package            | Version   | Note                                                                 |
-| ------------------ | --------- | -------------------------------------------------------------------- |
-| `nucleusiq`        | **0.7.8** | Context state stack + L5 corpus tools + Critic/tool-payload fixes     |
-| `nucleusiq-openai` | **0.6.3** | `nucleusiq>=0.7.8`                                                    |
-| `nucleusiq-gemini` | **0.2.5** | `nucleusiq>=0.7.8`                                                    |
+| Package            | Version       | Note                                                                 |
+| ------------------ | ------------- | -------------------------------------------------------------------- |
+| `nucleusiq`        | **0.7.8**     | Context state stack + L5 corpus tools + Critic/tool-payload fixes     |
+| `nucleusiq-openai` | **0.6.3**     | `nucleusiq>=0.7.8`                                                    |
+| `nucleusiq-gemini` | **0.2.5**     | `nucleusiq>=0.7.8`                                                    |
+| `nucleusiq-groq`   | **0.1.0a1** α | Groq Chat Completions provider; `nucleusiq>=0.7.8` (pre-release)       |
+
+---
+
+### CI
+
+- **Groq provider** — `test-groq` (pytest + coverage), **uv** sync step, **Pyrefly** for `src/providers/inference/groq`, import check + **build** matrix entry for `nucleusiq-groq`, **pip-audit** editable include.
+- **`import-check`** — `verify_core_package_layout.py` validates **core setuptools** and **Hatch** provider roots / `__init__.py` layout before package installs.
 
 ---
 

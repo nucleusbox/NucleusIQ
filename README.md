@@ -10,6 +10,7 @@
 | **nucleusiq** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq)](https://pypi.org/project/nucleusiq/) | ![Version](https://img.shields.io/pypi/v/nucleusiq?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq)](https://pypi.org/project/nucleusiq/) |
 | **nucleusiq-openai** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq-openai)](https://pypi.org/project/nucleusiq-openai/) | ![Version](https://img.shields.io/pypi/v/nucleusiq-openai?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq-openai)](https://pypi.org/project/nucleusiq-openai/) |
 | **nucleusiq-gemini** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq-gemini)](https://pypi.org/project/nucleusiq-gemini/) | ![Version](https://img.shields.io/pypi/v/nucleusiq-gemini?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq-gemini)](https://pypi.org/project/nucleusiq-gemini/) |
+| **nucleusiq-groq** | [![PyPI](https://img.shields.io/pypi/v/nucleusiq-groq)](https://pypi.org/project/nucleusiq-groq/) | ![Pre-release](https://img.shields.io/pypi/v/nucleusiq-groq?label=) | [![Python](https://img.shields.io/pypi/pyversions/nucleusiq-groq)](https://pypi.org/project/nucleusiq-groq/) |
 
 ---
 
@@ -40,6 +41,9 @@ pip install nucleusiq nucleusiq-openai
 
 # Or with Gemini provider
 pip install nucleusiq nucleusiq-gemini
+
+# Or with Groq provider (alpha on PyPI once published; see provider README in-repo)
+pip install nucleusiq nucleusiq-groq
 
 # Or with uv
 uv pip install nucleusiq nucleusiq-openai
@@ -77,7 +81,7 @@ See [INSTALLATION.md](INSTALLATION.md) for full setup instructions (pip, uv, dev
 | **Plugins** | 10 built-in: call limits, retry, fallback, PII guard, human approval, tool guard, attachment guard, context window, result validator |
 | **Usage Tracking** | Token usage per call with purpose tagging (main, planning, tool loop, critic, refiner) and cost estimation |
 | **Structured Output** | Schema-based output parsing with Pydantic, dataclass, TypedDict support |
-| **Provider Portability** | Swap providers (OpenAI, Gemini) with one line — same agent code, same tools, same plugins |
+| **Provider Portability** | Swap providers (OpenAI, Gemini, Groq, …) with one line — same agent code, same tools, same plugins |
 
 ## Execution Modes
 
@@ -116,15 +120,17 @@ See the [PE Due Diligence notebook](notebooks/agents/pe_due_diligence.ipynb) for
 | [`nucleusiq`](https://pypi.org/project/nucleusiq/) | Core framework | `pip install nucleusiq` |
 | [`nucleusiq-openai`](https://pypi.org/project/nucleusiq-openai/) | OpenAI provider | `pip install nucleusiq-openai` |
 | [`nucleusiq-gemini`](https://pypi.org/project/nucleusiq-gemini/) | Google Gemini provider | `pip install nucleusiq-gemini` |
+| [`nucleusiq-groq`](https://pypi.org/project/nucleusiq-groq/) | Groq inference (**alpha** `0.1.0a1`; Chat Completions via official `groq` SDK) | `pip install nucleusiq-groq` · [README](src/providers/inference/groq/README.md) · [Design](docs/design/GROQ_PROVIDER.md) |
 
 ## Project Structure
 
 ```
 src/
-  nucleusiq/core/          # Core framework (agents, prompts, tools, memory, plugins)
-  providers/llms/openai/   # OpenAI provider
-  providers/llms/gemini/   # Gemini provider
-notebooks/agents/          # Example notebooks
+  nucleusiq/core/              # Core framework (agents, prompts, tools, memory, plugins)
+  providers/llms/openai/       # OpenAI provider
+  providers/llms/gemini/       # Gemini provider
+  providers/inference/groq/    # Groq provider (nucleusiq-groq)
+notebooks/agents/              # Example notebooks
 ```
 
 ## Testing
@@ -138,6 +144,9 @@ cd src/providers/llms/openai && python -m pytest tests/ -q
 
 # Gemini provider unit tests (221 passing)
 cd src/providers/llms/gemini && python -m pytest tests/unit/ -q
+
+# Groq provider tests (requires dev group / uv; ≥90% coverage gate)
+cd src/providers/inference/groq && uv run pytest -q
 
 # Gemini integration tests (requires GEMINI_API_KEY)
 cd src/providers/llms/gemini && python -m pytest tests/integration/ -q

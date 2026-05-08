@@ -4,14 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nucleusiq-groq"
-version = "0.1.0"
-description = "Groq provider for the NucleusIQ AI agent framework. Ultra-fast LLM inference with NucleusIQ."
+version = "0.1.0a1"
+description = "Groq inference provider for the NucleusIQ AI agent framework (official groq Python SDK)."
+readme = "README.md"
 requires-python = ">=3.10,<4.0"
 license = { text = "MIT" }
 authors = [{ name = "Nucleusbox", email = "info@nucleusbox.com" }]
-keywords = ["AI", "agents", "groq", "fast-inference", "nucleusiq"]
+keywords = ["AI", "agents", "groq", "llama", "nucleusiq", "openai-compatible"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -24,8 +25,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "nucleusiq>=0.1.0",
-    "groq>=0.4.0",
+    "nucleusiq>=0.7.8",
+    "groq>=1.2.0,<2.0",
 ]
 
 [project.urls]
@@ -37,6 +38,7 @@ Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
 test = [
     "pytest>=8.0,<10.0",
     "pytest-asyncio>=0.23,<2.0",
+    "pytest-cov>=4.0,<8.0",
 ]
 dev = [{ include-group = "test" }]
 
@@ -46,6 +48,24 @@ nucleusiq = { path = "../../../nucleusiq", editable = true }
 [tool.hatch.build.targets.wheel]
 packages = ["nucleusiq_groq"]
 
+[tool.pyrefly]
+python-version = "3.10"
+project-includes = ["nucleusiq_groq/"]
+project-excludes = ["tests/", "examples/", "build/"]
+ignore-missing-imports = ["nucleusiq.*", "groq.*", "httpx.*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "--cov=nucleusiq_groq --cov-report=term-missing --cov-fail-under=90"
