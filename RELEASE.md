@@ -35,12 +35,14 @@ git checkout -b release/vX.Y.Z
 - Bump `version` in `src/nucleusiq/pyproject.toml`
 - Bump `version` in `src/providers/llms/openai/pyproject.toml`
 - Bump `version` in `src/providers/llms/gemini/pyproject.toml`
+- Bump `version` in `src/providers/inference/groq/pyproject.toml` and align `nucleusiq_groq/__init__.py` `__version__` if you expose it
 - Update `CHANGELOG.md` with release notes
 - Verify builds:
   ```bash
   cd src/nucleusiq && python -m build && twine check dist/*
   cd src/providers/llms/openai && python -m build && twine check dist/*
   cd src/providers/llms/gemini && python -m build && twine check dist/*
+  cd src/providers/inference/groq && python -m build && twine check dist/*
   ```
 
 ### 2. Merge
@@ -54,11 +56,12 @@ Push the branch, open a PR into `main`, wait for CI to pass, and merge.
 - Write release notes (or copy from CHANGELOG)
 - Click **Publish release**
 
-The `publish.yml` workflow triggers automatically -- runs CI, builds all three packages, and publishes to PyPI via Trusted Publishing (OIDC). No API tokens or manual uploads needed.
+The `publish.yml` workflow triggers automatically — runs CI, checks each package’s `version` in its `pyproject.toml` against PyPI, builds, and publishes **only** packages whose version is not already on PyPI (Trusted Publishing / OIDC). No manual upload needed.
 
 ### 4. Verify
 
 - https://pypi.org/project/nucleusiq/
 - https://pypi.org/project/nucleusiq-openai/
 - https://pypi.org/project/nucleusiq-gemini/
-- `pip install nucleusiq==X.Y.Z nucleusiq-openai==X.Y.Z nucleusiq-gemini==X.Y.Z`
+- https://pypi.org/project/nucleusiq-groq/
+- `pip install nucleusiq==X.Y.Z nucleusiq-openai==… nucleusiq-gemini==… nucleusiq-groq==…` (pin versions as needed)
