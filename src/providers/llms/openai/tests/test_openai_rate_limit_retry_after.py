@@ -19,7 +19,9 @@ def _resp_429(retry_after: str) -> httpx.Response:
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_uses_retry_after_header(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rate_limit_uses_retry_after_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sleeps: list[float] = []
 
     async def capture_sleep(s: float) -> None:
