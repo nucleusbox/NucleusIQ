@@ -40,7 +40,7 @@ async def test_stream_async_mode_tokens_and_complete() -> None:
 
     events: list = []
     async for ev in stream_chat_completions(
-        client, {"model": "m", "messages": []}, async_mode=True
+        client, {"model": "m", "messages": []}, async_mode=True, max_retries=3
     ):
         events.append(ev)
 
@@ -76,7 +76,9 @@ async def test_stream_merges_tool_call_deltas() -> None:
     client.chat.completions.create = AsyncMock(return_value=fake_stream())
 
     events: list = []
-    async for ev in stream_chat_completions(client, {"model": "m"}, async_mode=True):
+    async for ev in stream_chat_completions(
+        client, {"model": "m"}, async_mode=True, max_retries=3
+    ):
         events.append(ev)
 
     last = events[-1]
@@ -94,7 +96,9 @@ async def test_stream_sync_mode_via_executor() -> None:
     client.chat.completions.create = MagicMock(return_value=fake_stream())
 
     events: list = []
-    async for ev in stream_chat_completions(client, {"model": "m"}, async_mode=False):
+    async for ev in stream_chat_completions(
+        client, {"model": "m"}, async_mode=False, max_retries=3
+    ):
         events.append(ev)
 
     assert events[0].token == "a"
@@ -107,9 +111,83 @@ async def test_stream_error_yields_error_event() -> None:
     client.chat.completions.create = AsyncMock(side_effect=RuntimeError("boom"))
 
     events: list = []
-    async for ev in stream_chat_completions(client, {"model": "m"}, async_mode=True):
+    async for ev in stream_chat_completions(
+        client, {"model": "m"}, async_mode=True, max_retries=3
+    ):
         events.append(ev)
 
     assert len(events) == 1
     assert events[0].type == StreamEventType.ERROR
     assert "boom" in (events[0].message or "")
+
+
+@pytest.mark.asyncio
+async def test_stream_retries_on_rate_limit_before_iterate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import groq
+    import httpx
+
+    n = {"calls": 0}
+
+    async def fake_create(**kw: object) -> object:
+        n["calls"] += 1
+        assert kw.get("stream") is True
+        if n["calls"] < 2:
+            raise groq.RateLimitError(
+                "rl",
+                response=httpx.Response(
+                    429, request=httpx.Request("GET", "https://api.groq.com")
+                ),
+                body=None,
+            )
+
+        async def gen():
+            yield _chunk(content="x")
+
+        return gen()
+
+    client = MagicMock()
+    client.chat.completions.create = fake_create
+
+    async def no_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr("nucleusiq_groq._shared.retry.asyncio.sleep", no_sleep)
+
+    events: list = []
+    async for ev in stream_chat_completions(
+        client, {"model": "m"}, async_mode=True, max_retries=3
+    ):
+        events.append(ev)
+
+    assert n["calls"] == 2
+    assert events[-1].type == StreamEventType.COMPLETE
+
+
+@pytest.mark.asyncio
+async def test_stream_propagates_framework_llm_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nucleusiq.llms.errors import RateLimitError
+
+    async def boom(*_a: object, **_kw: object) -> object:
+        raise RateLimitError.from_provider_error(
+            provider="groq",
+            message="exhausted",
+            status_code=429,
+            original_error=None,
+        )
+
+    monkeypatch.setattr(
+        "nucleusiq_groq.nb_groq.stream_adapter.open_streaming_completion",
+        boom,
+    )
+
+    client = MagicMock()
+
+    with pytest.raises(RateLimitError):
+        async for _ in stream_chat_completions(
+            client, {"model": "m"}, async_mode=True, max_retries=2
+        ):
+            pass

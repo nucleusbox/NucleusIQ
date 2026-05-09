@@ -27,6 +27,14 @@ def _resp(status: int = 400) -> httpx.Response:
     return httpx.Response(status, request=httpx.Request("GET", "https://api.groq.com"))
 
 
+def _resp_retry_after(seconds: str, *, status: int = 429) -> httpx.Response:
+    return httpx.Response(
+        status,
+        request=httpx.Request("GET", "https://api.groq.com"),
+        headers={"retry-after": seconds},
+    )
+
+
 @pytest.mark.asyncio
 async def test_call_with_retry_success_async() -> None:
     mock = MagicMock(return_value="ok")
@@ -65,6 +73,34 @@ async def test_call_with_retry_rate_limit_then_success(
     )
     assert out == "done"
     assert len(sleeps) == 1
+    assert sleeps[0] == pytest.approx(2.0)
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_rate_limit_uses_retry_after_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+
+    async def fake_sleep(s: float) -> None:
+        sleeps.append(s)
+
+    monkeypatch.setattr("nucleusiq_groq._shared.retry.asyncio.sleep", fake_sleep)
+
+    n = {"i": 0}
+
+    async def api():
+        n["i"] += 1
+        if n["i"] < 2:
+            raise groq.RateLimitError("rl", response=_resp_retry_after("30"), body=None)
+        return "done"
+
+    out = await call_with_retry(
+        api, max_retries=3, async_mode=True, logger=retry_mod.logging.getLogger("t")
+    )
+    assert out == "done"
+    assert len(sleeps) == 1
+    assert sleeps[0] == pytest.approx(30.0)
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ All errors are mapped to framework-level exceptions from
 ``nucleusiq.llms.errors`` so callers never need to import SDK types.
 
 Error classification:
-- **Rate limit (429)**: retry with backoff → ``RateLimitError``
+- **Rate limit (429)**: retry with ``nucleusiq.llms.retry_policy`` (``Retry-After`` + capped exponential backoff) → ``RateLimitError``
 - **Server error (5xx)**: retry with backoff → ``ProviderServerError``
 - **Auth error (401)**: no retry → ``AuthenticationError``
 - **Permission (403)**: no retry → ``PermissionDeniedError``
@@ -36,6 +36,10 @@ from nucleusiq.llms.errors import (
     ProviderError,
     ProviderServerError,
     RateLimitError,
+)
+from nucleusiq.llms.retry_policy import (
+    compute_rate_limit_sleep,
+    extract_retry_after_header,
 )
 
 _PROVIDER = "gemini"
@@ -147,14 +151,17 @@ async def call_with_retry(
                         status_code=429,
                         original_error=e,
                     ) from e
-                backoff = 2**attempt
+                resp = getattr(e, "response", None)
+                ra_hdr = extract_retry_after_header(resp)
+                sleep_s, policy_meta = compute_rate_limit_sleep(attempt, ra_hdr)
                 logger.warning(
-                    "Rate limit hit (429); retry %d/%d in %ds",
+                    "Gemini rate limit (429); retry %d/%d; sleep=%.2fs; policy=%s",
                     attempt,
                     max_retries,
-                    backoff,
+                    sleep_s,
+                    policy_meta,
                 )
-                await asyncio.sleep(backoff)
+                await asyncio.sleep(sleep_s)
                 continue
 
             if code == 401:

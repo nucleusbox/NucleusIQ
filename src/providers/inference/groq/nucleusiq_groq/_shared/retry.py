@@ -22,6 +22,10 @@ from nucleusiq.llms.errors import (
     ProviderServerError,
     RateLimitError,
 )
+from nucleusiq.llms.retry_policy import (
+    compute_rate_limit_sleep,
+    extract_retry_after_header,
+)
 
 _PROVIDER = "groq"
 
@@ -108,18 +112,21 @@ async def call_with_retry(
                     status_code=429,
                     original_error=e,
                 ) from e
-            backoff = 2**attempt
+            resp = getattr(e, "response", None)
+            ra_hdr = extract_retry_after_header(resp)
+            sleep_s, policy_meta = compute_rate_limit_sleep(attempt, ra_hdr)
             logger.warning(
-                "Groq rate limit (%s); retry %d/%d in %ds",
+                "Groq rate limit (%s); retry %d/%d; sleep=%.2fs; policy=%s",
                 e,
                 attempt,
                 max_retries,
-                backoff,
+                sleep_s,
+                policy_meta,
             )
             if async_mode:
-                await asyncio.sleep(backoff)
+                await asyncio.sleep(sleep_s)
             else:
-                time.sleep(backoff)
+                time.sleep(sleep_s)
 
         except groq.APIConnectionError as e:
             attempt += 1

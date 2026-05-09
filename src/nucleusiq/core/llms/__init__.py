@@ -17,6 +17,13 @@ from nucleusiq.llms.errors import (
 )
 from nucleusiq.llms.llm_params import LLMParams
 from nucleusiq.llms.mock_llm import MockLLM
+from nucleusiq.llms.retry_policy import (
+    DEFAULT_RATE_LIMIT_MAX_SLEEP_SECONDS,
+    RateLimitRetryMeta,
+    compute_rate_limit_sleep,
+    extract_retry_after_header,
+    parse_retry_after_seconds,
+)
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
 __all__ = [
@@ -37,4 +44,9 @@ __all__ = [
     "ProviderServerError",
     "ProviderConnectionError",
     "ProviderError",
+    "DEFAULT_RATE_LIMIT_MAX_SLEEP_SECONDS",
+    "RateLimitRetryMeta",
+    "compute_rate_limit_sleep",
+    "extract_retry_after_header",
+    "parse_retry_after_seconds",
 ]

@@ -120,7 +120,7 @@ See the [PE Due Diligence notebook](notebooks/agents/pe_due_diligence.ipynb) for
 | [`nucleusiq`](https://pypi.org/project/nucleusiq/) | Core framework | `pip install nucleusiq` |
 | [`nucleusiq-openai`](https://pypi.org/project/nucleusiq-openai/) | OpenAI provider | `pip install nucleusiq-openai` |
 | [`nucleusiq-gemini`](https://pypi.org/project/nucleusiq-gemini/) | Google Gemini provider | `pip install nucleusiq-gemini` |
-| [`nucleusiq-groq`](https://pypi.org/project/nucleusiq-groq/) | Groq inference (**alpha** `0.1.0a1`; Chat Completions via official `groq` SDK) | `pip install nucleusiq-groq` · [README](src/providers/inference/groq/README.md) · [Design](docs/design/GROQ_PROVIDER.md) |
+| [`nucleusiq-groq`](https://pypi.org/project/nucleusiq-groq/) | Groq inference (**beta** `0.1.0b1`; Chat Completions via official `groq` SDK) | `pip install nucleusiq-groq` · [README](src/providers/inference/groq/README.md) · [Design](docs/design/GROQ_PROVIDER.md) |
 
 ## Project Structure
 

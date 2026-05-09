@@ -22,6 +22,13 @@ class GroqLLMParams(LLMParams):
         None,
         description="Allow the model to request multiple tool calls in parallel.",
     )
+    strict_model_capabilities: bool = Field(
+        False,
+        description=(
+            "When true, reject ``parallel_tool_calls=True`` if the model is not "
+            "in the built-in Groq capability allowlist (see capabilities module)."
+        ),
+    )
     user: str | None = Field(
         None,
         description="End-user identifier for abuse monitoring (OpenAI-compatible).",
@@ -29,4 +36,5 @@ class GroqLLMParams(LLMParams):
 
     def to_call_kwargs(self) -> dict[str, Any]:
         """Non-None fields suitable for merging into ``BaseGroq.call`` kwargs."""
-        return {k: v for k, v in self.model_dump().items() if v is not None}
+        data = self.model_dump(exclude={"strict_model_capabilities"})
+        return {k: v for k, v in data.items() if v is not None}

@@ -193,6 +193,7 @@ jobs:
         run: |
           python -m pytest tests/ -q --tb=short \
             --override-ini="addopts=" \
+            -m "not integration" \
             --cov=nucleusiq_groq --cov-report=xml:coverage.xml \
             --cov-fail-under=90
 

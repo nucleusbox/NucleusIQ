@@ -6,6 +6,7 @@ exceptions from ``nucleusiq.llms.errors``.
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from nucleusiq.llms.errors import (
     AuthenticationError,
@@ -108,6 +109,30 @@ class TestRateLimitRetry:
         ) as mock_sleep:
             await call_with_retry(api_call, max_retries=3, logger=MagicMock())
             mock_sleep.assert_awaited_once_with(2)
+
+    @pytest.mark.asyncio
+    async def test_429_respects_retry_after_on_error_response(self):
+        err = _make_client_error(429, "rate limited")
+        err.response = httpx.Response(
+            429,
+            request=httpx.Request("GET", "https://generativelanguage.googleapis.com"),
+            headers={"retry-after": "36"},
+        )
+        call_count = 0
+
+        def api_call():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise err
+            return "ok"
+
+        with patch(
+            "nucleusiq_gemini._shared.retry.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as mock_sleep:
+            await call_with_retry(api_call, max_retries=3, logger=MagicMock())
+            mock_sleep.assert_awaited_once_with(36.0)
 
 
 class TestAuthErrors:

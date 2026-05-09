@@ -416,7 +416,7 @@ wheels = [
 
 [[package]]
 name = "nucleusiq"
-version = "0.7.6"
+version = "0.7.9"
 source = { editable = "../../../nucleusiq" }
 dependencies = [
     { name = "pydantic" },
@@ -464,7 +464,7 @@ test = [
 
 [[package]]
 name = "nucleusiq-gemini"
-version = "0.2.4"
+version = "0.2.5"
 source = { editable = "." }
 dependencies = [
     { name = "google-genai" },

@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.9](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.9) — 2026-05-07
+
+### Added
+
+#### LLM rate limiting (core)
+
+- **`nucleusiq.llms.retry_policy`** — shared HTTP **429** handling: parse **`Retry-After`** (integer delay or HTTP-date), merge with **capped exponential backoff**, and apply **`DEFAULT_RATE_LIMIT_MAX_SLEEP_SECONDS`** (120s) as a single-sleep ceiling. Helpers: **`extract_retry_after_header`**, **`parse_retry_after_seconds`**, **`compute_rate_limit_sleep`**, typed metadata **`RateLimitRetryMeta`** for structured logs.
+- **Exports** — `retry_policy` symbols re-exported from **`nucleusiq.llms`** (`__all__` updated).
+
+#### Groq provider
+
+- **`nucleusiq_groq.capabilities`** — **`PARALLEL_TOOL_CALLS_DOCUMENTED_MODELS`**, **`check_parallel_tool_calls_capability`** (warn on unknown models; strict path raises **`InvalidRequestError`**).
+- **`GroqLLMParams.strict_model_capabilities`** — opt-in validation before send; excluded from **`to_call_kwargs()`** so it never hits the wire.
+- **Docs** — `docs/design/GROQ_PROVIDER.md`: §**7.1** 429 flow, §**7.2** cross-provider retries, §**8.1** hosted vs local tools, §**9.1** structured-output models, beta checklist.
+- **`nucleusiq_groq._shared.stream_create`** — `open_streaming_completion` / `apply_stream_options`; streaming **open** uses the same **429** / **`Retry-After`** policy as non-stream chat.
+- **Tests** — `test_capabilities.py`, `test_retry.py` (**Retry-After**), `test_base_groq.py` / `test_llm_params` for strict + kwargs; **`test_tools_hosted_ids.py`** (hosted tool ID constants); **`tests/integration/test_groq_live_smoke.py`** (`pytest -m integration`, **`GROQ_API_KEY`**); default pytest **`not integration`** in Groq package **`addopts`**.
+
+#### Tests (framework)
+
+- **`tests/llms/unit/test_retry_policy.py`** — parsing and sleep math.
+- **`tests/llms/unit/test_retry_policy_provider_contract.py`** — stable **`policy`** dict keys for observability pipelines.
+
+#### Tests (providers)
+
+- **OpenAI** — `tests/test_openai_rate_limit_retry_after.py`; **`tests/test_openai_retry_status_mapping.py`** (**404** / **409** no spurious retry).
+- **Gemini** — `tests/unit/test_retry.py` — **429** respects **`Retry-After`** on **`ClientError.response`**.
+
+### Changed
+
+- **`nucleusiq.core.__version__`** — aligned with **`pyproject.toml`** (**0.7.9**).
+- **`nucleusiq_groq._shared.retry`** — **429** uses **`compute_rate_limit_sleep`** + structured **`WARNING`** logs (`sleep=`, `policy=`).
+- **`nucleusiq_openai._shared.retry`** — same **429** policy; explicit **`openai.NotFoundError`** → **`ModelNotFoundError`** and **`openai.ConflictError`** → **`InvalidRequestError`** (409) **before** generic **`APIError`** so **404**/**409** are not retried as server errors.
+- **`nucleusiq_gemini._shared.retry`** — **429** uses **`retry_policy`** when **`response`** carries **`Retry-After`**; dependency floor **`nucleusiq>=0.7.9`**.
+- **`nucleusiq-groq`** — README and **`pyproject.toml`** require **`nucleusiq>=0.7.9`**; **`0.1.0b1`** public **beta** (`Development Status :: 4 - Beta`): stream **open** uses **`stream_create.open_streaming_completion`** (same **429** / **`Retry-After`** policy as non-stream); **`pytest -m integration`** live smoke (`GROQ_API_KEY`); **`GROQ_COMPOUND_HOSTED_TOOL_IDS`** / **`GROQ_GPT_OSS_HOSTED_TOOL_IDS`** in **`nucleusiq_groq.tools`** (Groq-docs mirror; not wired).
+- **`nucleusiq-openai`** / **`nucleusiq-gemini`** — dependency floor **`nucleusiq>=0.7.9`**.
+
+### Packages
+
+| Package            | Version        | Note |
+| ------------------ | -------------- | ---- |
+| `nucleusiq`        | **0.7.9**      | `retry_policy`; aligned `__version__` |
+| `nucleusiq-openai` | **0.6.4**      | 429 **`Retry-After`**; 404/409 mapping; `nucleusiq>=0.7.9` |
+| `nucleusiq-gemini` | **0.2.6**      | 429 **`retry_policy`**; `nucleusiq>=0.7.9` |
+| `nucleusiq-groq`   | **0.1.0b1** β  | Public beta; stream-open retry; integration marker hosted-tool ID constants; `nucleusiq>=0.7.9` |
+
+### Validation
+
+- Run **`pytest`** in **`src/nucleusiq`** (LLM unit tests), **`src/providers/inference/groq`**, **`src/providers/llms/openai`**, and **`src/providers/llms/gemini`** before publishing wheels.
+
+---
+
 ## [0.7.8](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.8) — 2026-05-06
 
 ### Added

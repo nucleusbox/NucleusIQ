@@ -24,10 +24,15 @@ from nucleusiq.llms.errors import (
     ContextLengthError,
     InvalidRequestError,
     PermissionDeniedError,
+    ModelNotFoundError,
     ProviderConnectionError,
     ProviderError,
     ProviderServerError,
     RateLimitError,
+)
+from nucleusiq.llms.retry_policy import (
+    compute_rate_limit_sleep,
+    extract_retry_after_header,
 )
 
 _PROVIDER = "openai"
@@ -120,7 +125,9 @@ async def call_with_retry(
     Raises:
         AuthenticationError: Invalid API key (maps from ``openai.AuthenticationError``).
         PermissionDeniedError: Access denied (maps from ``openai.PermissionDeniedError``).
-        InvalidRequestError: Bad request (maps from ``openai.BadRequestError``).
+        InvalidRequestError: Bad request (``BadRequestError`` / ``UnprocessableEntityError``)
+            or conflict (``ConflictError`` → HTTP 409).
+        ModelNotFoundError: Missing model or resource (maps from ``openai.NotFoundError``).
         ContentFilterError: Content blocked by provider safety / content policy.
         ContextLengthError: Prompt exceeds model context or token limits.
         RateLimitError: Rate limit exceeded after max retries.
@@ -147,18 +154,21 @@ async def call_with_retry(
                     status_code=429,
                     original_error=e,
                 ) from e
-            backoff = 2**attempt
+            resp = getattr(e, "response", None)
+            ra_hdr = extract_retry_after_header(resp)
+            sleep_s, policy_meta = compute_rate_limit_sleep(attempt, ra_hdr)
             logger.warning(
-                "Rate limit hit (%s); retry %d/%d in %ds",
+                "OpenAI rate limit (%s); retry %d/%d; sleep=%.2fs; policy=%s",
                 e,
                 attempt,
                 max_retries,
-                backoff,
+                sleep_s,
+                policy_meta,
             )
             if async_mode:
-                await asyncio.sleep(backoff)
+                await asyncio.sleep(sleep_s)
             else:
-                time.sleep(backoff)
+                time.sleep(sleep_s)
 
         except openai.APIConnectionError as e:
             attempt += 1
@@ -226,6 +236,26 @@ async def call_with_retry(
                 provider=_PROVIDER,
                 message=f"Invalid request parameters: {e}",
                 status_code=status if isinstance(status, int) else 400,
+                original_error=e,
+            ) from e
+
+        except openai.NotFoundError as e:
+            logger.error("Resource not found: %s", e)
+            status = getattr(e, "status_code", None)
+            raise ModelNotFoundError.from_provider_error(
+                provider=_PROVIDER,
+                message=f"Model or resource not found: {e}",
+                status_code=status if isinstance(status, int) else 404,
+                original_error=e,
+            ) from e
+
+        except openai.ConflictError as e:
+            logger.error("Request conflict: %s", e)
+            status = getattr(e, "status_code", None)
+            raise InvalidRequestError.from_provider_error(
+                provider=_PROVIDER,
+                message=f"Request conflict: {e}",
+                status_code=status if isinstance(status, int) else 409,
                 original_error=e,
             ) from e
 

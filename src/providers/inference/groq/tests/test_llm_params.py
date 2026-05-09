@@ -10,8 +10,11 @@ def test_groq_llm_params_to_call_kwargs_only_non_none() -> None:
     assert p.to_call_kwargs() == {"parallel_tool_calls": True}
 
 
-def test_groq_llm_params_includes_base_fields() -> None:
-    p = GroqLLMParams(temperature=0.2, seed=3)
+def test_groq_llm_params_strict_not_in_call_kwargs() -> None:
+    p = GroqLLMParams(
+        strict_model_capabilities=True,
+        parallel_tool_calls=True,
+    )
     d = p.to_call_kwargs()
-    assert d["temperature"] == 0.2
-    assert d["seed"] == 3
+    assert "strict_model_capabilities" not in d
+    assert d.get("parallel_tool_calls") is True

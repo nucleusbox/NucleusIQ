@@ -186,6 +186,61 @@ async def test_temperature_from_llm_params_when_call_passes_none(
     assert captured["temperature"] == 0.33
 
 
+@pytest.mark.asyncio
+async def test_call_strict_parallel_unknown_model_raises(
+    groq_key: None,
+) -> None:
+    from nucleusiq.llms.errors import InvalidRequestError
+
+    llm = BaseGroq(
+        llm_params=GroqLLMParams(strict_model_capabilities=True),
+        async_mode=True,
+    )
+
+    async def boom(*a, **kw):
+        raise AssertionError("API should not be called when validation fails")
+
+    with patch(
+        "nucleusiq_groq.nb_groq.base.create_chat_completion",
+        new=boom,
+    ):
+        with pytest.raises(InvalidRequestError):
+            await llm.call(
+                model="unknown-parallel-model",
+                messages=[],
+                parallel_tool_calls=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_call_warns_parallel_unknown_model_when_not_strict(
+    groq_key: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    llm = BaseGroq(async_mode=True)
+
+    async def fake_create(*a, **kw):
+        return GroqLLMResponse(
+            choices=[_Choice(message=AssistantMessage(content="z", tool_calls=None))],
+            model="m",
+            response_id="r",
+        )
+
+    with patch(
+        "nucleusiq_groq.nb_groq.base.create_chat_completion",
+        new=fake_create,
+    ):
+        await llm.call(
+            model="unknown-parallel-model",
+            messages=[],
+            parallel_tool_calls=True,
+        )
+    assert "capability allowlist" in caplog.text
+
+
 def test_sync_client_initialization(groq_key: None) -> None:
     llm = BaseGroq(async_mode=False)
     assert llm.async_mode is False

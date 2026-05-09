@@ -2,7 +2,7 @@
 
 **Groq inference provider** for [NucleusIQ](https://github.com/nucleusbox/NucleusIQ): Chat Completions via Groq’s **OpenAI-compatible** API, using Groq’s official **`groq`** Python SDK (`AsyncGroq` / `Groq`).
 
-**Status:** **0.1.0a1** (alpha / pre-release). Requires **`nucleusiq>=0.7.8`**.
+**Status:** **0.1.0b1** (public **beta** / pre-release). Requires **`nucleusiq>=0.7.9`**.
 
 Design, phased roadmap (Phase A vs B), and API caveats: [`docs/design/GROQ_PROVIDER.md`](../../../../docs/design/GROQ_PROVIDER.md) (repo root).
 
@@ -69,14 +69,25 @@ asyncio.run(main())
 
 ---
 
-## Phase A (this release)
+## Phase A (this beta)
 
 - **`BaseGroq`** — `call` / `call_stream`, tool calling, structured output (`response_format` / Pydantic).
 - **`GroqLLMParams`** — typed, `extra="forbid"`; merges into provider calls.
 - **Local function tools** — OpenAI-style tool JSON; assistant `tool_calls` normalized for Groq before each request.
-- **Retries** — rate-limit and transient errors with exponential backoff; errors mapped to NucleusIQ `LLMError` types.
+- **Retries** — rate-limit and transient errors with exponential backoff; **429** + **`Retry-After`** on non-stream and **streaming open**; errors mapped to NucleusIQ `LLMError` types.
+- **Hosted tool IDs** — `nucleusiq_groq.tools.GROQ_COMPOUND_HOSTED_TOOL_IDS` / `GROQ_GPT_OSS_HOSTED_TOOL_IDS` mirror [Groq built-in docs](https://console.groq.com/docs/tool-use/built-in-tools) for reference only (**not** wired into `call` yet).
 
-**Not in Phase A:** Groq **Responses API**, **built-in/hosted tools**, **remote MCP** (see design doc Phase B).
+**Groq constraints you should respect:** per [Structured outputs](https://console.groq.com/docs/structured-outputs), **streaming** and **tool use** are not currently supported **with** Structured Outputs on the same request — use non-streaming `call` for `response_format`, or skip structured output when streaming / using tools.
+
+**Not in Phase A:** automatic pass-through for **`compound_custom`**, Groq **Responses API**, and **remote MCP** (see design doc Phase B).
+
+**Integration tests (optional):** from `src/providers/inference/groq`, with **`GROQ_API_KEY`** in the environment:
+
+```bash
+uv run pytest tests/integration -m integration
+```
+
+Default `pytest` / CI uses **`-m "not integration"`** so live calls are optional.
 
 ---
 

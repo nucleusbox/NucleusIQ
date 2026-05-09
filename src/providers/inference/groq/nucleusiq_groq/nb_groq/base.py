@@ -13,6 +13,7 @@ from nucleusiq.streaming.events import StreamEvent
 from pydantic import BaseModel
 
 from nucleusiq_groq._shared.wire import build_chat_completion_payload
+from nucleusiq_groq.capabilities import check_parallel_tool_calls_capability
 from nucleusiq_groq.llm_params import GroqLLMParams
 from nucleusiq_groq.nb_groq.chat import create_chat_completion
 from nucleusiq_groq.nb_groq.stream_adapter import stream_chat_completions
@@ -199,6 +200,18 @@ class BaseGroq(BaseLLM):
             max_output_tokens=max_output_tokens,
         )
 
+        strict_caps = (
+            self._groq_llm_params.strict_model_capabilities
+            if self._groq_llm_params is not None
+            else False
+        )
+        check_parallel_tool_calls_capability(
+            model,
+            parallel_tool_calls,
+            strict=strict_caps,
+            logger=logger,
+        )
+
         output_schema_type: type[BaseModel] | None = None
         api_response_format: dict[str, Any] | None = None
 
@@ -294,6 +307,18 @@ class BaseGroq(BaseLLM):
             max_output_tokens=max_output_tokens,
         )
 
+        strict_caps = (
+            self._groq_llm_params.strict_model_capabilities
+            if self._groq_llm_params is not None
+            else False
+        )
+        check_parallel_tool_calls_capability(
+            model,
+            parallel_tool_calls,
+            strict=strict_caps,
+            logger=logger,
+        )
+
         payload = build_chat_completion_payload(
             model=model,
             messages=messages,
@@ -316,5 +341,6 @@ class BaseGroq(BaseLLM):
             self._client,
             payload,
             async_mode=self.async_mode,
+            max_retries=self.max_retries,
         ):
             yield event

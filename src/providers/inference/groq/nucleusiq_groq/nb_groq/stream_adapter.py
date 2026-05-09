@@ -7,9 +7,35 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from nucleusiq.llms.errors import (
+    AuthenticationError,
+    ContentFilterError,
+    ContextLengthError,
+    InvalidRequestError,
+    LLMError,
+    ModelNotFoundError,
+    PermissionDeniedError,
+    ProviderConnectionError,
+    ProviderServerError,
+    RateLimitError,
+)
 from nucleusiq.streaming.events import StreamEvent
 
+from nucleusiq_groq._shared.stream_create import open_streaming_completion
+
 logger = logging.getLogger(__name__)
+
+_STREAM_OPEN_RERAISE: tuple[type[BaseException], ...] = (
+    RateLimitError,
+    AuthenticationError,
+    PermissionDeniedError,
+    ModelNotFoundError,
+    InvalidRequestError,
+    ContentFilterError,
+    ContextLengthError,
+    ProviderServerError,
+    ProviderConnectionError,
+)
 
 _STREAM_END = object()
 
@@ -126,22 +152,35 @@ async def stream_chat_completions(
     payload: dict[str, Any],
     *,
     async_mode: bool,
+    max_retries: int = 3,
 ) -> AsyncGenerator[StreamEvent, None]:
-    """Stream ``chat.completions.create`` as ``StreamEvent`` objects."""
-    payload = dict(payload)
-    payload["stream"] = True
-    payload["stream_options"] = {"include_usage": True}
+    """Stream ``chat.completions.create`` as ``StreamEvent`` objects.
 
+    Opening the stream uses the same ``call_with_retry`` policy as non-streaming
+    chat (including **429** + ``Retry-After``). Selected framework errors
+    (**auth**, **rate limit after retries**, **model missing**, etc.) **propagate**
+    to match ``call()`` semantics; other :class:`LLMError` cases (e.g. unexpected
+    SDK wrap) and bare exceptions become ``StreamEvent`` error events.
+    """
     try:
+        raw = await open_streaming_completion(
+            client,
+            payload,
+            async_mode=async_mode,
+            max_retries=max_retries,
+        )
         if async_mode:
-            raw_stream = await client.chat.completions.create(**payload)
-            async for event in _process_chat_chunks(raw_stream):
+            async for event in _process_chat_chunks(raw):
                 yield event
         else:
-            sync_stream = client.chat.completions.create(**payload)
-            async_stream = _sync_iter_to_async(sync_stream)
+            async_stream = _sync_iter_to_async(raw)
             async for event in _process_chat_chunks(async_stream):
                 yield event
+    except _STREAM_OPEN_RERAISE:
+        raise
+    except LLMError as exc:
+        logger.error("Groq stream error: %s", exc, exc_info=True)
+        yield StreamEvent.error_event(str(exc))
     except Exception as exc:
         logger.error("Groq stream error: %s", exc, exc_info=True)
         yield StreamEvent.error_event(str(exc))
