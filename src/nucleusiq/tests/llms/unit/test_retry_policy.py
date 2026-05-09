@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
-import httpx
 import pytest
 from nucleusiq.llms.retry_policy import (
     compute_rate_limit_sleep,
@@ -18,9 +18,9 @@ def test_extract_retry_after_header_missing() -> None:
     assert extract_retry_after_header(object()) is None
 
 
-def test_extract_retry_after_from_httpx_response() -> None:
-    req = httpx.Request("GET", "https://api.example.com")
-    resp = httpx.Response(429, headers={"retry-after": "7"}, request=req)
+def test_extract_retry_after_from_response_like_httpx() -> None:
+    """SDK responses expose ``.headers`` (e.g. httpx); core tests avoid an httpx dep."""
+    resp = SimpleNamespace(headers={"retry-after": "7"})
     assert extract_retry_after_header(resp) == "7"
 
 

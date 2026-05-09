@@ -8,7 +8,6 @@ import httpx
 import openai
 import pytest
 from nucleusiq.llms.errors import InvalidRequestError, ModelNotFoundError
-
 from nucleusiq_openai._shared.retry import call_with_retry
 
 
