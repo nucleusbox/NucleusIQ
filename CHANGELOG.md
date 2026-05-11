@@ -15,7 +15,16 @@ _(Nothing unreleased — edit here when starting the next line.)_
 
 ## [0.7.10](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.10) — 2026-05-09
 
+### Security
+
+- **`urllib3`** (transitive **pip** / **`uv.lock`** graphs) — monorepo lockfiles refreshed so resolved **`urllib3`** is **≥2.7.0**, mitigating **[GHSA-mf9v-mfxr-j63j]** (streaming decompression) and **[GHSA-qccp-gfcp-xxvc]** (sensitive headers on proxied low-level redirects) for versions **before 2.7.0**.
+- **`nucleusiq` default install** — **`requests`** and a direct **`urllib3`** pin removed from **`[project.dependencies]`** (the framework does not import **`requests`**). Optional **`nucleusiq[http]`** installs **`requests>=2.33.0,<3.0`** and **`urllib3>=2.7.0`** for notebooks and apps that still need those stacks. **`uv.lock`** for **`nucleusiq`** may still list **`requests` / `urllib3`** for the **dev** graph (e.g. **`nucleusiq-openai`** in **test** deps).
+
 ### Added
+
+#### Core optional extras
+
+- **`nucleusiq[http]`** — optional **`requests`** and **`urllib3>=2.7.0`** (see **Security** above).
 
 #### Ollama provider — `nucleusiq-ollama` **0.1.0a1** (alpha)
 
@@ -33,11 +42,15 @@ New installable inference provider for **[Ollama](https://ollama.com/)** (local 
 - **`nucleusiq.core.__version__`** — **0.7.10** (aligned with **`pyproject.toml`**).
 - **`nucleusiq.agents.structured_output.resolver`** — **`get_provider_from_llm`** returns **`"ollama"`** / **`"groq"`** for correct **`OutputSchema.for_provider()`** payloads with **Agent** structured output; removed stale **`NATIVE_SUPPORT`** table; **`supports_native_output()`** now uses **provider-aware** rules (trust **Groq** / **Ollama** adapters when provider is known; coarse GPT / Claude / Gemini name shapes when unknown); **`_auto_select_mode`** documents that **`OutputMode.AUTO`** maps **model_name set → NATIVE** (no prompt of the prefix table).
 
+#### Monorepo / tooling
+
+- **`uv.lock`** files refreshed across **`nucleusiq`** and provider packages; redundant **`[tool.uv] constraint-dependencies`** for **`urllib3`** dropped where resolution already yields **`urllib3` ≥2.7.0** (install-time dependencies remain **`pyproject.toml`** **`Requires-Dist`**, not lockfiles).
+
 ### Packages
 
 | Package | Version | Note |
 | --- | --- | --- |
-| `nucleusiq` | **0.7.10** | Structured output resolver; pairs with Ollama alpha |
+| `nucleusiq` | **0.7.10** | **Security:** trimmed default deps + patched **`urllib3`** in locks; optional **`[http]`**; structured-output resolver; pairs with Ollama alpha |
 | `nucleusiq-ollama` | **0.1.0a1** α | Alpha; **`nucleusiq>=0.7.10`** |
 
 Existing **`nucleusiq-openai`**, **`nucleusiq-gemini`**, **`nucleusiq-groq`** wheels remain on **`nucleusiq>=0.7.9`** unless republished with a raised floor; **`nucleusiq-ollama`** requires **0.7.10** for the resolver fixes above.
