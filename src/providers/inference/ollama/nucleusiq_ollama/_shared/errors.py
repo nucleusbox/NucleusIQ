@@ -6,6 +6,7 @@ from typing import Any
 
 from nucleusiq.llms.errors import (
     InvalidRequestError,
+    LLMError,
     ModelNotFoundError,
     ProviderConnectionError,
     ProviderError,
@@ -14,7 +15,7 @@ from nucleusiq.llms.errors import (
 from ollama import ResponseError
 
 
-def map_ollama_response_error(exc: ResponseError) -> ProviderError:
+def map_ollama_response_error(exc: ResponseError) -> LLMError:
     """Translate an ``ollama.ResponseError`` into a framework ``LLMError``."""
     code = getattr(exc, "status_code", None) or 0
     msg = str(getattr(exc, "error", None) or exc)
