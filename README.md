@@ -46,8 +46,8 @@ pip install nucleusiq nucleusiq-gemini
 # Or with Groq provider (beta; see provider README in-repo)
 pip install nucleusiq nucleusiq-groq
 
-# Or with Ollama (local LLMs; alpha on PyPI once published)
-pip install nucleusiq nucleusiq-ollama
+# Or with Ollama (alpha `nucleusiq-ollama` 0.1.0a1; use core **≥0.7.10** for structured output)
+pip install "nucleusiq>=0.7.10" nucleusiq-ollama
 
 # Or with uv
 uv pip install nucleusiq nucleusiq-openai
@@ -125,7 +125,7 @@ See the [PE Due Diligence notebook](notebooks/agents/pe_due_diligence.ipynb) for
 | [`nucleusiq-openai`](https://pypi.org/project/nucleusiq-openai/) | OpenAI provider | `pip install nucleusiq-openai` |
 | [`nucleusiq-gemini`](https://pypi.org/project/nucleusiq-gemini/) | Google Gemini provider | `pip install nucleusiq-gemini` |
 | [`nucleusiq-groq`](https://pypi.org/project/nucleusiq-groq/) | Groq inference (**beta** `0.1.0b1`; Chat Completions via official `groq` SDK) | `pip install nucleusiq-groq` · [README](src/providers/inference/groq/README.md) · [Design](docs/design/GROQ_PROVIDER.md) |
-| [`nucleusiq-ollama`](https://pypi.org/project/nucleusiq-ollama/) | Ollama inference (**alpha** `0.1.0a1`; local/remote via official `ollama` SDK) | `pip install nucleusiq-ollama` · [README](src/providers/inference/ollama/README.md) · [Design](docs/design/OLLAMA_PROVIDER.md) |
+| [`nucleusiq-ollama`](https://pypi.org/project/nucleusiq-ollama/) | Ollama inference (**alpha** `0.1.0a1`; local/remote via official `ollama` SDK; requires **`nucleusiq>=0.7.10`**) | `pip install nucleusiq-ollama` · [README](src/providers/inference/ollama/README.md) · [Design](docs/design/OLLAMA_PROVIDER.md) |
 
 ## Project Structure
 

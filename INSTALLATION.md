@@ -115,7 +115,7 @@ NucleusIQ is a monorepo with independently installable packages:
 nucleusiq                  # Core framework (agents, prompts, tools, memory, plugins)
   ├── nucleusiq-openai     # OpenAI provider (depends on nucleusiq)
   ├── nucleusiq-gemini     # Google Gemini (planned)
-  ├── nucleusiq-ollama     # Ollama local LLMs (planned)
+  ├── nucleusiq-ollama     # Ollama (**alpha** `nucleusiq-ollama`; local/remote via official ollama SDK; requires nucleusiq>=0.7.10)
   ├── nucleusiq-groq       # Groq inference (planned)
   ├── nucleusiq-pinecone   # Pinecone vector DB (planned)
   └── nucleusiq-chroma     # ChromaDB vector DB (planned)

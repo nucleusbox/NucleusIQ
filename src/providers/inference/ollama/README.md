@@ -4,6 +4,8 @@ Alpha provider for running **NucleusIQ** agents against [Ollama](https://docs.ol
 
 ## Install
 
+**Alpha** on PyPI (**`0.1.0a1`**). Requires **`nucleusiq>=0.7.10`** (pulled in automatically by `pip`).
+
 ```bash
 pip install nucleusiq-ollama
 ```
