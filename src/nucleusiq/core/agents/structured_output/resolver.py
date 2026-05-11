@@ -2,7 +2,8 @@
 """
 Resolver for NucleusIQ Structured Output.
 
-Handles automatic mode selection based on model capabilities.
+Resolves ``OutputMode.AUTO``, builds provider hints for ``OutputSchema.for_provider``,
+and exposes optional model-prefix helpers (:func:`supports_native_output`).
 """
 
 from __future__ import annotations
@@ -13,36 +14,50 @@ from .config import OutputSchema
 from .errors import StructuredOutputError
 from .types import OutputMode
 
-# Models known to support native structured output
-NATIVE_SUPPORT = {
-    "openai": ["gpt-4o", "gpt-4-turbo", "gpt-5", "o1", "o3"],
-    "anthropic": ["claude-3", "claude-4"],
-    "google": ["gemini"],
-    "xai": ["grok"],
-}
-
 
 def supports_native_output(model_name: str, provider: str | None = None) -> bool:
     """
-    Check if a model supports native structured output.
+    Best-effort hint whether *native* structured output is plausible for this pair.
 
-    Args:
-        model_name: Model name/identifier
-        provider: Provider name (optional, for optimization)
+    There is **no** maintainable global model ID list (OpenAI, Google, Groq, and
+    Ollama add or rename models often). Strategy:
 
-    Returns:
-        True if model supports native structured output
+    * If *provider* is set (as from :func:`get_provider_from_llm`), use
+      **provider-specific** rules: Groq and Ollama NucleusIQ adapters always wire
+      ``response_format`` into the vendor API where supported; OpenAI / Anthropic /
+      Google use coarse **name shape** checks so we do not claim e.g. ``gpt-4o`` on
+      an Anthropic-backed stack.
+    * If *provider* is unknown, use only **weak** name substrings (GPT, Claude,
+      Gemini) — custom or local models return ``False``.
+
+    This does **not** drive :func:`_auto_select_mode`; see that function for
+    ``OutputMode.AUTO`` behavior.
     """
-    model_lower = model_name.lower()
+    m = (model_name or "").strip().lower()
+    if not m:
+        return False
 
-    # Check all known providers
-    for prov, prefixes in NATIVE_SUPPORT.items():
-        if provider and prov != provider.lower():
-            continue
-        for prefix in prefixes:
-            if model_lower.startswith(prefix):
-                return True
+    if provider:
+        p = provider.lower()
+        if p == "openai":
+            return m.startswith(
+                ("gpt-3", "gpt-4", "gpt-5", "o1", "o3", "o4", "chatgpt")
+            )
+        if p == "anthropic":
+            return m.startswith("claude")
+        if p == "google":
+            return "gemini" in m or m.startswith("gemini")
+        if p in ("groq", "ollama"):
+            # Adapters map Agent response_format to vendor structured output;
+            # model-level eligibility is enforced by the API, not this helper.
+            return True
 
+    if m.startswith(("gpt-3", "gpt-4", "gpt-5", "o1", "o3", "o4")):
+        return True
+    if m.startswith("claude"):
+        return True
+    if "gemini" in m:
+        return True
     return False
 
 
@@ -114,23 +129,19 @@ def _auto_select_mode(
     provider: str | None = None,
 ) -> OutputMode:
     """
-    Auto-select the best output mode based on model capabilities.
+    Resolve ``OutputMode.AUTO`` to a concrete mode.
 
-    Priority:
-    1. NATIVE if model supports it (most reliable)
-    2. TOOL if model supports tool calling
-    3. PROMPT as fallback (works with any model)
+    Today: any configured ``model_name`` maps to **NATIVE** (all first-party LLM
+    adapters wire ``response_format`` / provider ``format``). Without a model
+    name, fall back to **PROMPT**.
+
+    ``supports_native_output`` is **not** used here; see that function’s docstring.
+    It is a separate hint for tests or out-of-band callers.
     """
-    if model_name and supports_native_output(model_name, provider):
-        return OutputMode.NATIVE
-
-    # TODO: Check if model supports tool calling
-    # For now, assume it does if we have a model name
-    if model_name:
-        return OutputMode.NATIVE  # Most modern models support this
-
-    # Fallback to prompt-based extraction
-    return OutputMode.PROMPT
+    _ = provider  # Reserved for future capability-aware AUTO (TOOL/PROMPT).
+    if not model_name:
+        return OutputMode.PROMPT
+    return OutputMode.NATIVE
 
 
 def get_provider_from_llm(llm: Any) -> str | None:
@@ -154,5 +165,9 @@ def get_provider_from_llm(llm: Any) -> str | None:
         return "anthropic"
     if "google" in class_name or "gemini" in class_name:
         return "google"
+    if "ollama" in class_name:
+        return "ollama"
+    if "groq" in class_name:
+        return "groq"
 
     return None

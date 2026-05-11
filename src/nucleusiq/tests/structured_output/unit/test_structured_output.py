@@ -253,6 +253,14 @@ class TestSupportsNativeOutput:
         assert supports_native_output("gpt-4o", provider="openai") is True
         assert supports_native_output("gpt-4o", provider="anthropic") is False
 
+    def test_groq_adapter_trusted_when_provider_known(self):
+        assert (
+            supports_native_output("llama-3.3-70b-versatile", provider="groq") is True
+        )
+
+    def test_ollama_adapter_trusted_when_provider_known(self):
+        assert supports_native_output("qwen2.5:latest", provider="ollama") is True
+
 
 class TestResolveOutputConfig:
     def test_none(self):
@@ -324,6 +332,18 @@ class TestGetProviderFromLLM:
             pass
 
         assert get_provider_from_llm(FakeGoogleLLM()) == "google"
+
+    def test_ollama(self):
+        class FakeBaseOllama:
+            pass
+
+        assert get_provider_from_llm(FakeBaseOllama()) == "ollama"
+
+    def test_groq(self):
+        class FakeBaseGroq:
+            pass
+
+        assert get_provider_from_llm(FakeBaseGroq()) == "groq"
 
     def test_unknown(self):
         class FakeLlamaCpp:

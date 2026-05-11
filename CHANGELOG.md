@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## Unreleased
+
+_(Nothing unreleased — edit here when starting the next line.)_
+
+---
+
+## [0.7.10](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.10) — 2026-05-09
+
+### Added
+
+#### Ollama provider — `nucleusiq-ollama` **0.1.0a1** (alpha)
+
+New installable inference provider for **[Ollama](https://ollama.com/)** (local daemon or hosted API) using the official **`ollama`** Python SDK (**no LangChain**). Layout: `src/providers/inference/ollama/`, import **`nucleusiq_ollama`**, PyPI **`nucleusiq-ollama`**. Requires **`nucleusiq>=0.7.10`**, **`ollama>=0.5.0,<1.0`**.
+
+- **`BaseOllama`** — **`call()`**, **`call_stream()`** → **`StreamEvent`**; wire, retries, **`OllamaLLMParams`** (**`think`**, **`keep_alive`**), structured **`format`**, function tools, env **`OLLAMA_HOST`** / **`OLLAMA_API_KEY`**.
+- **Tests** — **≥95%** gate; **100%** line coverage on package in CI; **`integration`** marker for optional live daemon.
+- **Examples** — `examples/agents/` (**`00`–`03`** capability matrix: chat, stream, structured, thinking × **DIRECT / STANDARD / AUTONOMOUS**). **`docs/design/OLLAMA_PROVIDER.md`**, provider **`README.md`**.
+- **`scripts/verify_core_package_layout.py`** — **`nucleusiq-ollama`** in Hatch **`HATCH_PROVIDERS`**.
+
+### Changed
+
+#### Core
+
+- **`nucleusiq.core.__version__`** — **0.7.10** (aligned with **`pyproject.toml`**).
+- **`nucleusiq.agents.structured_output.resolver`** — **`get_provider_from_llm`** returns **`"ollama"`** / **`"groq"`** for correct **`OutputSchema.for_provider()`** payloads with **Agent** structured output; removed stale **`NATIVE_SUPPORT`** table; **`supports_native_output()`** now uses **provider-aware** rules (trust **Groq** / **Ollama** adapters when provider is known; coarse GPT / Claude / Gemini name shapes when unknown); **`_auto_select_mode`** documents that **`OutputMode.AUTO`** maps **model_name set → NATIVE** (no prompt of the prefix table).
+
+### Packages
+
+| Package | Version | Note |
+| --- | --- | --- |
+| `nucleusiq` | **0.7.10** | Structured output resolver; pairs with Ollama alpha |
+| `nucleusiq-ollama` | **0.1.0a1** α | Alpha; **`nucleusiq>=0.7.10`** |
+
+Existing **`nucleusiq-openai`**, **`nucleusiq-gemini`**, **`nucleusiq-groq`** wheels remain on **`nucleusiq>=0.7.9`** unless republished with a raised floor; **`nucleusiq-ollama`** requires **0.7.10** for the resolver fixes above.
+
+---
+
 ## [0.7.9](https://github.com/nucleusbox/NucleusIQ/releases/tag/v0.7.9) — 2026-05-07
 
 ### Added

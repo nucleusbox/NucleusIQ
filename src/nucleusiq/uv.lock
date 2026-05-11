@@ -450,7 +450,7 @@ wheels = [
 
 [[package]]
 name = "nucleusiq"
-version = "0.7.9"
+version = "0.7.10"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
@@ -533,7 +533,7 @@ test = [
 
 [[package]]
 name = "nucleusiq-openai"
-version = "0.6.3"
+version = "0.6.4"
 source = { editable = "../providers/llms/openai" }
 dependencies = [
     { name = "nucleusiq" },

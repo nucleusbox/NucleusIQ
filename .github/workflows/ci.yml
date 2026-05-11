@@ -204,6 +204,55 @@ jobs:
           name: coverage-groq
           path: src/providers/inference/groq/coverage.xml
 
+  # ── Ollama provider tests ──────────────────────────────────────────
+  test-ollama:
+    name: "Ollama (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    defaults:
+      run:
+        working-directory: src/providers/inference/ollama
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: pip-ollama-${{ matrix.python-version }}-${{ hashFiles('src/providers/inference/ollama/pyproject.toml') }}
+          restore-keys: pip-ollama-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ../../../nucleusiq
+          pip install -e "."
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ -q --tb=short \
+            --override-ini="addopts=" \
+            -m "not integration" \
+            --cov=nucleusiq_ollama --cov-report=xml:coverage.xml \
+            --cov-fail-under=95
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-ollama
+          path: src/providers/inference/ollama/coverage.xml
+
   # ── uv install verification ────────────────────────────────────────
   test-uv:
     name: "uv install check"
@@ -237,6 +286,13 @@ jobs:
 
       - name: Groq — uv sync + test
         working-directory: src/providers/inference/groq
+        run: |
+          uv venv
+          uv sync --group dev
+          uv run pytest tests/ -q --tb=short -x
+
+      - name: Ollama — uv sync + test
+        working-directory: src/providers/inference/ollama
         run: |
           uv venv
           uv sync --group dev
@@ -284,6 +340,7 @@ jobs:
           pip install -e src/providers/llms/openai --config-settings editable_mode=strict
           pip install -e src/providers/llms/gemini --config-settings editable_mode=strict
           pip install -e src/providers/inference/groq --config-settings editable_mode=strict
+          pip install -e src/providers/inference/ollama --config-settings editable_mode=strict
 
       - name: "Pyrefly: Core"
         working-directory: src/nucleusiq
@@ -299,6 +356,10 @@ jobs:
 
       - name: "Pyrefly: Groq provider"
         working-directory: src/providers/inference/groq
+        run: pyrefly check --output-format=github
+
+      - name: "Pyrefly: Ollama provider"
+        working-directory: src/providers/inference/ollama
         run: pyrefly check --output-format=github
 
   # ── Import check — verify all public exports work ──────────────────
@@ -322,6 +383,7 @@ jobs:
           pip install -e src/providers/llms/openai
           pip install -e src/providers/llms/gemini
           pip install -e src/providers/inference/groq
+          pip install -e src/providers/inference/ollama
 
       - name: Verify core imports
         run: |
@@ -371,6 +433,13 @@ jobs:
           print('All Groq imports OK')
           "
 
+      - name: Verify Ollama imports
+        run: |
+          python -c "
+          from nucleusiq_ollama import BaseOllama, OllamaLLMParams, ThinkLevel
+          print('All Ollama imports OK')
+          "
+
   # ── Security — check for vulnerabilities ────────────────────────────
   security:
     name: Security scan
@@ -386,14 +455,14 @@ jobs:
       - name: Check dependencies for vulnerabilities
         run: |
           pip install pip-audit
-          pip install -e src/nucleusiq -e src/providers/llms/openai -e src/providers/llms/gemini -e src/providers/inference/groq
+          pip install -e src/nucleusiq -e src/providers/llms/openai -e src/providers/llms/gemini -e src/providers/inference/groq -e src/providers/inference/ollama
           pip-audit || true
 
   # ── Build verification ──────────────────────────────────────────────
   build:
     name: "Build ${{ matrix.package }}"
     runs-on: ubuntu-latest
-    needs: [test-core, test-openai, test-gemini, test-groq, lint, type-check, import-check]
+    needs: [test-core, test-openai, test-gemini, test-groq, test-ollama, lint, type-check, import-check]
     strategy:
       matrix:
         include:
@@ -405,6 +474,8 @@ jobs:
             path: src/providers/llms/gemini
           - package: nucleusiq-groq
             path: src/providers/inference/groq
+          - package: nucleusiq-ollama
+            path: src/providers/inference/ollama
 
     steps:
       - uses: actions/checkout@v6

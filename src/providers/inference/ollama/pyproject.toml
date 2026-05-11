@@ -4,14 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nucleusiq-ollama"
-version = "0.1.0"
-description = "Ollama provider for the NucleusIQ AI agent framework. Run local LLMs with NucleusIQ."
+version = "0.1.0a1"
+description = "Ollama inference provider for the NucleusIQ AI agent framework (official ollama Python SDK)."
+readme = "README.md"
 requires-python = ">=3.10,<4.0"
 license = { text = "MIT" }
 authors = [{ name = "Nucleusbox", email = "info@nucleusbox.com" }]
 keywords = ["AI", "agents", "ollama", "local-llm", "nucleusiq"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -24,8 +25,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "nucleusiq>=0.1.0",
-    "ollama>=0.1.0",
+    "nucleusiq>=0.7.10",
+    "ollama>=0.5.0,<1.0",
 ]
 
 [project.urls]
@@ -37,6 +38,7 @@ Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
 test = [
     "pytest>=8.0,<10.0",
     "pytest-asyncio>=0.23,<2.0",
+    "pytest-cov>=4.0,<8.0",
 ]
 dev = [{ include-group = "test" }]
 
@@ -46,6 +48,33 @@ nucleusiq = { path = "../../../nucleusiq", editable = true }
 [tool.hatch.build.targets.wheel]
 packages = ["nucleusiq_ollama"]
 
+[tool.pyrefly]
+python-version = "3.10"
+project-includes = ["nucleusiq_ollama/"]
+project-excludes = ["tests/", "examples/", "build/"]
+ignore-missing-imports = ["nucleusiq.*", "ollama.*", "httpx.*", "pydantic.*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: live Ollama daemon (skipped if unreachable)",
+]
+addopts = [
+    "--cov=nucleusiq_ollama",
+    "--cov-report=term-missing",
+    "--cov-fail-under=95",
+    "-m",
+    "not integration",
+]
