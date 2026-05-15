@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nucleusiq-anthropic"
+version = "0.1.0a1"
+description = "Anthropic Claude provider for the NucleusIQ AI agent framework (Messages API, tools, streaming)."
+requires-python = ">=3.10,<4.0"
+license = { text = "MIT" }
+authors = [{ name = "Nucleusbox", email = "info@nucleusbox.com" }]
+keywords = ["AI", "agents", "anthropic", "claude", "nucleusiq"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "nucleusiq>=0.7.10",
+    "anthropic>=0.40,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/nucleusbox/NucleusIQ"
+Repository = "https://github.com/nucleusbox/NucleusIQ"
+Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
+
+[dependency-groups]
+test = [
+    "pytest>=8.0,<10.0",
+    "pytest-asyncio>=0.23,<2.0",
+    "pytest-cov>=4.0,<8.0",
+    "pytest-mock>=3.10,<4.0",
+]
+lint = ["ruff>=0.4,<1.0", "pyrefly>=0.33,<1"]
+dev = [{ include-group = "test" }, { include-group = "lint" }]
+examples = ["python-dotenv>=1.0,<2"]
+full = [{ include-group = "dev" }, { include-group = "examples" }]
+
+[tool.uv.sources]
+nucleusiq = { path = "../../../nucleusiq", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["nucleusiq_anthropic"]
+
+[tool.pyrefly]
+python-version = "3.10"
+project-includes = ["nucleusiq_anthropic/"]
+project-excludes = ["tests/", "examples/", "build/"]
+ignore-missing-imports = ["nucleusiq.*", "anthropic.*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config -vv"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests requiring live ANTHROPIC_API_KEY",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+omit = ["tests/*", "examples/*"]
+
+[tool.coverage.report]
+fail_under = 95

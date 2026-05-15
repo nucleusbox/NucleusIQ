@@ -155,6 +155,54 @@ jobs:
           name: coverage-gemini
           path: src/providers/llms/gemini/coverage.xml
 
+  # ── Anthropic provider tests ───────────────────────────────────────
+  test-anthropic:
+    name: "Anthropic (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    defaults:
+      run:
+        working-directory: src/providers/llms/anthropic
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: pip-anthropic-${{ matrix.python-version }}-${{ hashFiles('src/providers/llms/anthropic/pyproject.toml') }}
+          restore-keys: pip-anthropic-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ../../../nucleusiq
+          pip install -e "."
+          pip install pytest pytest-asyncio pytest-cov pytest-mock
+
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ -q --tb=short \
+            --override-ini="addopts=" \
+            --cov=nucleusiq_anthropic --cov-report=xml:coverage.xml \
+            --cov-fail-under=95
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-anthropic
+          path: src/providers/llms/anthropic/coverage.xml
+
   # ── Groq provider tests ───────────────────────────────────────────
   test-groq:
     name: "Groq (Python ${{ matrix.python-version }})"
@@ -284,6 +332,13 @@ jobs:
           uv sync --all-groups
           uv run pytest tests/unit/ -q --tb=short -x --override-ini="addopts="
 
+      - name: Anthropic — uv sync + test
+        working-directory: src/providers/llms/anthropic
+        run: |
+          uv venv
+          uv sync --group full
+          uv run pytest tests/ -q --tb=short -x --override-ini="addopts="
+
       - name: Groq — uv sync + test
         working-directory: src/providers/inference/groq
         run: |
@@ -339,6 +394,7 @@ jobs:
           pip install -e src/nucleusiq --config-settings editable_mode=strict
           pip install -e src/providers/llms/openai --config-settings editable_mode=strict
           pip install -e src/providers/llms/gemini --config-settings editable_mode=strict
+          pip install -e src/providers/llms/anthropic --config-settings editable_mode=strict
           pip install -e src/providers/inference/groq --config-settings editable_mode=strict
           pip install -e src/providers/inference/ollama --config-settings editable_mode=strict
 
@@ -352,6 +408,10 @@ jobs:
 
       - name: "Pyrefly: Gemini provider"
         working-directory: src/providers/llms/gemini
+        run: pyrefly check --output-format=github
+
+      - name: "Pyrefly: Anthropic provider"
+        working-directory: src/providers/llms/anthropic
         run: pyrefly check --output-format=github
 
       - name: "Pyrefly: Groq provider"
@@ -382,6 +442,7 @@ jobs:
           pip install -e src/nucleusiq
           pip install -e src/providers/llms/openai
           pip install -e src/providers/llms/gemini
+          pip install -e src/providers/llms/anthropic
           pip install -e src/providers/inference/groq
           pip install -e src/providers/inference/ollama
 
@@ -426,6 +487,20 @@ jobs:
           print('All Gemini imports OK')
           "
 
+      - name: Verify Anthropic imports
+        run: |
+          python -c "
+          from nucleusiq_anthropic import (
+              BaseAnthropic,
+              AnthropicLLMParams,
+              NATIVE_TOOL_TYPES,
+              to_anthropic_tool_definition,
+              build_anthropic_output_config,
+              parse_anthropic_response,
+          )
+          print('All Anthropic imports OK')
+          "
+
       - name: Verify Groq imports
         run: |
           python -c "
@@ -455,14 +530,14 @@ jobs:
       - name: Check dependencies for vulnerabilities
         run: |
           pip install pip-audit
-          pip install -e src/nucleusiq -e src/providers/llms/openai -e src/providers/llms/gemini -e src/providers/inference/groq -e src/providers/inference/ollama
+          pip install -e src/nucleusiq -e src/providers/llms/openai -e src/providers/llms/gemini -e src/providers/llms/anthropic -e src/providers/inference/groq -e src/providers/inference/ollama
           pip-audit || true
 
   # ── Build verification ──────────────────────────────────────────────
   build:
     name: "Build ${{ matrix.package }}"
     runs-on: ubuntu-latest
-    needs: [test-core, test-openai, test-gemini, test-groq, test-ollama, lint, type-check, import-check]
+    needs: [test-core, test-openai, test-gemini, test-anthropic, test-groq, test-ollama, lint, type-check, import-check]
     strategy:
       matrix:
         include:
@@ -472,6 +547,8 @@ jobs:
             path: src/providers/llms/openai
           - package: nucleusiq-gemini
             path: src/providers/llms/gemini
+          - package: nucleusiq-anthropic
+            path: src/providers/llms/anthropic
           - package: nucleusiq-groq
             path: src/providers/inference/groq
           - package: nucleusiq-ollama

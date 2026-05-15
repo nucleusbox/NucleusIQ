@@ -9,7 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-_(Nothing unreleased — edit here when starting the next line.)_
+### Added
+
+#### Anthropic provider — `nucleusiq-anthropic` **0.1.0a1** (alpha)
+
+Installable Claude provider (**Messages API**) at `src/providers/llms/anthropic`, import **`nucleusiq_anthropic`**, PyPI **`nucleusiq-anthropic`**. Requires **`nucleusiq>=0.7.10`**, **`anthropic>=0.40,<1`**.
+
+- **`BaseAnthropic`** — **`call()`**, **`call_stream()`**; **`AnthropicLLMParams`** (beta headers, **`top_k`**); tool specs via **`to_anthropic_tool_definition`**; merges **`LLMParams`** from agents. **`response_format`** maps to Messages **`output_config.format`** (**JSON Schema** structured outputs) and returns validated Pydantic/dataclass instances when a schema type is supplied (drops structured output when **tools** are present; **`call_stream`** ignores **`response_format`** with a warning). Omits **`top_p`** when **`temperature`** is set so newer Claude models avoid **400** mutual-exclusion errors; **`build_create_kwargs`** drops **`top_p`** if both still appear after extras.
+- **`nucleusiq_anthropic.structured_output`** — **`build_anthropic_output_config`**, **`parse_anthropic_response`** (parity with **`nucleusiq_openai` / `nucleusiq_gemini`** layouts); re-exported from **`nucleusiq_anthropic`**.
+- **Errors / retries** — SDK exceptions mapped to **`nucleusiq.llms.errors`** (auth, rate limit, model not found, invalid request, content filter, context length, server/connection); **`call_with_retry`** with **`Retry-After`** + exponential backoff (shared **`retry_policy`**).
+- **Tests** — **100+** unit tests; **`--cov-fail-under=95`** in CI; line coverage **~97%** on `nucleusiq_anthropic` locally.
+- **Examples** — `examples/agents/` (**01**–**09**): DIRECT / STANDARD / AUTONOMOUS, tools, streaming, execution modes, raw LLM stream, offline tool-schema dump, **Models API** list helper for **`ANTHROPIC_MODEL`**. **`examples/output_parsers/anthropic_native_structured_example.py`** — Agent + native structured JSON (OpenAI **`output_parsers`** layout parity). See **`docs/design/ANTHROPIC_PROVIDER.md`**, **`examples/README.md`**.
+
+#### CI / monorepo
+
+- **`test-anthropic`**, **`import-check`** (**`build_anthropic_output_config`**, **`parse_anthropic_response`** + core exports), **`type-check`** (Pyrefly), **`build`** (**`nucleusiq-anthropic`** wheel), **`test-uv`** (Anthropic path), **`publish.yml`** — **`nucleusiq-anthropic`** included alongside other Hatch providers.
 
 ---
 
