@@ -40,7 +40,7 @@ test = [
     "pytest-cov>=4.0,<8.0",
     "pytest-mock>=3.10,<4.0",
 ]
-lint = ["ruff>=0.4,<1.0", "pyrefly>=0.33,<1"]
+lint = ["ruff>=0.4,<1.0", "pyrefly>=0.33,<2"]
 dev = [{ include-group = "test" }, { include-group = "lint" }]
 examples = ["python-dotenv>=1.0,<2"]
 full = [{ include-group = "dev" }, { include-group = "examples" }]
