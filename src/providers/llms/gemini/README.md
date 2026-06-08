@@ -59,9 +59,12 @@ async def main():
         llm_params=GeminiLLMParams(temperature=0.5, max_output_tokens=1024),
     )
     agent = Agent(
-        llm=llm, config=config,
-        name="my-agent", model="gemini-2.5-flash",
-        instructions="You are a helpful assistant.",
+        name="gemini-assistant",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful AI assistant powered by Google Gemini.",
+        ),
+        llm=llm,
+        config=config,
     )
     result = await agent.execute("Explain quantum computing simply.")
     print(result.content)
@@ -80,8 +83,21 @@ Single LLM call. Best for Q&A, classification, summarization.
 ```python
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
 
-config = AgentConfig(execution_mode=ExecutionMode.DIRECT)
-agent = Agent(llm=llm, config=config, model="gemini-2.5-flash", ...)
+config = AgentConfig(
+        execution_mode=ExecutionMode.DIRECT,
+        llm_params=GeminiLLMParams(
+            temperature=0.3,
+            max_output_tokens=512,
+        ),
+    )
+agent = Agent(
+        name="gemini-direct",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a concise assistant. Answer in 2-3 sentences.",
+        ),
+        llm=llm,
+        config=config,
+    )
 result = await agent.execute("What is the capital of France?")
 ```
 
@@ -97,8 +113,25 @@ def get_weather(city: str) -> str:
     """Get weather for a city."""
     return "22°C, Sunny"
 
-config = AgentConfig(execution_mode=ExecutionMode.STANDARD)
-agent = Agent(llm=llm, config=config, tools=[get_weather], ...)
+config = AgentConfig(
+        execution_mode=ExecutionMode.STANDARD,
+        llm_params=GeminiLLMParams(
+            temperature=0.5,
+            max_output_tokens=1024,
+        ),
+    )
+agent = Agent(
+        name="gemini-standard",
+        prompt=ZeroShotPrompt().configure(
+            system=(
+                "You are a helpful travel assistant. Use available tools to "
+                "gather real data before answering questions."
+            ),
+        ),
+        llm=llm,
+        config=config,
+        tools=[get_weather],
+    )
 result = await agent.execute("What's the weather in Paris?")
 ```
 
@@ -112,7 +145,8 @@ config = AgentConfig(
     require_quality_check=True,
     max_iterations=5,
 )
-agent = Agent(llm=llm, config=config, tools=[...], ...)
+agent = Agent(name=... , prompt=ZeroShotPrompt().configure(
+            system=()),llm=llm, config=config, tools=[...], ...)
 result = await agent.execute("Compare Python and Rust for AI applications.")
 ```
 
@@ -136,7 +170,8 @@ url_ctx = GeminiTool.url_context()
 maps = GeminiTool.google_maps()
 
 # Use with an agent
-agent = Agent(llm=llm, config=config, tools=[search, code], ...)
+agent = Agent(name=... , prompt=ZeroShotPrompt().configure(
+            system=()),llm=llm, config=config, tools=[search, code], ...)
 ```
 
 Or use directly with the LLM:
@@ -169,7 +204,7 @@ def calculate(expression: str) -> str:
     return str(eval(expression))
 
 agent = Agent(
-    llm=llm, config=config,
+    llm=llm,  prompt = ZeroShotPrompt().configure , config=config,
     tools=[file_reader, file_search, calculate],
     ...
 )
@@ -235,10 +270,10 @@ async for event in llm.call_stream(
     messages=[{"role": "user", "content": "Write a poem"}],
     max_output_tokens=512,
 ):
-    if event.type.value == "token":
-        print(event.delta, end="", flush=True)
-    elif event.type.value == "complete":
-        print(f"\n\nTotal tokens: {event.metadata.get('usage', {})}")
+    if event.type == "token":
+        print(event.token, end="", flush=True)
+    elif event.type == "complete":
+        print(f"\n\nStream complete. Total tokens: {event.metadata.get('usage', {})}")
 ```
 
 ## Gemini-Specific Parameters
@@ -274,7 +309,7 @@ from nucleusiq.agents.usage.pricing import CostTracker
 # After agent execution
 usage = agent.last_usage
 tracker = CostTracker()
-cost = tracker.estimate(usage, model="gemini-2.5-flash")
+cost = tracker.estimate(usage, model=model)
 
 print(f"Total cost: ${cost.total_cost:.6f}")
 print(f"Prompt: ${cost.prompt_cost:.6f}")
@@ -287,7 +322,9 @@ Built-in pricing tables include:
 |-------|-----------------|---------------------|
 | gemini-2.5-pro | $0.00125 | $0.01 |
 | gemini-2.5-flash | $0.000075 | $0.0003 |
+| gemini-2.5-flash-lite | $0.0000375 | $0.00015 |
 | gemini-2.0-flash | $0.0001 | $0.0004 |
+| gemini-2.0-flash-lite | $0.000075 | $0.0003 |
 | gemini-1.5-pro | $0.00125 | $0.005 |
 | gemini-1.5-flash | $0.000075 | $0.0003 |
 
@@ -343,7 +380,9 @@ agent = Agent(llm=llm, config=config, ...)
 |-------|---------|------------|----------|
 | gemini-2.5-pro | 1M | 65,536 | Yes |
 | gemini-2.5-flash | 1M | 65,536 | Yes |
+| gemini-2.5-flash-lite | 1M | 65,536 | Yes |
 | gemini-2.0-flash | 1M | 8,192 | No |
+| gemini-2.0-flash-lite | 1M | 8,192 | No |
 | gemini-1.5-pro | 2M | 8,192 | No |
 | gemini-1.5-flash | 1M | 8,192 | No |
 
@@ -367,7 +406,7 @@ agent = Agent(llm=llm, config=config, ...)
 The Gemini provider follows **SOLID** design principles:
 
 ```
-nucleusiq_gemini/
+src/nucleusiq/providers/llms/gemini/  (Installs as nucleusiq_gemini)
 ├── __init__.py              # Public API exports
 ├── llm_params.py            # GeminiLLMParams (Pydantic)
 ├── _shared/
