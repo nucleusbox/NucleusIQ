@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -397,13 +398,19 @@ class BaseGemini(BaseLLM):
             if tool_config:
                 api_config["tool_config"] = tool_config
 
+        t_start = time.monotonic()
         raw_response = await self._client.generate_content(
             model=model,
             contents=contents,
             config=api_config,
         )
+        duration = time.monotonic() - t_start
 
-        result = normalize_response(raw_response)
+        result = normalize_response(
+            raw_response,
+            duration=duration,
+            **kwargs,
+        )
 
         if output_schema_type is not None and result.choices:
             msg = result.choices[0].message

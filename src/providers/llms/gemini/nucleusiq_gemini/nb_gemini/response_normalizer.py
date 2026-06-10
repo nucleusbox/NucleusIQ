@@ -28,7 +28,12 @@ from nucleusiq_gemini._shared.response_models import (
 logger = logging.getLogger(__name__)
 
 
-def normalize_response(raw_response: Any) -> GeminiLLMResponse:
+def normalize_response(
+    raw_response: Any,
+    *,
+    duration: float | None = None,
+    **kwargs: Any,
+) -> GeminiLLMResponse:
     """Convert a raw Gemini SDK response to ``GeminiLLMResponse``.
 
     Args:
@@ -57,6 +62,8 @@ def normalize_response(raw_response: Any) -> GeminiLLMResponse:
         usage=usage,
         model=model_version,
         server_tool_calls=server_tool_calls,
+        duration=duration,
+        **kwargs,
     )
 
 
