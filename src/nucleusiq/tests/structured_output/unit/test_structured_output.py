@@ -28,7 +28,6 @@ from nucleusiq.agents.structured_output.resolver import (
     _auto_select_mode,
     get_provider_from_llm,
     resolve_output_config,
-    supports_native_output,
 )
 from nucleusiq.agents.structured_output.types import (
     ErrorHandling,
@@ -238,30 +237,6 @@ class TestOutputSchemaFunction:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-class TestSupportsNativeOutput:
-    def test_openai_models(self):
-        assert supports_native_output("gpt-4o-mini") is True
-        assert supports_native_output("gpt-5-turbo") is True
-
-    def test_anthropic(self):
-        assert supports_native_output("claude-3-opus") is True
-
-    def test_unknown(self):
-        assert supports_native_output("llama-3") is False
-
-    def test_with_provider_filter(self):
-        assert supports_native_output("gpt-4o", provider="openai") is True
-        assert supports_native_output("gpt-4o", provider="anthropic") is False
-
-    def test_groq_adapter_trusted_when_provider_known(self):
-        assert (
-            supports_native_output("llama-3.3-70b-versatile", provider="groq") is True
-        )
-
-    def test_ollama_adapter_trusted_when_provider_known(self):
-        assert supports_native_output("qwen2.5:latest", provider="ollama") is True
-
-
 class TestResolveOutputConfig:
     def test_none(self):
         assert resolve_output_config(None) is None
@@ -294,6 +269,16 @@ class TestResolveOutputConfig:
         assert result._resolved_mode == OutputMode.NATIVE
 
 
+class _IncapableLLM:
+    """Adapter whose backend cannot enforce schemas server-side.
+
+    It degrades the transport internally, so from core's side it is an
+    ordinary NATIVE-mode adapter.
+    """
+
+    supports_native_structured_output = False
+
+
 class TestAutoSelectMode:
     def test_native_model(self):
         assert _auto_select_mode(model_name="gpt-4o") == OutputMode.NATIVE
@@ -304,10 +289,71 @@ class TestAutoSelectMode:
     def test_no_model(self):
         assert _auto_select_mode() == OutputMode.PROMPT
 
+    def test_model_name_never_decides(self):
+        """A model released after this code was written must not be downgraded."""
+        assert (
+            _auto_select_mode(model_name="some-model-that-ships-in-2030")
+            == OutputMode.NATIVE
+        )
+
+
+class TestAutoModeResolvesToAnImplementedMode:
+    """AUTO must never resolve to a mode the agent will refuse to run.
+
+    ``OutputMode.implemented_modes()`` is ``{AUTO, NATIVE}``; PROMPT raises
+    ``NotImplementedError`` downstream. So a backend that cannot enforce
+    schemas must still resolve to NATIVE and degrade inside its adapter,
+    which is what the OpenAI-compatible provider does when it falls back to
+    ``json_object`` plus a prompt-injected schema.
+    """
+
+    def test_resolved_mode_is_always_implemented(self):
+        cfg = resolve_output_config(PersonModel, model_name="any")
+        assert OutputMode.is_implemented(cfg._resolved_mode)
+
+    def test_incapable_backend_still_resolves_to_native(self):
+        cfg = resolve_output_config(
+            PersonModel, model_name=_IncapableLLM.__name__.lower()
+        )
+        assert cfg._resolved_mode == OutputMode.NATIVE
+
+    def test_explicit_native_is_preserved(self):
+        cfg = resolve_output_config(
+            OutputSchema(schema=PersonModel, mode=OutputMode.NATIVE),
+            model_name="any",
+        )
+        assert cfg._resolved_mode == OutputMode.NATIVE
+
 
 class TestGetProviderFromLLM:
     def test_none(self):
         assert get_provider_from_llm(None) is None
+
+    def test_declaration_wins_over_class_name(self):
+        """The whole point: identity comes from the adapter, not its name."""
+
+        class FakeOpenAILLM:
+            PROVIDER_NAME = "anthropic"
+
+        assert get_provider_from_llm(FakeOpenAILLM()) == "anthropic"
+
+    def test_declaration_is_normalised(self):
+        class Adapter:
+            PROVIDER_NAME = "  OpenAI  "
+
+        assert get_provider_from_llm(Adapter()) == "openai"
+
+    def test_blank_declaration_falls_back_to_class_name(self):
+        class FakeGroqLLM:
+            PROVIDER_NAME = "   "
+
+        assert get_provider_from_llm(FakeGroqLLM()) == "groq"
+
+    def test_non_string_declaration_falls_back_to_class_name(self):
+        class FakeGroqLLM:
+            PROVIDER_NAME = 42
+
+        assert get_provider_from_llm(FakeGroqLLM()) == "groq"
 
     def test_openai(self):
         class FakeOpenAILLM:
@@ -333,6 +379,12 @@ class TestGetProviderFromLLM:
 
         assert get_provider_from_llm(FakeGoogleLLM()) == "google"
 
+    def test_gemini(self):
+        class FakeGeminiLLM:
+            pass
+
+        assert get_provider_from_llm(FakeGeminiLLM()) == "google"
+
     def test_ollama(self):
         class FakeBaseOllama:
             pass
@@ -344,6 +396,12 @@ class TestGetProviderFromLLM:
             pass
 
         assert get_provider_from_llm(FakeBaseGroq()) == "groq"
+
+    def test_openai_compatible_precedes_openai_in_fallback(self):
+        class FakeOpenAICompatibleLLM:
+            pass
+
+        assert get_provider_from_llm(FakeOpenAICompatibleLLM()) == "openai_compatible"
 
     def test_unknown(self):
         class FakeLlamaCpp:

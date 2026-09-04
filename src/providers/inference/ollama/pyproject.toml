@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nucleusiq-ollama"
-version = "0.2.0"
+version = "0.2.1"
 description = "Ollama inference provider for the NucleusIQ AI agent framework (official ollama Python SDK)."
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
@@ -47,6 +47,21 @@ nucleusiq = { path = "../../../nucleusiq", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["nucleusiq_ollama"]
+
+[tool.hatch.build.targets.sdist]
+# The wheel is scoped by `packages`, but an sdist defaults to everything not
+# gitignored — so tests/ and examples/ ship to PyPI unless excluded here.
+exclude = [
+    "tests",
+    "examples",
+    "dist",
+    "build",
+    ".venv",
+    "**/__pycache__",
+    "**/*.py[cod]",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+]
 
 [tool.pyrefly]
 python-version = "3.10"

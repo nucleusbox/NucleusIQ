@@ -86,6 +86,8 @@ class BaseOpenAI(BaseLLM):
     so API changes are absorbed in one place.
     """
 
+    PROVIDER_NAME = "openai"
+
     NATIVE_TOOL_TYPES: frozenset = NATIVE_TOOL_TYPES
 
     NATIVE_ATTACHMENT_TYPES: frozenset = frozenset(

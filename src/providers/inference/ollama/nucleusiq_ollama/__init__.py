@@ -6,7 +6,7 @@ from nucleusiq_ollama.nb_ollama.base import BaseOllama
 from nucleusiq_ollama.structured_output import build_ollama_format, parse_response
 from nucleusiq_ollama.tools import NATIVE_TOOL_TYPES, to_ollama_function_tool
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "BaseOllama",

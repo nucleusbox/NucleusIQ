@@ -42,6 +42,8 @@ _MERGED_WIRE_KEYS = frozenset(
 class BaseOllama(BaseLLM):
     """Run chat models via a local or remote Ollama server."""
 
+    PROVIDER_NAME = "ollama"
+
     NATIVE_TOOL_TYPES: frozenset = NATIVE_TOOL_TYPES
 
     def __init__(

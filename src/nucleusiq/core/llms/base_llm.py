@@ -1,7 +1,7 @@
 # File: src/nucleusiq/core/llms/base_llm.py
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, ClassVar
 
 from nucleusiq.llms.base import BaseLanguageModel
 from nucleusiq.streaming.events import StreamEvent
@@ -30,7 +30,19 @@ class BaseLLM(BaseLanguageModel, ABC):
     * ``describe_attachment_support()`` — user-facing introspection
       returning a structured summary of what this provider does with
       each attachment type.
+
+    **Provider identity contract:**
+
+    * ``PROVIDER_NAME`` — canonical lowercase identifier for the service
+      behind this adapter (``"openai"``, ``"ollama"``, …).  The framework
+      uses it to pick provider-specific wire formats and to label
+      observability records.  Adapters that leave it ``None`` fall back to
+      matching substrings in the class name, which cannot survive
+      subclassing or renaming, so every adapter should set it.
     """
+
+    PROVIDER_NAME: ClassVar[str | None] = None
+    """Canonical provider identifier.  Override in every provider subclass."""
 
     NATIVE_ATTACHMENT_TYPES: frozenset = frozenset()
     """Attachment types this provider handles natively (server-side).

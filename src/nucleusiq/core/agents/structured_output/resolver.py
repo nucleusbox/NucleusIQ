@@ -2,8 +2,19 @@
 """
 Resolver for NucleusIQ Structured Output.
 
-Resolves ``OutputMode.AUTO``, builds provider hints for ``OutputSchema.for_provider``,
-and exposes optional model-prefix helpers (:func:`supports_native_output`).
+Answers two questions for the structured-output pipeline: which provider is
+behind an LLM adapter (so ``OutputSchema.for_provider`` picks the right wire
+format), and what ``OutputMode.AUTO`` resolves to.
+
+Identity comes from what the adapter **declares about itself** —
+:attr:`BaseLLM.PROVIDER_NAME`.  Matching on model names is deliberately absent:
+vendors add and rename models continuously, so any list of model IDs kept here
+would go stale within weeks, and it would fail *silently* by mode-switching a
+model the framework simply had not heard of yet.
+
+Whether a given backend can enforce a schema server-side is deliberately *not*
+consulted here; see :func:`_auto_select_mode` for why that belongs to the
+adapter.
 """
 
 from __future__ import annotations
@@ -14,51 +25,34 @@ from .config import OutputSchema
 from .errors import StructuredOutputError
 from .types import OutputMode
 
+_CLASS_NAME_HINTS: tuple[tuple[str, str], ...] = (
+    # "compatible" precedes "openai": OpenAICompatibleLLM contains both, and
+    # an OpenAI-compatible server is not OpenAI.
+    ("compatible", "openai_compatible"),
+    ("openai", "openai"),
+    ("anthropic", "anthropic"),
+    ("claude", "anthropic"),
+    ("gemini", "google"),
+    ("google", "google"),
+    ("ollama", "ollama"),
+    ("groq", "groq"),
+)
 
-def supports_native_output(model_name: str, provider: str | None = None) -> bool:
+
+def _provider_from_class_name(llm: Any) -> str | None:
+    """Guess the provider from the adapter's class name.
+
+    A compatibility shim for adapters written before ``PROVIDER_NAME`` existed,
+    and it is only ever a guess: a third-party subclass named
+    ``MyOpenAIWrapper`` is indistinguishable here from the real OpenAI adapter.
+    Every first-party adapter declares ``PROVIDER_NAME`` and never reaches this
+    path.
     """
-    Best-effort hint whether *native* structured output is plausible for this pair.
-
-    There is **no** maintainable global model ID list (OpenAI, Google, Groq, and
-    Ollama add or rename models often). Strategy:
-
-    * If *provider* is set (as from :func:`get_provider_from_llm`), use
-      **provider-specific** rules: Groq and Ollama NucleusIQ adapters always wire
-      ``response_format`` into the vendor API where supported; OpenAI / Anthropic /
-      Google use coarse **name shape** checks so we do not claim e.g. ``gpt-4o`` on
-      an Anthropic-backed stack.
-    * If *provider* is unknown, use only **weak** name substrings (GPT, Claude,
-      Gemini) — custom or local models return ``False``.
-
-    This does **not** drive :func:`_auto_select_mode`; see that function for
-    ``OutputMode.AUTO`` behavior.
-    """
-    m = (model_name or "").strip().lower()
-    if not m:
-        return False
-
-    if provider:
-        p = provider.lower()
-        if p == "openai":
-            return m.startswith(
-                ("gpt-3", "gpt-4", "gpt-5", "o1", "o3", "o4", "chatgpt")
-            )
-        if p == "anthropic":
-            return m.startswith("claude")
-        if p == "google":
-            return "gemini" in m or m.startswith("gemini")
-        if p in ("groq", "ollama"):
-            # Adapters map Agent response_format to vendor structured output;
-            # model-level eligibility is enforced by the API, not this helper.
-            return True
-
-    if m.startswith(("gpt-3", "gpt-4", "gpt-5", "o1", "o3", "o4")):
-        return True
-    if m.startswith("claude"):
-        return True
-    if "gemini" in m:
-        return True
-    return False
+    class_name = type(llm).__name__.lower()
+    for needle, provider in _CLASS_NAME_HINTS:
+        if needle in class_name:
+            return provider
+    return None
 
 
 def resolve_output_config(
@@ -80,8 +74,8 @@ def resolve_output_config(
             - Dict: JSON Schema, wrap in OutputSchema
             - None: No structured output
 
-        model_name: Model name for capability detection
-        provider: Provider name for optimization
+        model_name: Model name; its presence signals a configured LLM
+        provider: Provider name, used by callers to pick a wire format
 
     Returns:
         OutputSchema configuration or None
@@ -91,7 +85,7 @@ def resolve_output_config(
         config = resolve_output_config(
             self.response_format,
             model_name=self.llm.model_name,
-            provider="openai"
+            provider="openai",
         )
     """
     if response_format is None:
@@ -114,31 +108,31 @@ def resolve_output_config(
 
     # Resolve AUTO mode to concrete mode
     if config.mode == OutputMode.AUTO:
-        config._resolved_mode = _auto_select_mode(
-            model_name=model_name,
-            provider=provider,
-        )
+        config._resolved_mode = _auto_select_mode(model_name=model_name)
     else:
         config._resolved_mode = config.mode
 
     return config
 
 
-def _auto_select_mode(
-    model_name: str | None = None,
-    provider: str | None = None,
-) -> OutputMode:
+def _auto_select_mode(model_name: str | None = None) -> OutputMode:
     """
     Resolve ``OutputMode.AUTO`` to a concrete mode.
 
-    Today: any configured ``model_name`` maps to **NATIVE** (all first-party LLM
-    adapters wire ``response_format`` / provider ``format``). Without a model
-    name, fall back to **PROMPT**.
+    Any configured ``model_name`` maps to **NATIVE**; without one there is no
+    adapter to hand a schema to, so it falls back to **PROMPT**.
 
-    ``supports_native_output`` is **not** used here; see that function’s docstring.
-    It is a separate hint for tests or out-of-band callers.
+    **NATIVE** means "hand the schema to the adapter", *not* "the server
+    implements ``response_format={"type": "json_schema"}``.  Those are
+    different claims, and conflating them is a trap worth naming: an adapter
+    knows things core cannot, so it owns the degradation.  The
+    OpenAI-compatible provider, for instance, drops to ``json_object`` plus a
+    prompt-injected schema when its engine lacks schema support, which
+    preserves structured output. Re-routing such a case to ``OutputMode.PROMPT``
+    here would instead raise, because :meth:`OutputMode.implemented_modes`
+    covers only ``AUTO`` and ``NATIVE`` — so mode selection deliberately does
+    **not** consult adapter capabilities.
     """
-    _ = provider  # Reserved for future capability-aware AUTO (TOOL/PROMPT).
     if not model_name:
         return OutputMode.PROMPT
     return OutputMode.NATIVE
@@ -146,7 +140,11 @@ def _auto_select_mode(
 
 def get_provider_from_llm(llm: Any) -> str | None:
     """
-    Detect provider from LLM instance.
+    Identify the provider behind an LLM adapter.
+
+    Prefers the adapter's own :attr:`BaseLLM.PROVIDER_NAME` declaration.  Falls
+    back to class-name matching only for adapters that predate the declaration
+    or come from outside this repo.
 
     Args:
         llm: LLM instance
@@ -157,17 +155,8 @@ def get_provider_from_llm(llm: Any) -> str | None:
     if llm is None:
         return None
 
-    class_name = type(llm).__name__.lower()
+    declared = getattr(llm, "PROVIDER_NAME", None)
+    if isinstance(declared, str) and declared.strip():
+        return declared.strip().lower()
 
-    if "openai" in class_name:
-        return "openai"
-    if "anthropic" in class_name or "claude" in class_name:
-        return "anthropic"
-    if "google" in class_name or "gemini" in class_name:
-        return "google"
-    if "ollama" in class_name:
-        return "ollama"
-    if "groq" in class_name:
-        return "groq"
-
-    return None
+    return _provider_from_class_name(llm)

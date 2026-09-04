@@ -20,6 +20,7 @@ from nucleusiq_openai._shared.response_models import (
     ServerToolCall,
     ToolCall,
     ToolCallFunction,
+    UsageInfo,
     _Choice,
     _LLMResponse,
 )
@@ -258,6 +259,33 @@ def messages_to_responses_input(
     return instructions, input_items
 
 
+def _extract_responses_usage(response: Any) -> UsageInfo | None:
+    """Extract token usage from a Responses API response.
+
+    The Responses API renamed the counters: ``input_tokens`` /
+    ``output_tokens`` where Chat Completions says ``prompt_tokens`` /
+    ``completion_tokens``.  Everything downstream — ``UsageTracker``,
+    ``LLMCallRecord``, cost estimation — reads the Chat Completions names, so
+    the rename is undone here rather than leaking two vocabularies into the
+    framework.
+
+    Returns ``None`` when the response carries no usage, which keeps
+    "not reported" distinguishable from "zero tokens".
+    """
+    usage = getattr(response, "usage", None)
+    if not usage:
+        return None
+    output_details = getattr(usage, "output_tokens_details", None)
+    return UsageInfo(
+        prompt_tokens=getattr(usage, "input_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "output_tokens", 0) or 0,
+        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+        reasoning_tokens=(
+            getattr(output_details, "reasoning_tokens", 0) or 0 if output_details else 0
+        ),
+    )
+
+
 def normalize_responses_output(response: Any) -> _LLMResponse:
     """Convert a Responses API response into the ``_LLMResponse`` format.
 
@@ -322,6 +350,7 @@ def normalize_responses_output(response: Any) -> _LLMResponse:
     )
     return _LLMResponse(
         choices=[_Choice(message=message)],
+        usage=_extract_responses_usage(response),
         server_tool_calls=server_tool_calls,
     )
 

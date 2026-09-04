@@ -75,6 +75,9 @@ class BaseGemini(BaseLLM):
     new features (thinking, code execution) are absorbed by collaborators.
     """
 
+    PROVIDER_NAME = "google"
+    """Wire-format key for Google models; the SDK vendor, not the model family."""
+
     NATIVE_TOOL_TYPES: frozenset[str] = NATIVE_TOOL_TYPES
 
     NATIVE_ATTACHMENT_TYPES: frozenset = frozenset(

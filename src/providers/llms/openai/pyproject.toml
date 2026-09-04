@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nucleusiq-openai"
-version = "0.7.0"
+version = "0.7.1"
 description = "OpenAI provider for the NucleusIQ AI agent framework – ChatGPT, GPT-4, embeddings, structured output, and tool integration."
 requires-python = ">=3.10,<4.0"
 license = "MIT"
@@ -70,6 +70,21 @@ constraint-dependencies = [
 # ---------------------------------------------------------------------------
 [tool.hatch.build.targets.wheel]
 packages = ["nucleusiq_openai"]
+
+[tool.hatch.build.targets.sdist]
+# The wheel is scoped by `packages`, but an sdist defaults to everything not
+# gitignored — so tests/ and examples/ ship to PyPI unless excluded here.
+exclude = [
+    "tests",
+    "examples",
+    "dist",
+    "build",
+    ".venv",
+    "**/__pycache__",
+    "**/*.py[cod]",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+]
 
 # ---------------------------------------------------------------------------
 # Pyrefly — static type checking

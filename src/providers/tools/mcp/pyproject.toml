@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nucleusiq-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Model Context Protocol (MCP) tool adapter for the NucleusIQ AI agent framework. Connect any MCP server (stdio, Streamable HTTP, SSE) as a NucleusIQ BaseTool."
 requires-python = ">=3.10,<4.0"
 license = { text = "MIT" }
@@ -30,10 +30,18 @@ dependencies = [
     # ExpandableTool protocol / ToolCallRecord.source plumbing that landed
     # in 0.7.11.
     "nucleusiq>=0.7.12",
-    # Official MCP Python SDK.  Pin to 1.27 for the stable transports +
-    # OAuth provider surface; <2 to allow patch upgrades but require an
-    # explicit bump on a 2.x major.
-    "mcp>=1.27,<2",
+    # Official MCP Python SDK.  Stable transports + OAuth provider surface;
+    # <2 to allow patch upgrades but require an explicit bump on a 2.x major.
+    #
+    # The 1.28.1 floor is a security floor, not a feature one.  1.27.x shipped
+    # three advisories against the server transports we hand to the SDK: HTTP
+    # transports served session requests without verifying the authenticated
+    # principal, experimental task handlers let any client read and cancel
+    # another client's tasks (both fixed in 1.27.2), and the WebSocket
+    # transport had no Host/Origin validation (fixed in 1.28.1).  A `>=1.27`
+    # floor still *permits* resolving to a vulnerable release, which is what a
+    # constrained environment or a stale lockfile will actually do.
+    "mcp>=1.28.1,<2",
     # httpx is used implicitly through the SDK's HTTP transports and
     # auth Auth instances we hand to it.  We don't import it directly,
     # but we depend on it so users get a known-good version when the
@@ -50,7 +58,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-oauth = ["mcp[cli]>=1.27,<2"]
+oauth = ["mcp[cli]>=1.28.1,<2"]
 
 [project.urls]
 Homepage = "https://github.com/nucleusbox/NucleusIQ"
@@ -74,6 +82,21 @@ nucleusiq = { path = "../../../nucleusiq", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["nucleusiq_mcp"]
+
+[tool.hatch.build.targets.sdist]
+# The wheel is scoped by `packages`, but an sdist defaults to everything not
+# gitignored — so tests/ and examples/ ship to PyPI unless excluded here.
+exclude = [
+    "tests",
+    "examples",
+    "dist",
+    "build",
+    ".venv",
+    "**/__pycache__",
+    "**/*.py[cod]",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+]
 
 [tool.pyrefly]
 python-version = "3.10"

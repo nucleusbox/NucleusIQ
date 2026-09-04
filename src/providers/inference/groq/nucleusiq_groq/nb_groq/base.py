@@ -51,6 +51,8 @@ _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
 class BaseGroq(BaseLLM):
     """Groq inference via the official ``groq`` Python SDK."""
 
+    PROVIDER_NAME = "groq"
+
     NATIVE_TOOL_TYPES: frozenset = NATIVE_TOOL_TYPES
 
     def __init__(

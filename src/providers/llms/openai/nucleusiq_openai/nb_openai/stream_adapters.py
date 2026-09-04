@@ -262,9 +262,15 @@ async def _process_responses_events(
                 resp_id = getattr(resp, "id", None)
                 raw_usage = getattr(resp, "usage", None)
                 if raw_usage:
+                    # The Responses API renamed the counters to
+                    # input_tokens/output_tokens. UsageTracker and
+                    # LLMCallRecord read the Chat Completions names, so
+                    # emitting the new ones reports zero prompt and
+                    # completion tokens against a non-zero total.
                     usage = {
-                        "input_tokens": getattr(raw_usage, "input_tokens", 0) or 0,
-                        "output_tokens": getattr(raw_usage, "output_tokens", 0) or 0,
+                        "prompt_tokens": getattr(raw_usage, "input_tokens", 0) or 0,
+                        "completion_tokens": getattr(raw_usage, "output_tokens", 0)
+                        or 0,
                         "total_tokens": getattr(raw_usage, "total_tokens", 0) or 0,
                     }
                     output_details = getattr(raw_usage, "output_tokens_details", None)

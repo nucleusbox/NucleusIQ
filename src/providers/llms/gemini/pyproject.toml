@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nucleusiq-gemini"
-version = "0.3.0"
+version = "0.3.1"
 description = "Google Gemini provider for the NucleusIQ AI agent framework."
 requires-python = ">=3.10,<4.0"
 license = { text = "MIT" }
@@ -47,6 +47,21 @@ nucleusiq = { path = "../../../nucleusiq", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["nucleusiq_gemini"]
+
+[tool.hatch.build.targets.sdist]
+# The wheel is scoped by `packages`, but an sdist defaults to everything not
+# gitignored — so tests/ and examples/ ship to PyPI unless excluded here.
+exclude = [
+    "tests",
+    "examples",
+    "dist",
+    "build",
+    ".venv",
+    "**/__pycache__",
+    "**/*.py[cod]",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+]
 
 # ---------------------------------------------------------------------------
 # Pyrefly — static type checking

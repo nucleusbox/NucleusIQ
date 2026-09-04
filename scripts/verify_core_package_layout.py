@@ -6,7 +6,7 @@ Layout checks for publishable Python packages in this monorepo.
    under `src/nucleusiq/core/` that has `__init__.py`. Prevents wheels from
    omitting subpackages while editable installs still work.
 
-2. **Hatch providers (`nucleusiq-openai`, `nucleusiq-gemini`, `nucleusiq-anthropic`, `nucleusiq-groq`, `nucleusiq-ollama`, `nucleusiq-mcp`)** —
+2. **Hatch providers (`nucleusiq-openai`, `nucleusiq-gemini`, `nucleusiq-anthropic`, `nucleusiq-groq`, `nucleusiq-ollama`, `nucleusiq-openai-compatible`, `nucleusiq-mcp`)** —
    `[tool.hatch.build.targets.wheel] packages = [...]` must name the on-disk
    import root (e.g. `nucleusiq_groq`). Every directory under that tree that
    contains `*.py` files must also contain `__init__.py` (classic packages only),
@@ -61,6 +61,11 @@ HATCH_PROVIDERS: tuple[HatchProvider, ...] = (
         "nucleusiq-ollama",
         REPO_ROOT / "src" / "providers" / "inference" / "ollama",
         "nucleusiq_ollama",
+    ),
+    HatchProvider(
+        "nucleusiq-openai-compatible",
+        REPO_ROOT / "src" / "providers" / "inference" / "openai_compatible",
+        "nucleusiq_openai_compatible",
     ),
     HatchProvider(
         "nucleusiq-mcp",

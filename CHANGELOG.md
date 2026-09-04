@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.13] — 2026-09-05
+
+> Adds a generic **OpenAI-compatible** provider so any server speaking the OpenAI Chat Completions protocol — vLLM, SGLang, TGI, llama.cpp, LM Studio, NVIDIA NIM, OpenRouter, Together, Fireworks, Azure OpenAI v1 — works without a dedicated package. Replaces model-name guessing in core with a declared provider identity, fixes three response/streaming bugs found by testing against a real endpoint, and clears all 32 open Dependabot advisories.
+>
+> **Coordinated package versions:**
+>
+> - `nucleusiq` **0.7.13**
+> - `nucleusiq-openai-compatible` **0.1.0b1** — **new**, Beta
+> - `nucleusiq-openai` **0.7.1** — Responses API usage accounting fixes
+> - `nucleusiq-mcp` **0.1.1** — security floor `mcp>=1.28.1`
+> - `nucleusiq-gemini` **0.3.1**, `nucleusiq-anthropic` **0.2.1**, `nucleusiq-ollama` **0.2.1**, `nucleusiq-groq` **0.1.1** — declare `PROVIDER_NAME`
+>
+> Only `nucleusiq-openai-compatible` floors on `nucleusiq>=0.7.13`; it needs the new resolver, because the pre-0.7.13 class-name match reads `OpenAICompatibleLLM` as `"openai"` and would send OpenAI-cloud-shaped structured output to a self-hosted server. Every other provider keeps its `nucleusiq>=0.7.12` floor — `PROVIDER_NAME` is inert on older cores, where class-name matching still yields the same answer. **4,382 tests passing across the monorepo.**
+
+### Monorepo test gate at the time of this entry (all non-live, no API keys required)
+
+| Package | Tests | Coverage | Status |
+| --- | --- | --- | --- |
+| `nucleusiq` | **2607 passed** (2 skipped, 8 live deselected) | n/a (no gate) | green |
+| `nucleusiq-openai` | **239 passed** (5 skipped) | n/a (existing gate) | green |
+| `nucleusiq-gemini` | **292 unit passed** | n/a (existing gate) | green |
+| `nucleusiq-anthropic` | **157 passed** | ≥ 95% | green (gate ≥ 95%) |
+| `nucleusiq-groq` | **79 passed** | ≥ 90% | green (gate ≥ 90%) |
+| `nucleusiq-ollama` | **98 passed** | ≥ 95% | green (gate ≥ 95%) |
+| `nucleusiq-openai-compatible` | **675 passed** (16 live deselected) | **99.40%** | green (gate ≥ 95%) |
+| `nucleusiq-mcp` | **235 passed** | ≥ 90% | green (gate ≥ 90%) |
+| **Total** | **4,382 passing** | — | — |
+
+`ruff check src/` and `ruff format --check src/` are clean on all 679 files under the repo-root `ruff.toml`; `pyrefly` reports 0 errors on every package; `scripts/verify_core_package_layout.py` reports OK on all 8 packages.
+
+### Added — `nucleusiq-openai-compatible` 0.1.0b1 (new package, Beta)
+
+One provider for every OpenAI-protocol server, built around **bring-your-own-model / bring-your-own-key**. No model-name heuristics anywhere: capabilities are declared, not guessed, because a generic provider cannot know what `my-finetune-v3` supports.
+
+```python
+from nucleusiq_openai_compatible import OpenAICompatibleLLM
+
+llm = OpenAICompatibleLLM(
+    base_url="http://gpu-node-1:8000/v1",
+    model="gemma-4-27b-it",
+    api_key="token-abc123",   # omit entirely for an unauthenticated server
+    context_window=32_768,    # declared; probed only as a fallback
+    engine="vllm",
+)
+```
+
+- **Engine presets** (`ENGINE_PRESETS`, `EngineProfile`) for `vllm`, `sglang`, `tgi`, `llamacpp`, `lmstudio`, `ollama`, `generic` — recording per-engine support for tools, JSON schema, parallel tool calls, streamed usage and reasoning. `generic` is the conservative default.
+- **BYOK auth strategies** — `NoAuth`, `BearerAuth`, `HeaderAuth` (for gateways wanting a custom header), plus `build_auth`. Credentials may be literals, env-var names or callables; a callable is resolved **once per request** and shared between headers and the SDK key, so token-minting hooks aren't billed twice.
+- **Structured output with a real degradation path** — `DropPolicy`, `ErrorPolicy`, `PromptPolicy`. Engines without server-side schema enforcement fall back to `json_object` plus a prompt-injected schema instead of silently returning prose. Also works around the vLLM bug where `response_format` + `tools` + `tool_choice="auto"` suppresses tool calls entirely.
+- **Reasoning/thinking models** — `reasoning_content` is separated from answer text on both the streaming and non-streaming paths, with `chat_template_kwargs` and `reasoning_effort` passthrough.
+- **Token counting** — optional `[tokenizer]` extra uses a real HF tokenizer; otherwise a documented heuristic counter, since `tiktoken` is meaningless for open-weight vocabularies.
+- **Preflight validation** — `ValidationReport` checks reachability, auth, model presence via `/v1/models`, and capability claims before an agent run, turning a misconfigured endpoint into one clear message instead of a mid-run failure.
+- **Credential redaction** across errors, logs and `repr`.
+- **Packaging** — `tests/` and `examples/` are excluded from **both** the wheel and the sdist. The sdist default ships everything not gitignored, so the exclusion is explicit and asserted by a test that builds real artifacts and inspects the members.
+
+### Changed — core `nucleusiq` 0.7.13 — provider identity is declared, not guessed
+
+- **`BaseLLM.PROVIDER_NAME: ClassVar[str | None]`** — new declaration mirroring the existing `NATIVE_TOOL_TYPES` / `NATIVE_ATTACHMENT_TYPES` pattern. `get_provider_from_llm()` reads it first and falls back to class-name matching only for adapters predating the contract. All six first-party adapters now declare it, so provider identity survives subclassing and renaming.
+- **Removed `supports_native_output()`** from `nucleusiq.agents.structured_output.resolver`. It hardcoded OpenAI model prefixes (`gpt-3`, `gpt-4`, `o1`, …) that went stale as vendors shipped new models, and it was dead: both branches of `_auto_select_mode` returned NATIVE, so it never changed an outcome, and nothing imported it. It was never exported from `structured_output/__init__.py`, so this is not a public API break.
+- **`OutputMode.AUTO` still resolves to NATIVE for every adapter.** Core deliberately does *not* ask adapters whether their backend can enforce a schema server-side: `OutputMode.implemented_modes()` is `{AUTO, NATIVE}`, so routing to PROMPT would raise, and degrading the transport is the adapter's job — it knows its engine, core doesn't. NATIVE means "hand the schema to the adapter", not "the server implements `json_schema`".
+
+### Fixed — `nucleusiq-openai` 0.7.1 — Responses API token accounting
+
+Both bugs affected only the Responses API path (native server tools, reasoning models) and were invisible to mocked tests:
+
+- **Non-streaming `call()` reported zero tokens.** `normalize_responses_output` built its response without populating `usage`, and `UsageTracker.record_from_response` / `build_llm_call_record` both start at `response.usage` and return early when it's absent. Every run reported 0 tokens and $0.00 cost — wrong in the direction nobody notices.
+- **Streaming reported a total with no prompt or completion split.** The Responses API renamed the counters to `input_tokens` / `output_tokens`; the COMPLETE event forwarded that vocabulary, but the framework reads the Chat Completions names. Both are now mapped to `prompt_tokens` / `completion_tokens`, with `reasoning_tokens` carried through from `output_tokens_details`.
+
+### Fixed — `nucleusiq-openai-compatible` — three bugs caught by live-endpoint testing
+
+Found by running the suite against a real endpoint (Ollama Cloud), and unreachable by mocks, which return a scripted reply no matter what they're sent:
+
+- **The tool loop died on its second call.** Core serialises a tool call flat as `{"id", "name", "arguments"}` and leaves the wire dialect to the provider; Chat Completions requires it nested under `function`. The first request carries no tool history so it succeeded; the request echoing the call back alongside its result failed with `400 invalid tool call arguments`. `sanitize_messages` now translates assistant tool calls, copying a message only when a rewrite is needed.
+- **Streaming agents silently ignored every tool.** The COMPLETE event omitted `tool_calls`, and `base_mode` streaming reads that key to decide whether to run the tool loop. Nothing errored — the loop just never fired. The event now also publishes `usage`, `model`, `finish_reason` and `reasoning_content`.
+- **`response_format` passed as a call kwarg bypassed the policy layer**, reintroducing the vLLM tool-suppression bug. A new inbound normaliser routes it through the policy regardless of shape (Pydantic model, OpenAI wire format, NucleusIQ generic format, or `(provider, schema)` tuple).
+
+### Changed — `nucleusiq-openai-compatible` — `ollama` preset no longer claims schema support
+
+Measured, not assumed: the Ollama `/v1` shim accepts both `json_schema` and `json_object` and honours neither, returning markdown-fenced prose with whatever keys the model chose. Claiming support sent a schema the server discarded, so an agent believed it had a validated object and got prose. `supports_json_schema=False` routes through `json_object` plus a prompt-injected schema, which does return the requested shape. Ollama's **native** API does support schemas via `format`; `nucleusiq-ollama` uses it.
+
+### Security — all 32 open Dependabot advisories resolved
+
+- **`nucleusiq-mcp` floor raised to `mcp>=1.28.1`** (from `>=1.27`), including the `oauth` extra. This is the only advisory that reached published dependency metadata. 1.27.x shipped three advisories against the server transports the adapter hands to the SDK: HTTP transports served session requests without verifying the authenticated principal, experimental task handlers let any client read and cancel another client's tasks (both fixed in 1.27.2), and the WebSocket transport lacked Host/Origin validation (fixed in 1.28.1). A `>=1.27` floor still *permits* resolving to a vulnerable release.
+- **All 8 lockfiles regenerated** (`uv lock --upgrade`), clearing the remaining 31 alerts — `cryptography` → 50.0.1 (Bleichenbacher oracle in PKCS#7 decryption, wildcard-DNS `permittedSubtrees` escape, vulnerable bundled OpenSSL), `pyasn1` → 0.6.4 (three DoS vectors in BER/CER/DER decoding), `starlette` → 1.6.0 (`request.form()` limits ignored, authority poisoning), `python-multipart` → 0.0.32 (quadratic querystring parsing, parameter smuggling), `pydantic-settings` → 2.15.0 (symlink escape from `secrets_dir`), `mcp` → 1.29.1.
+- Regenerating the locks in one resolution supersedes the ten open Dependabot PRs, which each touched the same files and would have conflicted pairwise.
+
+### Added — CI/CD coverage for the new package
+
+`nucleusiq-openai-compatible` was absent from every pipeline job except `lint`. Now wired into: its own `test-openai-compatible` matrix job (Python 3.10 + 3.12, `--cov-fail-under=95`), the `test-uv` install check, `type-check` (pyrefly), `import-check` (including an assertion that `PROVIDER_NAME == "openai_compatible"`), the `security` pip-audit sweep, the `build` matrix with `twine check`, and a `publish-openai-compatible` job in `publish.yml` gated on the same PyPI version check as its siblings. Its `test` dependency group gained `httpx`, `hatchling` and `tokenizers` so the loopback HTTP server, the real-artifact packaging test and the accurate token counter all execute rather than skip.
+
+---
+
 ## [0.7.12] — 2026-05-26
 
 > Single coordinated release promoting every alpha/beta provider to its first stable line, plus the provider-agnostic native-tool observability that powers it.

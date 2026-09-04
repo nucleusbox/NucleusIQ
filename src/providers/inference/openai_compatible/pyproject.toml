@@ -1,0 +1,128 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nucleusiq-openai-compatible"
+version = "0.1.0b1"
+description = "Generic OpenAI-compatible inference provider for the NucleusIQ AI agent framework (vLLM, SGLang, TGI, llama.cpp, LM Studio, NIM, and OpenAI-compatible clouds)."
+readme = "README.md"
+requires-python = ">=3.10,<4.0"
+license = { text = "MIT" }
+authors = [{ name = "Nucleusbox", email = "info@nucleusbox.com" }]
+keywords = [
+    "AI",
+    "agents",
+    "nucleusiq",
+    "openai-compatible",
+    "vllm",
+    "sglang",
+    "self-hosted",
+    "open-weight",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "nucleusiq>=0.7.13",
+    "openai>=1.0,<3.0",
+]
+
+[project.optional-dependencies]
+tokenizer = ["tokenizers>=0.15,<1.0"]
+
+[project.urls]
+Homepage = "https://github.com/nucleusbox/NucleusIQ"
+Repository = "https://github.com/nucleusbox/NucleusIQ"
+Issues = "https://github.com/nucleusbox/NucleusIQ/issues"
+
+[dependency-groups]
+test = [
+    "pytest>=8.0,<10.0",
+    "pytest-asyncio>=0.23,<2.0",
+    "pytest-cov>=4.0,<8.0",
+    # The loopback server in tests/integration is a real HTTP server, which is
+    # the point: it puts the openai SDK, sockets and JSON on the path a mock
+    # would skip past.
+    "httpx>=0.27,<1",
+    # test_packaging builds a real wheel and sdist via `python -m hatchling
+    # build` and inspects the members. Asserting on the config instead would
+    # pass while shipping tests/ to PyPI.
+    "hatchling>=1.20,<2",
+    # Exercises HFTokenizerCounter rather than falling through to the
+    # heuristic counter, which would leave the accurate path untested.
+    "tokenizers>=0.15,<1.0",
+]
+dev = [{ include-group = "test" }]
+
+[tool.uv.sources]
+nucleusiq = { path = "../../../nucleusiq", editable = true }
+
+[tool.hatch.build.targets.wheel]
+# Scoping the wheel to the import root is what keeps tests/ and examples/
+# out of the installed package; they live beside it, not inside it.
+packages = ["nucleusiq_openai_compatible"]
+exclude = ["**/__pycache__", "**/*.py[cod]", "**/.pytest_cache"]
+
+[tool.hatch.build.targets.sdist]
+# The wheel is scoped by `packages`, but an sdist defaults to everything not
+# gitignored — so tests, examples and local build detritus must be excluded
+# explicitly or they ship to PyPI.
+exclude = [
+    "tests",
+    "examples",
+    "dist",
+    "build",
+    ".venv",
+    "**/__pycache__",
+    "**/*.py[cod]",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+]
+
+[tool.pyrefly]
+python-version = "3.10"
+project-includes = ["nucleusiq_openai_compatible/"]
+project-excludes = ["tests/", "examples/", "build/"]
+ignore-missing-imports = [
+    "nucleusiq.*",
+    "openai.*",
+    "httpx.*",
+    "tokenizers.*",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: live OpenAI-compatible server (requires OPENAI_COMPATIBLE_BASE_URL; skipped if unset)",
+    "slow: builds distribution artifacts; deselect with -m 'not slow'",
+]
+addopts = [
+    "--cov=nucleusiq_openai_compatible",
+    "--cov-report=term-missing",
+    "--cov-fail-under=95",
+    "-m",
+    "not integration",
+]

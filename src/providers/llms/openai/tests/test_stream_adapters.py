@@ -318,8 +318,51 @@ class TestProcessResponsesEvents:
 
         complete = result[-1]
         assert complete.metadata["response_id"] == "resp_abc"
-        assert complete.metadata["usage"]["input_tokens"] == 10
         assert complete.metadata["usage"]["total_tokens"] == 30
+
+    @pytest.mark.asyncio
+    async def test_usage_uses_chat_completions_names(self):
+        """The Responses API's ``input_tokens`` must arrive as ``prompt_tokens``.
+
+        ``UsageTracker.record_from_stream_metadata`` and
+        ``build_llm_call_record_from_stream`` read only the Chat Completions
+        names, so forwarding the Responses vocabulary reports zero prompt and
+        completion tokens against a non-zero total.
+        """
+        usage_obj = SimpleNamespace(input_tokens=10, output_tokens=20, total_tokens=30)
+        resp_obj = SimpleNamespace(id="resp_abc", usage=usage_obj)
+
+        async def events():
+            yield _mk_responses_event("response.output_text.delta", delta="ok")
+            yield _mk_responses_event("response.completed", response=resp_obj)
+
+        result: list[StreamEvent] = []
+        async for e in _process_responses_events(events()):
+            result.append(e)
+
+        usage = result[-1].metadata["usage"]
+        assert usage["prompt_tokens"] == 10
+        assert usage["completion_tokens"] == 20
+        assert "input_tokens" not in usage
+
+    @pytest.mark.asyncio
+    async def test_usage_reaches_the_framework_tracker(self):
+        from nucleusiq.agents.usage.usage_tracker import CallPurpose, UsageTracker
+
+        usage_obj = SimpleNamespace(input_tokens=10, output_tokens=20, total_tokens=30)
+        resp_obj = SimpleNamespace(id="resp_abc", usage=usage_obj)
+
+        async def events():
+            yield _mk_responses_event("response.output_text.delta", delta="ok")
+            yield _mk_responses_event("response.completed", response=resp_obj)
+
+        result: list[StreamEvent] = []
+        async for e in _process_responses_events(events()):
+            result.append(e)
+
+        tracker = UsageTracker()
+        tracker.record_from_stream_metadata(CallPurpose.MAIN, result[-1].metadata)
+        assert tracker.total_tokens == 30
 
     @pytest.mark.asyncio
     async def test_empty_delta_ignored(self):

@@ -78,6 +78,8 @@ class BaseAnthropic(BaseLLM):
     * :mod:`~nucleusiq_anthropic._shared.retry` — provider-wide backoff policy
     """
 
+    PROVIDER_NAME = "anthropic"
+
     NATIVE_TOOL_TYPES: frozenset[str] = NATIVE_TOOL_TYPES
 
     def __init__(

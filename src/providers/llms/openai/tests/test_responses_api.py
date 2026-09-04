@@ -15,6 +15,7 @@ All API calls are mocked — no real OpenAI key is required.
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 src_dir = Path(__file__).parent.parent.parent / "src"
@@ -775,6 +776,67 @@ class TestNormalizationEdgeCases:
 
         result = normalize_responses_output(resp)
         assert result.choices[0].message.content == "Caption here."
+
+
+class TestResponsesUsageAccounting:
+    """``_LLMResponse.usage`` is where the framework's accounting looks.
+
+    ``UsageTracker.record_from_response`` and ``usage_dict_from_response``
+    both start at ``response.usage`` and return early when it is absent, so
+    omitting it makes every Responses API call report zero tokens and $0.00
+    cost — wrong in the direction nobody notices.
+    """
+
+    @staticmethod
+    def _with_usage(**counts):
+        resp = _FakeResponse(
+            "resp_usage",
+            [
+                _FakeOutputItem(
+                    "message",
+                    role="assistant",
+                    content=[_FakeContentBlock("output_text", "hi")],
+                ),
+            ],
+        )
+        resp.usage = SimpleNamespace(**counts)
+        return resp
+
+    def test_usage_is_populated(self):
+        result = normalize_responses_output(
+            self._with_usage(input_tokens=11, output_tokens=7, total_tokens=18)
+        )
+        assert result.usage is not None
+        assert result.usage.prompt_tokens == 11
+        assert result.usage.completion_tokens == 7
+        assert result.usage.total_tokens == 18
+
+    def test_responses_names_are_mapped(self):
+        """``input_tokens``/``output_tokens`` must land on the Chat names."""
+        result = normalize_responses_output(
+            self._with_usage(input_tokens=11, output_tokens=7, total_tokens=18)
+        )
+        assert (result.usage.prompt_tokens, result.usage.completion_tokens) == (11, 7)
+
+    def test_reasoning_tokens_are_carried(self):
+        resp = self._with_usage(input_tokens=5, output_tokens=90, total_tokens=95)
+        resp.usage.output_tokens_details = SimpleNamespace(reasoning_tokens=64)
+        assert normalize_responses_output(resp).usage.reasoning_tokens == 64
+
+    def test_absent_usage_stays_none(self):
+        """ "Not reported" must stay distinguishable from "zero tokens"."""
+        resp = _FakeResponse("resp_no_usage", [])
+        assert normalize_responses_output(resp).usage is None
+
+    def test_framework_tracker_records_it(self):
+        from nucleusiq.agents.usage.usage_tracker import CallPurpose, UsageTracker
+
+        result = normalize_responses_output(
+            self._with_usage(input_tokens=11, output_tokens=7, total_tokens=18)
+        )
+        tracker = UsageTracker()
+        tracker.record_from_response(CallPurpose.MAIN, result)
+        assert tracker.total_tokens == 18
 
 
 # ======================================================================== #
