@@ -58,14 +58,18 @@ def test_layout_registry_includes_openai_compatible():
 def test_layout_registry_matches_disk():
     layout = _load("verify_core_package_layout.py")
     layout.verify_registry_matches_disk()
-    on_disk = {p.relative_to(REPO).as_posix() for p in layout.discover_shipped_provider_dirs()}
+    on_disk = {
+        p.relative_to(REPO).as_posix() for p in layout.discover_shipped_provider_dirs()
+    }
     assert on_disk == EXPECTED_RELS
 
 
 def test_dependency_cases_include_openai_compatible():
     deps = _load("verify_dependency_completeness.py")
     assert "src/providers/inference/openai_compatible" in deps.CASES
-    assert "OpenAICompatibleLLM" in deps.CASES["src/providers/inference/openai_compatible"]
+    assert (
+        "OpenAICompatibleLLM" in deps.CASES["src/providers/inference/openai_compatible"]
+    )
     assert set(deps.CASES) == EXPECTED_RELS
 
 
