@@ -41,3 +41,10 @@ ignore = [
 
 [format]
 docstring-code-format = true
+# Markdown is excluded deliberately. ruff 0.16 began formatting fenced code
+# blocks in .md files, which reflows the README samples and collapses the
+# aligned trailing comments that make the option tables readable — a net loss
+# in prose docs, and it turned every provider README into a lint failure on a
+# ruff upgrade nobody made. `docstring-code-format` above still formats code
+# in docstrings, which is where we do want it.
+exclude = ["*.md"]

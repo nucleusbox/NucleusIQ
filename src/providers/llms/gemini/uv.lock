@@ -557,6 +557,7 @@ source = { editable = "." }
 dependencies = [
     { name = "google-genai" },
     { name = "nucleusiq" },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -577,6 +578,7 @@ test = [
 requires-dist = [
     { name = "google-genai", specifier = ">=1.0.0" },
     { name = "nucleusiq", editable = "../../../nucleusiq" },
+    { name = "pydantic", specifier = ">=2.11.0,<3.0" },
 ]
 
 [package.metadata.requires-dev]

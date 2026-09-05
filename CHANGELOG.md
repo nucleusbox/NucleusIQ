@@ -87,6 +87,26 @@ Found by running the suite against a real endpoint (Ollama Cloud), and unreachab
 
 Measured, not assumed: the Ollama `/v1` shim accepts both `json_schema` and `json_object` and honours neither, returning markdown-fenced prose with whatever keys the model chose. Claiming support sent a schema the server discarded, so an agent believed it had a validated object and got prose. `supports_json_schema=False` routes through `json_object` plus a prompt-injected schema, which does return the requested shape. Ollama's **native** API does support schemas via `format`; `nucleusiq-ollama` uses it.
 
+### Fixed — packages declared fewer dependencies than they import
+
+`nucleusiq-openai` imported `httpx` at module scope in `_shared/retry.py` (to classify transport errors) while declaring only `nucleusiq`, `openai` and `tiktoken`. It worked because the `openai` SDK pulled `httpx` in transitively — until `openai` 3.x stopped shipping it, at which point `import nucleusiq_openai` raised `ModuleNotFoundError` on a fresh install. Since the floor was an unbounded `openai>=1.0`, anyone installing after openai 3.0's release got the broken combination.
+
+Every provider had some version of this. All of them now declare what they import:
+
+| Package | Added |
+| --- | --- |
+| `nucleusiq-openai` | `httpx>=0.27,<1`, `pydantic>=2.11.0,<3.0`, and an `openai<3.0` bound |
+| `nucleusiq-anthropic`, `nucleusiq-groq`, `nucleusiq-ollama`, `nucleusiq-openai-compatible` | `httpx>=0.27,<1`, `pydantic>=2.11.0,<3.0` |
+| `nucleusiq-gemini`, `nucleusiq-mcp` | `pydantic>=2.11.0,<3.0` |
+
+The `openai<3.0` bound is deliberate: 3.x is a major SDK revision that has not been exercised against this adapter's Responses API paths, and every test in that package is mocked, so a green suite would say nothing about it. Raising it belongs in its own change, verified against the live API. Core's three optional imports (`chardet`, `pdfplumber`, `tomli`) are already guarded by `try/except ImportError` with graceful degradation and are correctly left undeclared.
+
+No CI job could have caught this, because `test-*`, `import-check` and `type-check` all install siblings and dev tooling into one environment where any neighbour supplies the missing module. A new `dependency-completeness` job (`scripts/verify_dependency_completeness.py`) checks it the only way it can be checked: one virtualenv per package, holding that package and its declared dependencies alone, then importing the public API. The isolation is the test, so it is deliberately kept out of the other jobs.
+
+### Fixed — lint was not reproducible
+
+The `lint` job ran an unpinned `pip install ruff`, so its verdict depended on release timing rather than on the code. ruff 0.16 began formatting fenced code blocks inside `.md` files, which failed the build on four provider READMEs nobody had touched. ruff is now pinned to `0.16.6`, and `*.md` is excluded from the formatter — reflowing prose samples collapses the aligned trailing comments that make the option tables readable. `docstring-code-format` still applies to docstrings, which is where it was wanted.
+
 ### Security — all 32 open Dependabot advisories resolved
 
 - **`nucleusiq-mcp` floor raised to `mcp>=1.28.1`** (from `>=1.27`), including the `oauth` extra. This is the only advisory that reached published dependency metadata. 1.27.x shipped three advisories against the server transports the adapter hands to the SDK: HTTP transports served session requests without verifying the authenticated principal, experimental task handlers let any client read and cancel another client's tasks (both fixed in 1.27.2), and the WebSocket transport lacked Host/Origin validation (fixed in 1.28.1). A `>=1.27` floor still *permits* resolving to a vulnerable release.

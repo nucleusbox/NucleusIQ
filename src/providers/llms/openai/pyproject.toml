@@ -27,8 +27,21 @@ classifiers = [
 
 dependencies = [
     "nucleusiq>=0.7.12",
-    "openai>=1.0",
+    # Upper bound is deliberate. openai 3.x is a major SDK revision that has
+    # not been exercised against this adapter's Responses API paths, and every
+    # test here is mocked, so a green suite would prove nothing about it.
+    # Raising this belongs in its own change, verified against the live API.
+    "openai>=1.0,<3.0",
     "tiktoken>=0.5",
+    # Declared because `_shared/retry.py` imports httpx at module scope to
+    # classify transport errors. It used to arrive transitively via the openai
+    # SDK, which stopped shipping it in 3.x — so a fresh install raised
+    # ModuleNotFoundError before the adapter could import. Depend on what you
+    # import; transitive availability is not a contract.
+    "httpx>=0.27,<1",
+    # Same rule: the params and response models are pydantic models. It also
+    # arrives via nucleusiq, but that is core's dependency to change, not ours.
+    "pydantic>=2.11.0,<3.0",
 ]
 
 [project.urls]

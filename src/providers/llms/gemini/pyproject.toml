@@ -26,6 +26,10 @@ classifiers = [
 dependencies = [
     "nucleusiq>=0.7.12",
     "google-genai>=1.0.0",
+    # Declared because the params and response models are pydantic models
+    # imported at module scope. It arrives via nucleusiq today, but that is
+    # core's dependency to change, not ours.
+    "pydantic>=2.11.0,<3.0",
 ]
 
 [project.urls]

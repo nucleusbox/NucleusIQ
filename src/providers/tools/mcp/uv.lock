@@ -600,6 +600,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "nucleusiq" },
+    { name = "pydantic" },
 ]
 
 [package.optional-dependencies]
@@ -645,6 +646,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "mcp", extras = ["cli"], marker = "extra == 'oauth'", specifier = ">=1.28.1,<2" },
     { name = "nucleusiq", editable = "../../../nucleusiq" },
+    { name = "pydantic", specifier = ">=2.11.0,<3.0" },
 ]
 provides-extras = ["oauth"]
 

@@ -333,7 +333,9 @@ version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "groq" },
+    { name = "httpx" },
     { name = "nucleusiq" },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -351,7 +353,9 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "groq", specifier = ">=1.2.0,<2.0" },
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "nucleusiq", editable = "../../../nucleusiq" },
+    { name = "pydantic", specifier = ">=2.11.0,<3.0" },
 ]
 
 [package.metadata.requires-dev]

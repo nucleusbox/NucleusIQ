@@ -502,8 +502,10 @@ name = "nucleusiq-openai-compatible"
 version = "0.1.0b1"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "nucleusiq" },
     { name = "openai" },
+    { name = "pydantic" },
 ]
 
 [package.optional-dependencies]
@@ -531,8 +533,10 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "nucleusiq", editable = "../../../nucleusiq" },
     { name = "openai", specifier = ">=1.0,<3.0" },
+    { name = "pydantic", specifier = ">=2.11.0,<3.0" },
     { name = "tokenizers", marker = "extra == 'tokenizer'", specifier = ">=0.15,<1.0" },
 ]
 provides-extras = ["tokenizer"]

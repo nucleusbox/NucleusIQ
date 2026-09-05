@@ -14,6 +14,7 @@ Layout checks for publishable Python packages in this monorepo.
 
 Run: ``python scripts/verify_core_package_layout.py`` (no pip install required).
 """
+
 from __future__ import annotations
 
 import re

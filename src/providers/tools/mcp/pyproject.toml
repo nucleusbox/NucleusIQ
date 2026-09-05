@@ -48,6 +48,10 @@ dependencies = [
     # SDK doesn't pin a strict floor.  Drop this once the SDK pins it
     # tightly enough.
     "httpx>=0.27,<1",
+    # Declared because `config.py` and `models.py` are pydantic models
+    # imported at module scope. It arrives via nucleusiq and the MCP SDK
+    # today, but that is their dependency to change, not ours.
+    "pydantic>=2.11.0,<3.0",
     # NOTE: ``anyio`` is intentionally NOT listed here.  The MCP SDK
     # depends on it transitively (it powers all three SDK transports),
     # but ``nucleusiq-mcp`` itself uses plain ``asyncio`` everywhere —

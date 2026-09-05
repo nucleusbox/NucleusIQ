@@ -528,7 +528,11 @@ jobs:
           python-version: "3.12"
 
       - name: Install ruff
-        run: pip install ruff
+        # Pinned on purpose. An unpinned `pip install ruff` makes this job's
+        # verdict depend on release timing, so a new ruff can fail the build on
+        # files nobody touched — which is exactly what happened when 0.16
+        # started formatting markdown code blocks. Bump this deliberately.
+        run: pip install ruff==0.16.6
 
       - name: Ruff check (linting)
         run: ruff check src/ --config ruff.toml --output-format=github
@@ -721,6 +725,26 @@ jobs:
           )
           print('All MCP tool adapter imports OK')
           "
+
+  # ── Dependency metadata completeness ───────────────────────────────
+  dependency-completeness:
+    name: Dependency completeness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Verify each package imports from its declared deps alone
+        # Deliberately isolated from every other job.  test-*, import-check and
+        # type-check install siblings and dev tooling side by side, so an
+        # undeclared import is satisfied by a neighbour and passes.  This gives
+        # each package a virtualenv containing only itself and what it
+        # declares, which is the only place the omission actually fails.
+        run: python scripts/verify_dependency_completeness.py
 
   # ── Security — check for vulnerabilities ────────────────────────────
   security:
