@@ -8,7 +8,7 @@
 
 ## Status
 
-**0.7.0** — stable provider line aligned with **`nucleusiq>=0.7.12`**.
+**0.7.1** — stable provider line aligned with **`nucleusiq>=0.7.12`**.
 
 Highlights:
 
@@ -17,6 +17,9 @@ Highlights:
 - Native OpenAI tools: `web_search`, `code_interpreter`, `file_search`, `computer_use`, `image_generation`.
 - Structured output support through the NucleusIQ resolver.
 - Native-tool observability: Responses API tool items surface as `server_tool_calls` and are emitted by core tracing as `ToolCallRecord(executed_by="provider")`.
+- Responses API usage (`input_tokens` / `output_tokens`) mapped to `prompt_tokens` / `completion_tokens` on both streaming and non-streaming paths.
+
+Self-hosted or third-party OpenAI-compatible servers (vLLM, SGLang, TGI, llama.cpp, OpenRouter, …) belong in [`nucleusiq-openai-compatible`](https://github.com/nucleusbox/NucleusIQ/tree/main/src/providers/inference/openai_compatible) — this package is the OpenAI **cloud** adapter (Responses API, hosted tools, tiktoken).
 
 ## Install
 

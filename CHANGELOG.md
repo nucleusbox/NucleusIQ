@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > **Coordinated package versions:**
 >
 > - `nucleusiq` **0.7.13**
-> - `nucleusiq-openai-compatible` **0.1.0b1** — **new**, Beta
+> - `nucleusiq-openai-compatible` **0.1.0** — **new**, Stable
 > - `nucleusiq-openai` **0.7.1** — Responses API usage accounting fixes
 > - `nucleusiq-mcp` **0.1.1** — security floor `mcp>=1.28.1`
 > - `nucleusiq-gemini` **0.3.1**, `nucleusiq-anthropic` **0.2.1**, `nucleusiq-ollama` **0.2.1**, `nucleusiq-groq` **0.1.1** — declare `PROVIDER_NAME`
@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 `ruff check src/` and `ruff format --check src/` are clean on all 679 files under the repo-root `ruff.toml`; `pyrefly` reports 0 errors on every package; `scripts/verify_core_package_layout.py` reports OK on all 8 packages.
 
-### Added — `nucleusiq-openai-compatible` 0.1.0b1 (new package, Beta)
+### Added — `nucleusiq-openai-compatible` 0.1.0 (new package, Stable)
 
 One provider for every OpenAI-protocol server, built around **bring-your-own-model / bring-your-own-key**. No model-name heuristics anywhere: capabilities are declared, not guessed, because a generic provider cannot know what `my-finetune-v3` supports.
 
@@ -117,6 +117,10 @@ The `lint` job ran an unpinned `pip install ruff`, so its verdict depended on re
 
 - GitHub Actions majors bumped across all three workflows: `actions/checkout` v6 → **v7**, `actions/setup-python` v6 → **v7**, `actions/cache` v5 → **v6**, `actions/setup-node` v6 → **v7**. Applied directly rather than by merging the open Dependabot PR, which targeted a `ci.yml` that has since grown several jobs and would have conflicted.
 - `nucleusiq-anthropic`'s `lint` group required `pyrefly>=0.33,<1`, a cap that excluded the `pyrefly` 1.x that `nucleusiq` and `nucleusiq-mcp` already require and that CI installs. Aligned to `pyrefly>=1.0,<2`.
+
+### Fixed — Gemini README examples did not construct a valid `Agent`
+
+Community PR [#38](https://github.com/nucleusbox/NucleusIQ/pull/38) (Kostas Tsoukalochoritis) reported that the `nucleusiq-gemini` README copy-paste examples used `model=` and `instructions=` on `Agent`. Those are not fields — Pydantic ignores them — so the snippet never set a system prompt. The examples now match the OpenAI README: required `prompt=ZeroShotPrompt().configure(...)`, `Task` for `execute()`, and `result.output`. Streaming samples use `event.token` (the `StreamEvent` field) rather than a non-existent `event.delta`.
 
 ### Added — CI/CD coverage for the new package
 

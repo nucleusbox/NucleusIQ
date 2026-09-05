@@ -6,7 +6,9 @@
 
 **Core package** for the NucleusIQ AI agent framework.
 
-Includes agents, prompts, tools, and utilities.
+Includes agents, prompts, tools, memory, plugins, execution modes, and tracing.
+
+Install a provider separately: `nucleusiq-openai`, `nucleusiq-gemini`, `nucleusiq-anthropic`, `nucleusiq-groq`, `nucleusiq-ollama`, `nucleusiq-openai-compatible` (vLLM / SGLang / TGI / llama.cpp / any Chat Completions server), or `nucleusiq-mcp`.
 
 See the main [README](https://github.com/nucleusbox/NucleusIQ) for full documentation.
 
@@ -14,6 +16,8 @@ See the main [README](https://github.com/nucleusbox/NucleusIQ) for full document
 
 ```bash
 pip install nucleusiq
+pip install nucleusiq-openai                    # OpenAI cloud
+pip install nucleusiq-openai-compatible         # self-hosted / OpenAI-compatible
 ```
 
 ## Quick Start

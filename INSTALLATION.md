@@ -10,8 +10,11 @@ Install the published packages from PyPI.
 # Core framework only
 pip install nucleusiq
 
-# Core + OpenAI provider (most common)
+# Core + OpenAI cloud provider (most common)
 pip install nucleusiq nucleusiq-openai
+
+# Self-hosted / any OpenAI-compatible server (vLLM, SGLang, TGI, llama.cpp, …)
+pip install nucleusiq nucleusiq-openai-compatible
 
 # With optional clustering support
 pip install "nucleusiq[clustering]"
@@ -31,7 +34,7 @@ uv add nucleusiq nucleusiq-openai
 
 ```python
 import nucleusiq
-print(nucleusiq.__version__)  # 0.1.0
+print(nucleusiq.__version__)  # 0.7.13
 ```
 
 ---
@@ -93,17 +96,21 @@ cd ../providers/llms/openai && python -m pytest tests/ -q
 
 ## Environment Variables
 
-### OpenAI Provider
+### OpenAI cloud
 
 ```bash
-# Required for nucleusiq-openai
 export OPENAI_API_KEY=sk-...
-
-# Or create a .env file in your project root
-echo "OPENAI_API_KEY=sk-..." > .env
 ```
 
-NucleusIQ automatically loads `.env` files from the project root.
+### OpenAI-compatible / self-hosted
+
+```bash
+export OPENAI_COMPATIBLE_BASE_URL=http://gpu-node-1:8000/v1
+export OPENAI_COMPATIBLE_MODEL=gemma-4-27b-it
+export OPENAI_COMPATIBLE_API_KEY=token-abc123   # omit if the server has no key
+```
+
+Or create a `.env` file in your project root. NucleusIQ automatically loads `.env` files from the project root.
 
 ---
 
@@ -112,16 +119,17 @@ NucleusIQ automatically loads `.env` files from the project root.
 NucleusIQ is a monorepo with independently installable packages:
 
 ```
-nucleusiq                  # Core framework (agents, prompts, tools, memory, plugins)
-  ├── nucleusiq-openai     # OpenAI provider (depends on nucleusiq)
-  ├── nucleusiq-gemini     # Google Gemini (planned)
-  ├── nucleusiq-ollama     # Ollama (**alpha** `nucleusiq-ollama`; local/remote via official ollama SDK; requires nucleusiq>=0.7.10)
-  ├── nucleusiq-groq       # Groq inference (planned)
-  ├── nucleusiq-pinecone   # Pinecone vector DB (planned)
-  └── nucleusiq-chroma     # ChromaDB vector DB (planned)
+nucleusiq                         # Core framework (agents, prompts, tools, memory, plugins)
+  ├── nucleusiq-openai            # OpenAI cloud (Responses API + Chat Completions)
+  ├── nucleusiq-gemini            # Google Gemini
+  ├── nucleusiq-anthropic         # Anthropic Claude
+  ├── nucleusiq-groq              # Groq (official groq SDK)
+  ├── nucleusiq-ollama            # Ollama (official ollama SDK)
+  ├── nucleusiq-openai-compatible # Any Chat Completions server (vLLM, SGLang, TGI, …)
+  └── nucleusiq-mcp               # Model Context Protocol adapter
 ```
 
-Each provider depends on `nucleusiq>=0.1.0` — install the core first, then add providers as needed.
+Most providers floor on `nucleusiq>=0.7.12`. `nucleusiq-openai-compatible` requires `nucleusiq>=0.7.13`. Install the core first, then add providers as needed.
 
 ---
 
@@ -133,7 +141,7 @@ Make sure the package is installed in your active virtual environment:
 
 ```bash
 pip list | grep nucleusiq
-# Should show: nucleusiq 0.1.0
+# Should show: nucleusiq 0.7.13
 ```
 
 ### `ModuleNotFoundError: No module named 'nucleusiq_openai'`

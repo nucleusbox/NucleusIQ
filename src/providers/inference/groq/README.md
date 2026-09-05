@@ -6,7 +6,7 @@
 
 **Groq inference provider** for [NucleusIQ](https://github.com/nucleusbox/NucleusIQ): Chat Completions via Groq’s **OpenAI-compatible** API, using Groq’s official **`groq`** Python SDK (`AsyncGroq` / `Groq`).
 
-**Status:** **0.1.0** — **Development Status :: 5 - Production/Stable**. Requires **`nucleusiq>=0.7.12`**.
+**Status:** **0.1.1** — **Development Status :: 5 - Production/Stable**. Requires **`nucleusiq>=0.7.12`**.
 
 User guide, capability matrix, and API caveats: [Groq provider guide](https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/groq-provider/).
 
@@ -14,7 +14,7 @@ User guide, capability matrix, and API caveats: [Groq provider guide](https://nu
 
 ## Install
 
-**PyPI (when published):**
+**PyPI:**
 
 ```bash
 pip install nucleusiq nucleusiq-groq
@@ -81,7 +81,7 @@ asyncio.run(main())
 - **Retries** — rate-limit and transient errors with exponential backoff; **429** + **`Retry-After`** on non-stream and **streaming open**; errors mapped to NucleusIQ `LLMError` types.
 - **Hosted tool IDs** — `nucleusiq_groq.tools.GROQ_COMPOUND_HOSTED_TOOL_IDS` / `GROQ_GPT_OSS_HOSTED_TOOL_IDS` mirror [Groq built-in docs](https://console.groq.com/docs/tool-use/built-in-tools) for reference only (**not** wired into `call` yet).
 - **Native-tool observability** — `GroqLLMResponse.server_tool_calls` is populated from `message.executed_tools` when Groq surfaces hosted/compound tool invocations on the chat completion. The core agent loop then auto-emits `ToolCallRecord(executed_by="provider")` so you can split local vs server cost / latency without provider-specific code. `LLMCallRecord.provider="groq"` is also populated automatically.
-- **Status & gates** — promoted from **Beta (`0.1.0b1`) → Stable (`0.1.0`)**; classifier `Development Status :: 5 - Production/Stable`; floor `nucleusiq>=0.7.12`. **79 unit tests, coverage 92.51%** (gate ≥ 90%).
+- **Status & gates** — first stable line **`0.1.0`**; current **`0.1.1`** (declared `PROVIDER_NAME` + dependency completeness). Floor `nucleusiq>=0.7.12`. **79 unit tests** (gate ≥ 90%).
 
 **Groq constraints you should respect:** per [Structured outputs](https://console.groq.com/docs/structured-outputs), **streaming** and **tool use** are not currently supported **with** Structured Outputs on the same request — use non-streaming `call` for `response_format`, or skip structured output when streaming / using tools.
 

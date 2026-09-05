@@ -1,6 +1,12 @@
 # nucleusiq-openai-compatible
 
-Run NucleusIQ agents against **any server that speaks the OpenAI Chat Completions protocol** — your own vLLM or SGLang deployment, llama.cpp, LM Studio, TGI, NVIDIA NIM, or an OpenAI-compatible cloud (OpenRouter, Together, Fireworks, DeepInfra, Databricks, LiteLLM, Azure OpenAI).
+[![PyPI version](https://img.shields.io/pypi/v/nucleusiq-openai-compatible?color=brightgreen)](https://pypi.org/project/nucleusiq-openai-compatible/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/nucleusiq-openai-compatible?label=downloads%2Fmonth)](https://pypistats.org/packages/nucleusiq-openai-compatible)
+[![Python versions](https://img.shields.io/pypi/pyversions/nucleusiq-openai-compatible)](https://pypi.org/project/nucleusiq-openai-compatible/)
+
+**Generic OpenAI-compatible provider** for [NucleusIQ](https://github.com/nucleusbox/NucleusIQ): run agents against **any server that speaks the OpenAI Chat Completions protocol** — your own vLLM or SGLang deployment, llama.cpp, LM Studio, TGI, NVIDIA NIM, or an OpenAI-compatible cloud (OpenRouter, Together, Fireworks, DeepInfra, Databricks, LiteLLM, Azure OpenAI v1).
+
+**Status:** **0.1.0** — **Development Status :: 5 - Production/Stable**. Requires **`nucleusiq>=0.7.13`**.
 
 **Bring your own model. Bring your own key.** Nothing is inferred from a model name, and an unauthenticated local server is a first-class case, not a workaround.
 
@@ -356,6 +362,12 @@ This package deliberately does not depend on `nucleusiq-openai`: it carries no R
 ## Not yet supported
 
 Planned for `0.2.x`: `/v1/embeddings`, vision content parts, and engine auto-detection from `/v1/models`. Guided decoding as a first-class structured-output mode (`guided_json`) is under consideration.
+
+## See also
+
+- [Root README](https://github.com/nucleusbox/NucleusIQ)
+- [Changelog](https://github.com/nucleusbox/NucleusIQ/blob/main/CHANGELOG.md)
+- [`examples/`](examples/README.md) — runnable scripts (not shipped in the wheel)
 
 ## License
 

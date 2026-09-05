@@ -8,7 +8,7 @@ Stable provider for running **NucleusIQ** agents against [Ollama](https://docs.o
 
 ## Install
 
-**0.2.0** — **Development Status :: 5 - Production/Stable**. Requires **`nucleusiq>=0.7.12`** (pulled in automatically by `pip`).
+**0.2.1** — **Development Status :: 5 - Production/Stable**. Requires **`nucleusiq>=0.7.12`** (pulled in automatically by `pip`).
 
 ```bash
 pip install nucleusiq-ollama
@@ -28,9 +28,11 @@ Runnable scripts (smoke, Agent DIRECT, streaming) live under **`examples/`** —
 
 See the [Ollama provider guide](https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/ollama-provider/) for capability matrix, environment variables, and roadmap.
 
+For Ollama's **`/v1` OpenAI shim** (or any other Chat Completions server) use [`nucleusiq-openai-compatible`](https://github.com/nucleusbox/NucleusIQ/tree/main/src/providers/inference/openai_compatible) instead — this package talks to the native Ollama API.
+
 ## Status
 
-**0.2.0** — **Development Status :: 5 - Production/Stable**. First stable line.
+**0.2.1** — **Development Status :: 5 - Production/Stable**. First stable line plus declared `PROVIDER_NAME` / dependency completeness.
 
 - **Chat + streaming + tools + structured outputs** (JSON schema / `format`) + `think` pass-through.
 - **Vision (image messages)** in the wire layer — OpenAI-style multimodal content lists with `image_url` parts whose URL is a `data:image/*;base64,...` data URL are converted to Ollama's `message.images` shape; HTTP(S) URLs are skipped with a warning (pre-encode them as data URLs to send images).

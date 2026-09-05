@@ -12,10 +12,10 @@ Connect any MCP server (stdio, Streamable HTTP, SSE) as a NucleusIQ
 
 ## Status
 
-**`0.1.0`** — **Development Status :: 5 - Production/Stable**. First stable
-line; no API changes from `0.1.0b1`. The public API (`MCPTool`, `MCPAuth`,
-exceptions) is now under semver; lower-level types may still evolve before
-`1.0.0`. Floor `nucleusiq>=0.7.12`. **248 tests passing.**
+**`0.1.1`** — **Development Status :: 5 - Production/Stable**. Security floor
+`mcp>=1.28.1`. The public API (`MCPTool`, `MCPAuth`, exceptions) is under
+semver; lower-level types may still evolve before `1.0.0`. Floor
+`nucleusiq>=0.7.12`. **235 unit tests passing.**
 
 ## Install
 
@@ -23,7 +23,7 @@ exceptions) is now under semver; lower-level types may still evolve before
 pip install nucleusiq-mcp
 ```
 
-This pulls in `nucleusiq` (core) and `mcp` (>=1.27, <2) automatically.
+This pulls in `nucleusiq` (core) and `mcp` (>=1.28.1, <2) automatically.
 
 ## Quick start
 

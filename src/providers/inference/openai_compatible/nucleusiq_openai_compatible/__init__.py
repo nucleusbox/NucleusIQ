@@ -44,7 +44,7 @@ from .structured_output import DropPolicy, ErrorPolicy, PromptPolicy
 from .tools import NATIVE_TOOL_TYPES
 from .validation import ValidationReport
 
-__version__ = "0.1.0b1"
+__version__ = "0.1.0"
 
 BaseOpenAICompatible = OpenAICompatibleLLM
 """Alias matching the ``Base<Provider>`` naming used by sibling packages."""

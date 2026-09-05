@@ -6,6 +6,8 @@
 
 Google Gemini provider for the [NucleusIQ](https://github.com/nucleusbox/NucleusIQ) AI agent framework.
 
+**Status:** **0.3.1** — **Development Status :: 5 - Production/Stable**. Requires **`nucleusiq>=0.7.12`**.
+
 ## Installation
 
 ```bash
@@ -47,24 +49,39 @@ asyncio.run(main())
 
 ### With NucleusIQ Agent
 
+`Agent` takes `name`, `prompt`, `llm`, and `config`. There is no `model=` or
+`instructions=` — the model lives on `BaseGemini`, and the system message
+lives on the prompt. The result field is `output`.
+
 ```python
 import asyncio
-from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.config import AgentConfig
+
+from nucleusiq.agents import Agent
+from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.agents.task import Task
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 from nucleusiq_gemini import BaseGemini, GeminiLLMParams
 
-async def main():
+
+async def main() -> None:
     llm = BaseGemini(model_name="gemini-2.5-flash")
-    config = AgentConfig(
-        llm_params=GeminiLLMParams(temperature=0.5, max_output_tokens=1024),
-    )
     agent = Agent(
-        llm=llm, config=config,
-        name="my-agent", model="gemini-2.5-flash",
-        instructions="You are a helpful assistant.",
+        name="gemini-assistant",
+        prompt=ZeroShotPrompt().configure(
+            system="You are a helpful assistant powered by Google Gemini.",
+        ),
+        llm=llm,
+        config=AgentConfig(
+            execution_mode=ExecutionMode.DIRECT,
+            llm_params=GeminiLLMParams(temperature=0.5, max_output_tokens=1024),
+        ),
     )
-    result = await agent.execute("Explain quantum computing simply.")
-    print(result.content)
+    await agent.initialize()
+    result = await agent.execute(
+        Task(id="gemini-hello", objective="Explain quantum computing simply."),
+    )
+    print(result.output)
+
 
 asyncio.run(main())
 ```
@@ -79,10 +96,17 @@ Single LLM call. Best for Q&A, classification, summarization.
 
 ```python
 from nucleusiq.agents.config import AgentConfig, ExecutionMode
+from nucleusiq.prompts.zero_shot import ZeroShotPrompt
 
 config = AgentConfig(execution_mode=ExecutionMode.DIRECT)
-agent = Agent(llm=llm, config=config, model="gemini-2.5-flash", ...)
-result = await agent.execute("What is the capital of France?")
+agent = Agent(
+    name="gemini-direct",
+    prompt=ZeroShotPrompt().configure(system="You are a concise assistant."),
+    llm=llm,
+    config=config,
+)
+result = await agent.execute(Task(id="q", objective="What is the capital of France?"))
+print(result.output)
 ```
 
 ### Gear 2: STANDARD — Tool-Enabled Loop (Default)
@@ -98,8 +122,15 @@ def get_weather(city: str) -> str:
     return "22°C, Sunny"
 
 config = AgentConfig(execution_mode=ExecutionMode.STANDARD)
-agent = Agent(llm=llm, config=config, tools=[get_weather], ...)
-result = await agent.execute("What's the weather in Paris?")
+agent = Agent(
+    name="gemini-standard",
+    prompt=ZeroShotPrompt().configure(system="Use tools when they help."),
+    llm=llm,
+    config=config,
+    tools=[get_weather],
+)
+result = await agent.execute(Task(id="weather", objective="What's the weather in Paris?"))
+print(result.output)
 ```
 
 ### Gear 3: AUTONOMOUS — Orchestration + Verification
@@ -112,8 +143,17 @@ config = AgentConfig(
     require_quality_check=True,
     max_iterations=5,
 )
-agent = Agent(llm=llm, config=config, tools=[...], ...)
-result = await agent.execute("Compare Python and Rust for AI applications.")
+agent = Agent(
+    name="gemini-autonomous",
+    prompt=ZeroShotPrompt().configure(system="You are a careful technical analyst."),
+    llm=llm,
+    config=config,
+    tools=[...],
+)
+result = await agent.execute(
+    Task(id="compare", objective="Compare Python and Rust for AI applications."),
+)
+print(result.output)
 ```
 
 ## Native Server-Side Tools
@@ -135,8 +175,14 @@ url_ctx = GeminiTool.url_context()
 # Google Maps — location-aware grounding
 maps = GeminiTool.google_maps()
 
-# Use with an agent
-agent = Agent(llm=llm, config=config, tools=[search, code], ...)
+# Use with an agent — same Agent constructor as above
+agent = Agent(
+    name="gemini-native-tools",
+    prompt=ZeroShotPrompt().configure(system="Ground answers in search when needed."),
+    llm=llm,
+    config=config,
+    tools=[search, code],
+)
 ```
 
 Or use directly with the LLM:
@@ -169,9 +215,11 @@ def calculate(expression: str) -> str:
     return str(eval(expression))
 
 agent = Agent(
-    llm=llm, config=config,
+    name="gemini-files",
+    prompt=ZeroShotPrompt().configure(system="Use file tools before answering."),
+    llm=llm,
+    config=config,
     tools=[file_reader, file_search, calculate],
-    ...
 )
 ```
 
@@ -183,7 +231,13 @@ NucleusIQ plugins work identically with Gemini:
 from nucleusiq.plugins.builtin import ContextWindowPlugin
 
 plugin = ContextWindowPlugin(max_messages=50, max_tokens=8000)
-agent = Agent(llm=llm, config=config, plugins=[plugin], ...)
+agent = Agent(
+    name="gemini-plugins",
+    prompt=ZeroShotPrompt().configure(system="You are a helpful assistant."),
+    llm=llm,
+    config=config,
+    plugins=[plugin],
+)
 ```
 
 ## Memory Strategies
@@ -202,7 +256,13 @@ memory = SummaryMemory(llm=llm, model="gemini-2.5-flash", max_messages=5)
 # Hybrid (summary + recent window)
 memory = SummaryWindowMemory(llm=llm, model="gemini-2.5-flash", window_size=10)
 
-agent = Agent(llm=llm, config=config, memory=memory, ...)
+agent = Agent(
+    name="gemini-memory",
+    prompt=ZeroShotPrompt().configure(system="You are a helpful assistant."),
+    llm=llm,
+    config=config,
+    memory=memory,
+)
 ```
 
 ## Structured Output
@@ -235,9 +295,9 @@ async for event in llm.call_stream(
     messages=[{"role": "user", "content": "Write a poem"}],
     max_output_tokens=512,
 ):
-    if event.type.value == "token":
-        print(event.delta, end="", flush=True)
-    elif event.type.value == "complete":
+    if event.type == "token":
+        print(event.token, end="", flush=True)
+    elif event.type == "complete":
         print(f"\n\nTotal tokens: {event.metadata.get('usage', {})}")
 ```
 
@@ -333,8 +393,13 @@ llm = BaseGemini(model_name="gemini-2.5-flash")
 from nucleusiq_openai import BaseOpenAI
 llm = BaseOpenAI(model_name="gpt-4o")
 
-# Same agent, different provider
-agent = Agent(llm=llm, config=config, ...)
+# Same agent, different provider — only `llm=` changes
+agent = Agent(
+    name="portable",
+    prompt=ZeroShotPrompt().configure(system="You are a helpful assistant."),
+    llm=llm,
+    config=config,
+)
 ```
 
 ## Supported Models
