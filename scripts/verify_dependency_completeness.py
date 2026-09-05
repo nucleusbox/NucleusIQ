@@ -40,7 +40,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+from _shipped_providers import REPO_ROOT, discover_shipped_provider_relpaths
+
+ROOT = REPO_ROOT
 CORE = ROOT / "src" / "nucleusiq"
 
 # Package directory -> statement importing that package's advertised surface.
@@ -135,6 +141,33 @@ def main() -> int:
         help="only check packages whose path contains one of these substrings",
     )
     args = parser.parse_args()
+
+    discovered = set(discover_shipped_provider_relpaths())
+    registered = set(CASES)
+    if not args.filters:
+        missing = sorted(discovered - registered)
+        extra = sorted(registered - discovered)
+        if missing or extra:
+            if missing:
+                print(
+                    "ERROR: shipped provider(s) have no CASES smoke import:",
+                    file=sys.stderr,
+                )
+                for rel in missing:
+                    print(f"  + {rel}", file=sys.stderr)
+            if extra:
+                print(
+                    "ERROR: CASES lists paths that are not shipped providers:",
+                    file=sys.stderr,
+                )
+                for rel in extra:
+                    print(f"  - {rel}", file=sys.stderr)
+            print(
+                "\nAdd the package to CASES in "
+                "scripts/verify_dependency_completeness.py.",
+                file=sys.stderr,
+            )
+            return 1
 
     selected = {
         rel: smoke

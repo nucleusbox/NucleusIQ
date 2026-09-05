@@ -22,7 +22,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+from _shipped_providers import REPO_ROOT, discover_shipped_provider_dirs
+
 CORE_TREE = REPO_ROOT / "src" / "nucleusiq" / "core"
 CORE_PYPROJECT = REPO_ROOT / "src" / "nucleusiq" / "pyproject.toml"
 
@@ -132,6 +137,48 @@ def _hatch_wheel_package_roots(pyproject: Path) -> list[str]:
     return [p for p in re.findall(r'"([^"]+)"', block) if p]
 
 
+def _hatch_sdist_excludes(pyproject: Path) -> list[str]:
+    text = pyproject.read_text(encoding="utf-8")
+    marker = "[tool.hatch.build.targets.sdist]"
+    if marker not in text:
+        return []
+    start = text.index(marker)
+    chunk = text[start : start + 800]
+    m = re.search(r"exclude\s*=\s*\[(.*?)\]", chunk, re.DOTALL)
+    if not m:
+        return []
+    return [p for p in re.findall(r'"([^"]+)"', m.group(1)) if p]
+
+
+def verify_registry_matches_disk() -> None:
+    """Fail if a shipped provider exists on disk but is missing from HATCH_PROVIDERS."""
+    registered = {hp.project_dir.resolve() for hp in HATCH_PROVIDERS}
+    discovered = {p.resolve() for p in discover_shipped_provider_dirs()}
+    missing = sorted(discovered - registered, key=str)
+    extra = sorted(registered - discovered, key=str)
+    if missing:
+        print(
+            "ERROR: shipped provider(s) on disk are not in HATCH_PROVIDERS:",
+            file=sys.stderr,
+        )
+        for p in missing:
+            print(f"  + {p.relative_to(REPO_ROOT).as_posix()}", file=sys.stderr)
+        print(
+            "\nAdd a HatchProvider entry in scripts/verify_core_package_layout.py "
+            "and a CASES entry in scripts/verify_dependency_completeness.py.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if extra:
+        print(
+            "ERROR: HATCH_PROVIDERS lists directories that are not shipped providers:",
+            file=sys.stderr,
+        )
+        for p in extra:
+            print(f"  - {p}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _package_dirs_missing_init(fs_root: Path) -> list[str]:
     """Dirs that contain .py but lack __init__.py (classic layout only)."""
     bad: list[str] = []
@@ -202,6 +249,16 @@ def verify_hatch_providers() -> None:
                 file=sys.stderr,
             )
             sys.exit(1)
+        excludes = _hatch_sdist_excludes(ppt)
+        needed = {"tests", "examples"}
+        have = {e.rstrip("/") for e in excludes}
+        if not needed.issubset(have):
+            print(
+                f"ERROR: {hp.dist_name}: sdist exclude must list tests and examples "
+                f"(got {excludes!r}) or they ship to PyPI.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         missing_init = _package_dirs_missing_init(fs_root)
         if missing_init:
             print(
@@ -225,6 +282,7 @@ def verify_hatch_providers() -> None:
 
 
 def main() -> None:
+    verify_registry_matches_disk()
     verify_core()
     verify_hatch_providers()
 

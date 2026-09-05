@@ -364,7 +364,13 @@ scripts/                         # Repo-wide tooling (e.g. verify_core_package_l
 
 ```bash
 # Monorepo: verify core setuptools packages + all Hatch provider/tool wheel roots
+# (including nucleusiq-openai-compatible). Fails if a new provider is added on
+# disk and not registered in the script.
 python scripts/verify_core_package_layout.py
+
+# Isolated import of each provider from its declared dependencies alone
+# (separate CI job: dependency-completeness)
+python scripts/verify_dependency_completeness.py
 
 # Core tests (2,607 passing; 8 live OpenAI memory tests deselected)
 cd src/nucleusiq && python -m pytest tests/ -q

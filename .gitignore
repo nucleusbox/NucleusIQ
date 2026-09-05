@@ -192,6 +192,13 @@ integration_test/
 # Internal demo scripts (CI scripts like verify_core_package_layout.py stay tracked)
 scripts/demo_*.py
 
+# Internal Jira backlog sync — not product code. Keep local, or a private ops repo
+# if the team needs to share the dashboard scripts.
+scripts/jira_*.py
+scripts/jira_*.yaml
+scripts/JIRA_DASHBOARD.md
+scripts/sync_backlog_to_jira.py
+
 # Research workspace (experiments, drafts, raw data — not for release)
 research/
 

@@ -118,6 +118,10 @@ The `lint` job ran an unpinned `pip install ruff`, so its verdict depended on re
 - GitHub Actions majors bumped across all three workflows: `actions/checkout` v6 → **v7**, `actions/setup-python` v6 → **v7**, `actions/cache` v5 → **v6**, `actions/setup-node` v6 → **v7**. Applied directly rather than by merging the open Dependabot PR, which targeted a `ci.yml` that has since grown several jobs and would have conflicted.
 - `nucleusiq-anthropic`'s `lint` group required `pyrefly>=0.33,<1`, a cap that excluded the `pyrefly` 1.x that `nucleusiq` and `nucleusiq-mcp` already require and that CI installs. Aligned to `pyrefly>=1.0,<2`.
 
+### Changed — verify scripts fail closed when a provider is added
+
+`scripts/verify_core_package_layout.py` and `scripts/verify_dependency_completeness.py` already listed `nucleusiq-openai-compatible` and already run in CI (`import-check` and `dependency-completeness`). They now also discover every Hatch package under `src/providers/{llms,inference,tools}` and fail if the hardcoded registry is missing one — so a ninth provider cannot ship without both jobs being updated. Layout additionally requires sdist `exclude` to list `tests` and `examples`. Covered by `src/nucleusiq/tests/unit/test_verify_scripts.py`.
+
 ### Fixed — Gemini README examples did not construct a valid `Agent`
 
 Community PR [#38](https://github.com/nucleusbox/NucleusIQ/pull/38) (Kostas Tsoukalochoritis) reported that the `nucleusiq-gemini` README copy-paste examples used `model=` and `instructions=` on `Agent`. Those are not fields — Pydantic ignores them — so the snippet never set a system prompt. The examples now match the OpenAI README: required `prompt=ZeroShotPrompt().configure(...)`, `Task` for `execute()`, and `result.output`. Streaming samples use `event.token` (the `StreamEvent` field) rather than a non-existent `event.delta`.
