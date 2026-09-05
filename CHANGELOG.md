@@ -113,6 +113,11 @@ The `lint` job ran an unpinned `pip install ruff`, so its verdict depended on re
 - **All 8 lockfiles regenerated** (`uv lock --upgrade`), clearing the remaining 31 alerts — `cryptography` → 50.0.1 (Bleichenbacher oracle in PKCS#7 decryption, wildcard-DNS `permittedSubtrees` escape, vulnerable bundled OpenSSL), `pyasn1` → 0.6.4 (three DoS vectors in BER/CER/DER decoding), `starlette` → 1.6.0 (`request.form()` limits ignored, authority poisoning), `python-multipart` → 0.0.32 (quadratic querystring parsing, parameter smuggling), `pydantic-settings` → 2.15.0 (symlink escape from `secrets_dir`), `mcp` → 1.29.1.
 - Regenerating the locks in one resolution supersedes the ten open Dependabot PRs, which each touched the same files and would have conflicted pairwise.
 
+### Changed — CI action and tool versions
+
+- GitHub Actions majors bumped across all three workflows: `actions/checkout` v6 → **v7**, `actions/setup-python` v6 → **v7**, `actions/cache` v5 → **v6**, `actions/setup-node` v6 → **v7**. Applied directly rather than by merging the open Dependabot PR, which targeted a `ci.yml` that has since grown several jobs and would have conflicted.
+- `nucleusiq-anthropic`'s `lint` group required `pyrefly>=0.33,<1`, a cap that excluded the `pyrefly` 1.x that `nucleusiq` and `nucleusiq-mcp` already require and that CI installs. Aligned to `pyrefly>=1.0,<2`.
+
 ### Added — CI/CD coverage for the new package
 
 `nucleusiq-openai-compatible` was absent from every pipeline job except `lint`. Now wired into: its own `test-openai-compatible` matrix job (Python 3.10 + 3.12, `--cov-fail-under=95`), the `test-uv` install check, `type-check` (pyrefly), `import-check` (including an assertion that `PROVIDER_NAME == "openai_compatible"`), the `security` pip-audit sweep, the `build` matrix with `twine check`, and a `publish-openai-compatible` job in `publish.yml` gated on the same PyPI version check as its siblings. Its `test` dependency group gained `httpx`, `hatchling` and `tokenizers` so the loopback HTTP server, the real-artifact packaging test and the accurate token counter all execute rather than skip.
