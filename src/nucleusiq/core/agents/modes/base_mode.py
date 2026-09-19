@@ -671,10 +671,7 @@ class BaseExecutionMode(ABC):
                     # the same compaction (and emergency can loop toward
                     # Autonomous's 300-call default). Any reduced view is
                     # the continuing transcript — not only emergency.
-                    if (
-                        caller_messages is not None
-                        and prepared is not caller_messages
-                    ):
+                    if caller_messages is not None and prepared is not caller_messages:
                         caller_messages[:] = prepared
                         rec = recorder_for(agent)
                         if rec is not None:
