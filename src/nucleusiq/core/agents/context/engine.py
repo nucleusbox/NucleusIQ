@@ -580,7 +580,7 @@ class ContextEngine:
                 break
             msg = out[i]
             content = msg.content
-            if msg.role != "tool":
+            if msg.role != "tool" or not isinstance(content, str):
                 continue
             key = receipt_store_key(content)
             if key is None:

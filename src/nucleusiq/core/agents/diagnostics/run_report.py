@@ -299,9 +299,18 @@ class RunReport(BaseModel):
 
     def analyze(self) -> RunReport:
         """Return a copy with ``findings`` / ``recommendations`` (re)computed."""
-        from nucleusiq.agents.diagnostics.analyzer import attach_findings
+        from nucleusiq.agents.diagnostics import analyzer as _an
 
-        return attach_findings(self)
+        # Inline ``attach_findings`` so the copy stays this class identity.
+        # Pyrefly sees this module as ``agents.diagnostics`` (search-path)
+        # and the imported helper as ``nucleusiq.agents.diagnostics``.
+        found = _an.analyze(self)  # pyrefly: ignore[bad-argument-type]
+        return self.model_copy(
+            update={
+                "findings": tuple(found),
+                "recommendations": tuple(_an.recommendations(found)),
+            }
+        )
 
 
 class RunRecorder:

@@ -388,7 +388,7 @@ class BaseExecutionMode(ABC):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def structured_contract(agent: "Agent") -> Any:
+    def structured_contract(agent: Any) -> Any:
         """Return a ``StructuredOutputContract`` when ``response_format`` is set.
 
         ``None`` for prose runs, for agents without the resolver (mocks),
@@ -663,18 +663,22 @@ class BaseExecutionMode(ABC):
         engine = getattr(agent, "_context_engine", None)
         if engine is not None and messages is not None:
             try:
-                messages = await engine.prepare(messages)
-                call_kwargs["messages"] = messages_to_dicts(messages)
-                # prepare() fits a *copy*. If that copy is reduced and
-                # we keep the fat live list, the next turn re-triggers
-                # the same compaction (and emergency can loop toward
-                # Autonomous's 300-call default). Any reduced view is
-                # the continuing transcript — not only emergency.
-                if caller_messages is not None and messages is not caller_messages:
-                    caller_messages[:] = messages
-                    rec = recorder_for(agent)
-                    if rec is not None:
-                        rec.record_writeback()
+                prepared = await engine.prepare(messages)
+                if isinstance(prepared, list):
+                    call_kwargs["messages"] = messages_to_dicts(prepared)
+                    # prepare() fits a *copy*. If that copy is reduced and
+                    # we keep the fat live list, the next turn re-triggers
+                    # the same compaction (and emergency can loop toward
+                    # Autonomous's 300-call default). Any reduced view is
+                    # the continuing transcript — not only emergency.
+                    if (
+                        caller_messages is not None
+                        and prepared is not caller_messages
+                    ):
+                        caller_messages[:] = prepared
+                        rec = recorder_for(agent)
+                        if rec is not None:
+                            rec.record_writeback()
             except Exception:
                 pass
 
@@ -762,9 +766,13 @@ class BaseExecutionMode(ABC):
     ) -> Any:
         """One provider round-trip through the plugin pipeline, with timeout."""
 
+        llm = agent.llm
+        if llm is None:
+            raise RuntimeError("agent.llm must be set before calling call_llm")
+
         async def _do() -> Any:
             if pm is None or not pm.has_plugins():
-                return await agent.llm.call(**call_kwargs)
+                return await llm.call(**call_kwargs)
             reserved = {"model", "messages", "tools", "max_output_tokens"}
             extra = {k: v for k, v in call_kwargs.items() if k not in reserved}
             request = ModelRequest(
@@ -779,7 +787,7 @@ class BaseExecutionMode(ABC):
                 extra_kwargs=extra,
             )
             request = await pm.run_before_model(request)
-            response = await pm.execute_model_call(request, agent.llm.call)
+            response = await pm.execute_model_call(request, llm.call)
             return await pm.run_after_model(request, response)
 
         if timeout is None:
@@ -903,9 +911,10 @@ class BaseExecutionMode(ABC):
                     prompt_tokens,
                     after,
                 )
-                call_kwargs["messages"] = messages_to_dicts(reduced)
-                if caller_messages is not None:
-                    caller_messages[:] = reduced
+                if isinstance(reduced, list):
+                    call_kwargs["messages"] = messages_to_dicts(reduced)
+                    if caller_messages is not None:
+                        caller_messages[:] = reduced
                 if rec is not None:
                     rec.record_compaction("emergency_compactor", emergency=True)
                     rec.record_writeback()
@@ -1122,20 +1131,18 @@ class BaseExecutionMode(ABC):
             yield StreamEvent.llm_start_event(call_round)
 
             engine = getattr(agent, "_context_engine", None)
-            prepared = messages
             if engine is not None:
                 try:
-                    prepared = await engine.prepare(messages)
-                    if prepared is not messages:
-                        messages[:] = prepared
-                        prepared = messages
+                    compacted = await engine.prepare(messages)
+                    if isinstance(compacted, list) and compacted is not messages:
+                        messages[:] = compacted
                         if recorder is not None:
                             recorder.record_writeback()
                 except Exception:
-                    prepared = messages
+                    pass
 
             call_kwargs = self.build_call_kwargs(
-                agent, prepared, tool_specs, max_output_tokens=max_output_tokens
+                agent, messages, tool_specs, max_output_tokens=max_output_tokens
             )
 
             complete_event: StreamEvent | None = None
@@ -1473,18 +1480,25 @@ class BaseExecutionMode(ABC):
                                 ),
                             )
                         )
+                    synthesis_messages: list[ChatMessage] = list(synth_msgs)
 
                     engine = getattr(agent, "_context_engine", None)
                     if engine is not None:
                         try:
-                            synth_msgs = await engine.prepare(synth_msgs)
+                            compacted = await engine.prepare(synthesis_messages)
+                            if isinstance(compacted, list):
+                                synthesis_messages = compacted
                         except Exception:
                             pass
                         # v2 §7 — rehydrate evidence markers so the
                         # tools=None synthesis call has the original
                         # bytes, not just markers.  Fail-open.
                         try:
-                            synth_msgs = engine.prepare_for_synthesis(synth_msgs)
+                            rehydrated = engine.prepare_for_synthesis(
+                                synthesis_messages
+                            )
+                            if isinstance(rehydrated, list):
+                                synthesis_messages = rehydrated
                         except Exception as exc:
                             agent._logger.debug(
                                 "Streaming synthesis rehydration skipped "
@@ -1494,7 +1508,7 @@ class BaseExecutionMode(ABC):
 
                     synth_kwargs = self.build_call_kwargs(
                         agent,
-                        synth_msgs,
+                        synthesis_messages,
                         None,
                         max_output_tokens=max_output_tokens,
                     )
