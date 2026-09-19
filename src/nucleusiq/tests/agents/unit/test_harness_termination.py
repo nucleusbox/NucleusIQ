@@ -39,8 +39,9 @@ from nucleusiq.agents.modes.standard_mode import _IDEMPOTENT_DEDUP_BANNER
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.streaming.events import StreamEventType
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                     #

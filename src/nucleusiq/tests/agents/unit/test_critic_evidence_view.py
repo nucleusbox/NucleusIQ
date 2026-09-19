@@ -27,6 +27,7 @@ from nucleusiq.agents.context.config import ContextConfig
 from nucleusiq.agents.diagnostics.analyzer import analyze
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 from nucleusiq.llms.mock_llm import MockLLM
+
 from nucleusiq.tests.conftest import make_test_prompt
 
 DOCS = [f"office/invoice_{i:02d}.pdf" for i in range(1, 10)]

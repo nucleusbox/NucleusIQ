@@ -42,8 +42,9 @@ from nucleusiq.agents.context.shared_evidence import (
 from nucleusiq.agents.context.store import ContentStore
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                     #

@@ -36,8 +36,9 @@ from nucleusiq.agents.context.coverage import (
 from nucleusiq.agents.context.document_search import InMemoryDocumentCorpus
 from nucleusiq.agents.task import Task
 from nucleusiq.llms.mock_llm import MockLLM
-from nucleusiq.tests.conftest import make_test_prompt
 from nucleusiq.tools import BaseTool
+
+from nucleusiq.tests.conftest import make_test_prompt
 
 DOC_TEXT = (
     "Invoice 4471 from Acme Corp dated 2026-03-01. Total amount 12,500 USD. "

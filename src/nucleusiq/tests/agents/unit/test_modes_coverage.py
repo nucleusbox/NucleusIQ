@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import BaseModel
 from nucleusiq.agents.agent import Agent
 from nucleusiq.agents.config import AgentConfig, AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
@@ -13,6 +12,7 @@ from nucleusiq.agents.task import Task
 from nucleusiq.llms.errors import LLMError
 from nucleusiq.llms.mock_llm import MockLLM
 from nucleusiq.memory.full_history import FullHistoryMemory
+from pydantic import BaseModel
 
 from nucleusiq.tests.conftest import make_test_prompt
 
