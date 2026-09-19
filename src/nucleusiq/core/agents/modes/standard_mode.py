@@ -13,6 +13,7 @@ Characteristics:
 - Multiple tool calls supported
 """
 
+import asyncio
 import hashlib
 import json
 from collections.abc import AsyncGenerator
@@ -25,7 +26,16 @@ if TYPE_CHECKING:
 from nucleusiq.agents.chat_models import ChatMessage, ToolCallRequest
 from nucleusiq.agents.components.executor import Executor
 from nucleusiq.agents.config.agent_config import AgentState
+from nucleusiq.agents.diagnostics.run_report import TerminationReason, recorder_for
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
+from nucleusiq.agents.modes.loop_guards import (
+    ContextToolBudget,
+    ProgressTracker,
+    deadline_exceeded,
+    explicit_timeout,
+    is_stalled_tool_content,
+    split_tool_call_counts,
+)
 from nucleusiq.agents.modes.tool_payload import tool_result_to_context_string
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.usage.usage_tracker import CallPurpose
@@ -47,12 +57,15 @@ _IDEMPOTENT_DEDUP_BANNER = (
     "args: {args_preview}\n"
     "You already called this tool with these exact arguments earlier in "
     "this execution (original tool_call_id: {original_call_id}).\n"
-    "The earlier result is in your conversation history above — either "
-    "as the original tool message, or as an [observation consumed] "
-    "marker if the masker has since fired.\n"
+    "The earlier result is in your conversation history above — as "
+    "the original tool message, an [observation consumed] / "
+    "[context_ref] marker, or an [evidence available for recall] "
+    "catalog if compaction evicted the bulky turn.\n"
     "Do NOT re-fetch.  Use the prior result, or call "
-    "recall_tool_result(ref=...) if it was masked.  Make progress with "
-    "what you already have."
+    "recall_tool_result(ref=...) if you can see a ref.  If no "
+    "ref is visible, call list_recalled_evidence() to recover "
+    "refs, then recall_tool_result.  Make progress with what you "
+    "already have."
 )
 
 
@@ -234,14 +247,40 @@ class StandardMode(BaseExecutionMode):
         call_round = 0
         empty_retries_remaining = 2
         pre_synth_snapshot: list[ChatMessage] | None = None
+        recorder = recorder_for(agent)
+        context_budget = ContextToolBudget(
+            self._effective_max_context_tool_calls(agent, max_tool_calls)
+        )
+        progress = ProgressTracker()
+        # WS-8: when the user set ``response_format`` the schema is the
+        # deliverable — every content exit is checked against it.
+        contract = self.structured_contract(agent)
+        # Why the loop stopped when it falls out of ``while`` below.  The
+        # default is the classic budget exhaustion; guards override it.
+        stop_reason = TerminationReason.TOOL_BUDGET
+        stop_detail = f"Maximum tool calls ({max_tool_calls}) reached"
 
         while tool_call_count < max_tool_calls:
+            if deadline_exceeded(agent):
+                stop_reason = TerminationReason.DEADLINE
+                stop_detail = (
+                    f"Wall-clock budget (max_execution_time="
+                    f"{getattr(agent.config, 'max_execution_time', '?')}s) exhausted "
+                    f"after {tool_call_count} tool calls"
+                )
+                break
             call_round += 1
+            if recorder is not None:
+                recorder.record_round(call_round)
 
             # Snapshot messages *before* call_llm (which runs
             # post_response and may mask tool results).  Synthesis
             # needs the full, unmasked context to generate output.
-            if agent.config.enable_synthesis and tool_call_count > 0 and call_round > 2:
+            if (
+                self.should_run_synthesis(agent)
+                and tool_call_count > 0
+                and call_round > 2
+            ):
                 pre_synth_snapshot = list(messages)
 
             if purpose_override is not None:
@@ -260,6 +299,16 @@ class StandardMode(BaseExecutionMode):
 
             structured = self.handle_structured_output(agent, response)
             if structured is not None:
+                # Provider returned an already-parsed object; still verify
+                # it against the schema so ``AgentResult.parsed`` is typed.
+                if contract is not None:
+                    payload = (
+                        structured.get("output")
+                        if isinstance(structured, dict)
+                        else structured
+                    )
+                    self._note_schema_check(agent, contract.check(payload))
+                self._terminate(agent, TerminationReason.STRUCTURED_OUTPUT)
                 return structured
 
             self.validate_response(response)
@@ -271,38 +320,91 @@ class StandardMode(BaseExecutionMode):
 
             if refusal:
                 agent.state = AgentState.ERROR
+                self._terminate(agent, TerminationReason.REFUSAL, str(refusal))
                 return f"Error: LLM refused request: {refusal}"
 
             if tool_calls:
+                round_start = len(messages)
                 result = await self._process_tool_calls(
                     agent, msg, tool_calls, messages, tool_round=call_round
                 )
                 if result is not None:
+                    self._terminate(agent, TerminationReason.ERROR, str(result)[:200])
                     return result
                 # Auto-injected recall tools (memory operations) do not
                 # consume the tool-call budget — see §6.4 of the v2
                 # redesign.  The user's quota is for *external actions*.
+                # They have their own cap (``ContextToolBudget``) so a
+                # model stuck on recall cannot spin forever.
                 #
                 # ``tool_calls`` here is still the raw provider-shape
                 # list (OpenAI uses ``tc.function.name``); we route it
                 # through ``_parse_tool_call`` so the recall check sees
-                # the canonical name regardless of wire format.  Without
-                # this, OpenAI-shaped recall calls would be counted
-                # because ``getattr(tc, "name", None)`` returns ``None``.
-                from nucleusiq.agents.context.workspace_tools import (
-                    is_context_management_tool_name,
+                # the canonical name regardless of wire format.
+                business, ctx_calls = split_tool_call_counts(
+                    [self._parse_tool_call(tc)[1] for tc in tool_calls]
                 )
+                tool_call_count += business
+                context_budget.consume(ctx_calls)
 
-                tool_call_count += sum(
-                    1
-                    for tc in tool_calls
-                    if not is_context_management_tool_name(self._parse_tool_call(tc)[1])
-                )
+                verdict = progress.observe(messages[round_start:])
+                if recorder is not None:
+                    if verdict.stalled_round:
+                        recorder.record_stalled_round()
+                    if verdict.identical_streak > 1:
+                        recorder.record_no_progress_round()
+
+                if verdict.no_progress:
+                    stop_reason = TerminationReason.NO_PROGRESS
+                    stop_detail = f"No progress: {verdict.reason}"
+                    agent._logger.warning(
+                        "Stopping tool loop — %s (round %d)", verdict.reason, call_round
+                    )
+                    break
+                if verdict.should_nudge:
+                    nudge = progress.nudge_message()
+                    if nudge is not None:
+                        agent._logger.warning(
+                            "Loop guard: repeated tool round detected (round %d) — "
+                            "nudging model to answer with existing evidence",
+                            call_round,
+                        )
+                        messages.append(nudge)
+                        if recorder is not None:
+                            recorder.record_event("no_progress_nudge")
+                if context_budget.exhausted:
+                    stop_reason = TerminationReason.CONTEXT_TOOL_BUDGET
+                    stop_detail = (
+                        f"Context-management tool budget ({context_budget.cap}) "
+                        "exhausted"
+                    )
+                    agent._logger.warning(
+                        "Stopping tool loop — %d context-management tool calls "
+                        "reached the cap of %d",
+                        context_budget.used,
+                        context_budget.cap,
+                    )
+                    break
+                if self.emergency_loop_exhausted(agent):
+                    stop_reason = TerminationReason.EMERGENCY_COMPACTION
+                    stop_detail = (
+                        "Repeated emergency compaction — context cannot absorb "
+                        "more tool results"
+                    )
+                    agent._logger.warning(
+                        "Stopping tool loop after repeated emergency "
+                        "compaction — context cannot absorb more tool results"
+                    )
+                    break
                 continue
 
             if content:
                 synth_threshold = getattr(agent.config, "synthesis_word_threshold", 500)
-                if (
+                if contract is not None:
+                    content, _check = await self.enforce_structured_output(
+                        agent, content, messages, contract
+                    )
+                elif (
                     pre_synth_snapshot is not None
                     and len(content.split()) < synth_threshold
                 ):
@@ -324,10 +426,13 @@ class StandardMode(BaseExecutionMode):
                 self._finalize_post_response(agent, messages)
                 agent.state = AgentState.COMPLETED
                 await self._store_in_memory(agent, task, content)
+                self._terminate(agent, TerminationReason.COMPLETED)
                 return content
 
             if empty_retries_remaining > 0:
                 empty_retries_remaining -= 1
+                if recorder is not None:
+                    recorder.record_empty_response()
                 messages.append(
                     ChatMessage(
                         role="user",
@@ -342,28 +447,65 @@ class StandardMode(BaseExecutionMode):
             agent._logger.error("LLM returned no tool calls and no content after retry")
             agent.state = AgentState.ERROR
             objective = self.get_objective(task)
+            self._terminate(
+                agent,
+                TerminationReason.EMPTY_RESPONSE,
+                "LLM returned no content and no tool calls after retries",
+            )
             return (
                 f"Error: LLM did not respond. Task "
                 f"'{objective[:80]}...' may require AUTONOMOUS mode "
                 "for multi-step execution."
             )
 
-        agent._logger.warning("Maximum tool calls (%d) reached", max_tool_calls)
-        if agent.config.enable_synthesis and tool_call_count > 0:
+        # --- Loop stopped by a guard or by the tool budget ------------------
+        # Whatever stopped us, the model has gathered *something*; give it
+        # one tools-free chance to turn that into a deliverable before we
+        # fail the run.  ``_terminate`` records why we got here so the
+        # RunReport shows e.g. ``no_progress`` even when synthesis rescues
+        # the answer.
+        agent._logger.warning("%s", stop_detail)
+        self._terminate(agent, stop_reason, stop_detail, at_tool_call=tool_call_count)
+        if contract is not None and tool_call_count > 0:
             agent._logger.info(
-                "Tool-call budget exhausted after %d calls — forcing "
-                "tools-free synthesis from current compacted context",
+                "Tool loop stopped after %d calls (%s) — running structured "
+                "finalizer for schema %s",
                 tool_call_count,
+                stop_reason.value,
+                contract.schema_name,
+            )
+            try:
+                content = await self._structured_finalizer_pass(
+                    agent, list(messages), contract
+                )
+            except Exception as e:
+                agent._logger.error(
+                    "Structured finalizer after loop stop failed: %s", e
+                )
+                agent.state = AgentState.ERROR
+                return f"Error: {stop_detail}; structured finalizer failed: {e}"
+            check = contract.check(content)
+            self._note_schema_check(agent, check)
+            text = content if isinstance(content, str) else (check.canonical_json or "")
+            if text.strip():
+                messages.append(ChatMessage(role="assistant", content=text))
+                self._finalize_post_response(agent, messages)
+                agent.state = AgentState.COMPLETED
+                await self._store_in_memory(agent, task, text)
+                return text
+        elif self.should_run_synthesis(agent) and tool_call_count > 0:
+            agent._logger.info(
+                "Tool loop stopped after %d calls (%s) — forcing tools-free "
+                "synthesis from current compacted context",
+                tool_call_count,
+                stop_reason.value,
             )
             try:
                 content = await self._synthesis_pass(agent, list(messages))
             except Exception as e:
-                agent._logger.error("Synthesis after tool-call cap failed: %s", e)
+                agent._logger.error("Synthesis after loop stop failed: %s", e)
                 agent.state = AgentState.ERROR
-                return (
-                    f"Error: Maximum tool calls ({max_tool_calls}) reached; "
-                    f"synthesis failed: {e}"
-                )
+                return f"Error: {stop_detail}; synthesis failed: {e}"
 
             if content.strip():
                 messages.append(ChatMessage(role="assistant", content=content))
@@ -373,7 +515,35 @@ class StandardMode(BaseExecutionMode):
                 return content
 
         agent.state = AgentState.ERROR
-        return f"Error: Maximum tool calls ({max_tool_calls}) reached"
+        return f"Error: {stop_detail}"
+
+    # ------------------------------------------------------------------ #
+    # Termination bookkeeping                                             #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _terminate(
+        agent: "Agent",
+        reason: TerminationReason,
+        message: str = "",
+        *,
+        at_tool_call: int | None = None,
+    ) -> None:
+        recorder = recorder_for(agent)
+        if recorder is not None:
+            recorder.set_termination(reason, message, at_tool_call=at_tool_call)
+
+    @staticmethod
+    def _effective_max_context_tool_calls(agent: "Agent", max_tool_calls: int) -> int:
+        getter = getattr(agent.config, "get_effective_max_context_tool_calls", None)
+        if callable(getter):
+            try:
+                value = getter()
+                if isinstance(value, int):
+                    return value
+            except Exception:
+                pass
+        return 2 * max_tool_calls
 
     # ------------------------------------------------------------------ #
     # Tool-call extraction helpers                                       #
@@ -443,6 +613,10 @@ class StandardMode(BaseExecutionMode):
             getattr(agent, "_tool_dedup_cache", None) or {}
         )
         agent._tool_dedup_cache = dedup_cache
+        recorder = recorder_for(agent)
+        from nucleusiq.agents.context.workspace_tools import (
+            is_context_management_tool_name,
+        )
 
         for tc in parsed_calls:
             if not tc.name:
@@ -450,6 +624,10 @@ class StandardMode(BaseExecutionMode):
                 continue
 
             agent._logger.info("Tool requested: %s", tc.name)
+            if recorder is not None:
+                recorder.record_tool_call(
+                    context_management=is_context_management_tool_name(tc.name)
+                )
 
             tool = _get_tool_by_name(agent, tc.name)
             is_idempotent = bool(getattr(tool, "idempotent", False))
@@ -477,6 +655,8 @@ class StandardMode(BaseExecutionMode):
                     args_hash,
                     prior_call_id,
                 )
+                if recorder is not None:
+                    recorder.record_dedup_banner()
                 messages.append(
                     ChatMessage(
                         role="tool",
@@ -488,7 +668,27 @@ class StandardMode(BaseExecutionMode):
                 continue
 
             try:
-                tool_result = await self.call_tool(agent, tc, tool_round=tool_round)
+                step_timeout = explicit_timeout(
+                    getattr(agent, "config", None), "step_timeout"
+                )
+                if step_timeout is None:
+                    tool_result = await self.call_tool(agent, tc, tool_round=tool_round)
+                else:
+                    try:
+                        tool_result = await asyncio.wait_for(
+                            self.call_tool(agent, tc, tool_round=tool_round),
+                            timeout=step_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        # A slow tool is evidence the model can reason
+                        # about, not a reason to abort the run.
+                        tool_result = (
+                            f"Error: Tool '{tc.name}' timed out after "
+                            f"{step_timeout:g}s (step_timeout). Continue without it."
+                        )
+                        agent._logger.warning("%s", tool_result)
+                        if recorder is not None:
+                            recorder.record_tool_error()
                 try:
                     tool_args = json.loads(tc.arguments) if tc.arguments else {}
                 except (json.JSONDecodeError, TypeError):
@@ -500,6 +700,8 @@ class StandardMode(BaseExecutionMode):
                     tool_args=tool_args,
                 )
                 tool_result_str = tool_result_to_context_string(tool_result)
+                if recorder is not None and is_stalled_tool_content(tool_result_str):
+                    recorder.record_recall_error()
 
                 # Context window management: compress large tool results
                 engine = getattr(agent, "_context_engine", None)
@@ -523,9 +725,13 @@ class StandardMode(BaseExecutionMode):
                 if is_idempotent and tc.id is not None:
                     dedup_cache[cache_key] = tc.id
             except ToolExecutionError:
+                if recorder is not None:
+                    recorder.record_tool_error()
                 raise
             except Exception as e:
                 agent._logger.error("Tool execution failed: %s", e)
+                if recorder is not None:
+                    recorder.record_tool_error()
                 agent.state = AgentState.ERROR
                 return f"Error: Tool '{tc.name}' execution failed: {str(e)}"
 
@@ -624,6 +830,9 @@ class StandardMode(BaseExecutionMode):
             None,
             max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 2048),
         )
+        rec = recorder_for(agent)
+        if rec is not None:
+            rec.record_synthesis_run()
         response = await self.call_llm(
             agent,
             call_kwargs,

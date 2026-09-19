@@ -15,9 +15,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from nucleusiq.agents.components.decomposer import (
     Decomposer,
+    SubTaskFinding,
     TaskAnalysis,
+    _sub_agent_config,
 )
-from nucleusiq.agents.config.agent_config import AgentConfig
+from nucleusiq.agents.config.agent_config import AgentConfig, ExecutionMode
+from nucleusiq.agents.context.config import ContextConfig
 from nucleusiq.agents.task import Task
 
 # ================================================================== #
@@ -357,6 +360,86 @@ class TestCreateSubAgent:
         assert config.execution_mode.value == "standard"
 
     @patch("nucleusiq.agents.agent.Agent")
+    async def test_sub_agent_inherits_parent_context_budget(self, MockAgent):
+        """COMPLEX children must not fall back to the 8K default window."""
+        instance = MagicMock()
+        instance.initialize = AsyncMock()
+        MockAgent.return_value = instance
+
+        parent = _make_parent()
+        parent.config = AgentConfig(
+            execution_mode=ExecutionMode.AUTONOMOUS,
+            context=ContextConfig(
+                max_context_tokens=65_536,
+                optimal_budget=48_000,
+                response_reserve=4_096,
+            ),
+        )
+        await Decomposer.create_sub_agent(parent, "sub1", "Do something")
+        config = MockAgent.call_args.kwargs["config"]
+        assert config.execution_mode is ExecutionMode.STANDARD
+        assert config.context is not None
+        assert config.context.max_context_tokens == 65_536
+        assert config.context.optimal_budget == 48_000
+        assert config.context.response_reserve == 4_096
+        assert config.context is not parent.config.context
+
+    @patch("nucleusiq.agents.agent.Agent")
+    async def test_sub_agent_context_override_wins(self, MockAgent):
+        instance = MagicMock()
+        instance.initialize = AsyncMock()
+        MockAgent.return_value = instance
+
+        parent = _make_parent()
+        parent.config = AgentConfig(
+            execution_mode=ExecutionMode.AUTONOMOUS,
+            context=ContextConfig(max_context_tokens=65_536),
+            sub_agent_context=ContextConfig(
+                max_context_tokens=32_768,
+                optimal_budget=24_000,
+            ),
+        )
+        await Decomposer.create_sub_agent(parent, "sub1", "Do something")
+        config = MockAgent.call_args.kwargs["config"]
+        assert config.context.max_context_tokens == 32_768
+        assert config.context.optimal_budget == 24_000
+
+    @patch("nucleusiq.agents.agent.Agent")
+    async def test_sub_agent_inherits_max_tool_calls(self, MockAgent):
+        instance = MagicMock()
+        instance.initialize = AsyncMock()
+        MockAgent.return_value = instance
+
+        parent = _make_parent()
+        parent.config = AgentConfig(
+            execution_mode=ExecutionMode.AUTONOMOUS,
+            max_tool_calls=40,
+            max_retries=2,
+        )
+        await Decomposer.create_sub_agent(parent, "sub1", "Do something")
+        kwargs = MockAgent.call_args.kwargs
+        config = kwargs["config"]
+        assert config.max_tool_calls == 40
+        assert config.max_retries == 2
+        assert config.get_effective_max_tool_calls() == 40
+        assert "plugins" not in kwargs or not kwargs["plugins"]
+
+    @patch("nucleusiq.agents.agent.Agent")
+    async def test_sub_agent_unset_max_tool_calls_uses_standard_default(
+        self, MockAgent
+    ):
+        instance = MagicMock()
+        instance.initialize = AsyncMock()
+        MockAgent.return_value = instance
+
+        parent = _make_parent()
+        parent.config = AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS)
+        await Decomposer.create_sub_agent(parent, "sub1", "Do something")
+        config = MockAgent.call_args.kwargs["config"]
+        assert config.max_tool_calls is None
+        assert config.get_effective_max_tool_calls() == 80
+
+    @patch("nucleusiq.agents.agent.Agent")
     async def test_sub_agent_has_no_memory(self, MockAgent):
         instance = MagicMock()
         instance.initialize = AsyncMock()
@@ -504,6 +587,23 @@ class TestConfigFields:
     def test_max_sub_agents_default(self):
         config = AgentConfig()
         assert config.max_sub_agents == 5
+        assert config.sub_agent_context is None
+
+    def test_sub_agent_config_without_parent_config_stays_standard(self):
+        parent = _make_parent()
+        cfg = _sub_agent_config(parent)
+        assert cfg.execution_mode is ExecutionMode.STANDARD
+        assert cfg.context is None
+
+    def test_sub_agent_inherits_resolved_engine_window_when_context_unset(self):
+        """Child must not re-hit DEFAULT_CONTEXT_WINDOW (8192) if the parent
+        engine already sized a real window."""
+        parent = _make_parent()
+        parent.config = AgentConfig(execution_mode=ExecutionMode.AUTONOMOUS)
+        parent._context_engine = MagicMock(resolved_max_tokens=65_536)
+        cfg = _sub_agent_config(parent)
+        assert cfg.context is not None
+        assert cfg.context.max_context_tokens == 65_536
 
     def test_llm_review_default(self):
         config = AgentConfig()
@@ -513,3 +613,98 @@ class TestConfigFields:
         config = AgentConfig(max_sub_agents=10, llm_review=True)
         assert config.max_sub_agents == 10
         assert config.llm_review is True
+
+
+# ================================================================== #
+# Child failure visibility + auxiliary child tool budget               #
+# ================================================================== #
+
+
+class _ErrorResult:
+    """Shape of an ``AgentResult`` whose child ended in error: no output,
+    a status enum, a termination reason and the error text."""
+
+    class _Status:
+        value = "error"
+
+    status = _Status()
+    termination_reason = "error"
+    error = (
+        "Agent 'x-sub-coverage-followup' has 19 tools but STANDARD mode allows max 8."
+    )
+    output = None
+
+    def __str__(self) -> str:
+        return ""
+
+
+class TestChildFailureVisibility:
+    def test_absorb_result_keeps_the_error_text(self):
+        finding = SubTaskFinding(id="coverage-followup", objective="o")
+        finding.absorb_result(_ErrorResult())
+        assert finding.status == "error"
+        assert finding.termination_reason == "error"
+        assert finding.error.startswith("Agent 'x-sub-coverage-followup' has 19 tools")
+        # ``str(raw)`` was "" — the result now carries the reason so
+        # synthesis can state the gap instead of seeing an empty finding.
+        assert finding.result == f"Error: {finding.error}"
+        assert finding.failed
+        assert finding.to_dict()["error"] == finding.error
+
+    def test_absorb_result_prefers_real_output_when_present(self):
+        class _Ok:
+            class _Status:
+                value = "success"
+
+            status = _Status()
+            termination_reason = "completed"
+            error = None
+
+            def __str__(self) -> str:
+                return "nine records"
+
+        finding = SubTaskFinding(id="b1", objective="o")
+        finding.absorb_result(_Ok())
+        assert finding.result == "nine records"
+        assert finding.error == ""
+        assert not finding.failed
+        assert "error" not in finding.to_dict()
+
+
+class TestAuxChildToolBudget:
+    """A follow-up over four resources gets ``2 × 4 = 8`` calls — but the
+    parent hands it every business tool it has.  ``Agent.execute`` treats
+    ``max_tool_calls`` as the maximum number of user tools, so the child
+    died before its first LLM call.  The budget must cover the tool list."""
+
+    @staticmethod
+    def _tools(names):
+        out = []
+        for n in names:
+            tool = MagicMock()
+            tool.name = n
+            out.append(tool)
+        return out
+
+    def test_budget_is_raised_to_the_tool_count(self):
+        tools = self._tools([f"tool_{i}" for i in range(19)])
+        assert Decomposer._aux_tool_budget(tools, 8) == 19
+
+    def test_budget_is_kept_when_it_already_covers_the_tools(self):
+        tools = self._tools(["read_document"])
+        assert Decomposer._aux_tool_budget(tools, 8) == 8
+
+    def test_context_management_tools_do_not_count(self):
+        tools = self._tools(
+            [
+                "read_document",
+                "recall_tool_result",
+                "search_document_corpus",
+                "list_evidence",
+                "write_workspace_note",
+            ]
+        )
+        assert Decomposer._aux_tool_budget(tools, 2) == 2
+
+    def test_never_below_one(self):
+        assert Decomposer._aux_tool_budget([], 0) == 1

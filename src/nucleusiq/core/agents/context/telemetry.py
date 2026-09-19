@@ -24,6 +24,10 @@ class CompactionEvent(BaseModel):
     tokens_freed: int
     artifacts_offloaded: int = 0
     duration_ms: float = 0.0
+    # Tool results dropped before any assistant turn had read them
+    # (emergency tier only).  Non-zero means the model answered without
+    # evidence it had asked for.
+    unseen_evicted: int = 0
 
 
 class ContextTelemetry(BaseModel):

@@ -30,9 +30,28 @@ if TYPE_CHECKING:
 
 
 def select_critic_limits(agent: Agent) -> CriticLimits:
-    """Pick REASONING or STANDARD limits based on the agent's LLM."""
+    """Pick REASONING or STANDARD limits, clamped to the model window.
+
+    The presets were tuned for 128K+ cloud models and remain the upper
+    bound.  On a smaller window the ``claimed_answer`` / ``evidence_total``
+    caps shrink through :class:`BudgetResolver` so the Critic prompt
+    cannot itself overflow the context (WS-1).
+    """
     is_reasoning = getattr(getattr(agent, "llm", None), "is_reasoning_model", False)
-    return REASONING_LIMITS if is_reasoning else STANDARD_LIMITS
+    limits = REASONING_LIMITS if is_reasoning else STANDARD_LIMITS
+    try:
+        from nucleusiq.agents.context.budgets import budgets_for
+
+        budgets = budgets_for(agent)
+        claimed = budgets.clamp("critic_claimed_answer", limits.claimed_answer)
+        evidence = budgets.clamp("critic_evidence_total", limits.evidence_total)
+    except Exception:
+        return limits
+    if claimed == limits.claimed_answer and evidence == limits.evidence_total:
+        return limits
+    return limits.model_copy(
+        update={"claimed_answer": claimed, "evidence_total": evidence}
+    )
 
 
 # ------------------------------------------------------------------ #

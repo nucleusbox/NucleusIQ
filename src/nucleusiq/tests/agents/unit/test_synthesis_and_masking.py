@@ -163,6 +163,7 @@ class TestCallLlmMaskingConsistency:
         msgs = _build_messages_with_tool_results(
             n_tool_rounds=3, content_per_result=500
         )
+        original_len = len(msgs)
 
         mode = StandardMode()
         await mode.call_llm(agent, {"model": "m", "messages": []}, msgs, None)
@@ -174,9 +175,16 @@ class TestCallLlmMaskingConsistency:
             if isinstance(c, str) and c.startswith("[observation consumed")
         )
 
-        assert masked_count > 0, (
-            "post_response must mask caller's messages even when compaction created a new list"
-        )
+        # Any reduced prepare() view is written back onto the caller
+        # list so the next turn does not re-compact the fat transcript.
+        # That list may have no tool results left to mask — shrinking
+        # is the success signal. When prepare was a no-op, masking
+        # still applies to the original caller list.
+        if len(msgs) >= original_len:
+            assert masked_count > 0, (
+                "post_response must mask caller's messages even when "
+                "compaction created a new list"
+            )
 
     @pytest.mark.asyncio
     async def test_no_engine_no_masking(self):
@@ -358,6 +366,61 @@ class TestSynthesisSnapshot:
 
         assert result == "Direct answer."
         assert call_count == 4, "Should NOT make a 5th synthesis call"
+
+    @pytest.mark.asyncio
+    async def test_no_synthesis_when_response_format_set(self):
+        """A Pydantic/schema response_format is the deliverable — do not
+        replace it with the prose synthesis pass."""
+        agent = _make_agent(config=AgentConfig(enable_synthesis=True))
+        agent._context_engine = None
+        agent._resolve_response_format = MagicMock(return_value=object())
+
+        call_count = 0
+
+        def make_tool_call(name):
+            return SimpleNamespace(
+                id=f"tc_{name}",
+                function=SimpleNamespace(name=name, arguments="{}"),
+            )
+
+        async def fake_llm_call(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 3:
+                return _make_response(tool_calls=[make_tool_call(f"t{call_count}")])
+            return _make_response(content='{"case_id": "1", "amount": 10}')
+
+        agent.llm.call = fake_llm_call
+
+        from nucleusiq.tools import tool
+
+        @tool(name="t1", description="T1")
+        def t1():
+            return "r1"
+
+        @tool(name="t2", description="T2")
+        def t2():
+            return "r2"
+
+        @tool(name="t3", description="T3")
+        def t3():
+            return "r3"
+
+        agent.tools = [t1, t2, t3]
+
+        from nucleusiq.agents.components.executor import Executor
+
+        agent._executor = Executor(agent.llm, agent.tools)
+
+        mode = StandardMode()
+        task = Task.from_dict({"id": "t1", "objective": "Extract"})
+
+        result = await mode._tool_call_loop(
+            agent, task, mode.build_messages(agent, task), []
+        )
+
+        assert result == '{"case_id": "1", "amount": 10}'
+        assert call_count == 4, "Must not add a prose synthesis call over JSON"
 
     @pytest.mark.asyncio
     async def test_no_synthesis_when_few_rounds(self):

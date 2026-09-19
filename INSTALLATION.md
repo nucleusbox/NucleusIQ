@@ -34,7 +34,7 @@ uv add nucleusiq nucleusiq-openai
 
 ```python
 import nucleusiq
-print(nucleusiq.__version__)  # 0.7.13
+print(nucleusiq.__version__)  # 0.7.14
 ```
 
 ---
@@ -141,7 +141,7 @@ Make sure the package is installed in your active virtual environment:
 
 ```bash
 pip list | grep nucleusiq
-# Should show: nucleusiq 0.7.13
+# Should show: nucleusiq 0.7.14
 ```
 
 ### `ModuleNotFoundError: No module named 'nucleusiq_openai'`

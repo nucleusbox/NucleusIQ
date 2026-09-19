@@ -579,7 +579,10 @@ class TestSynthesisFallback:
         mode.build_call_kwargs = MagicMock(return_value={"model": "gpt-5.1"})
 
         async def mock_process_tool_calls(ag, msg, tc, msgs, tool_round=1):
-            msgs.append(ChatMessage(role="tool", content="tool result"))
+            # Distinct result per round: this test exercises the synthesis
+            # fallback, not the no-progress guard (which stops identical
+            # rounds — see test_loop_guards.py).
+            msgs.append(ChatMessage(role="tool", content=f"tool result {tool_round}"))
             return None
 
         mode._process_tool_calls = mock_process_tool_calls

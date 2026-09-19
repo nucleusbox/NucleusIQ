@@ -42,15 +42,15 @@ def build_anthropic_output_config(
 
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         json_schema = schema.model_json_schema()
-        cleaned = _clean_schema(json_schema)
+        cleaned = _close_objects(_clean_schema(json_schema))
         return {"format": {"type": "json_schema", "schema": cleaned}}
 
     if dataclasses.is_dataclass(schema) and isinstance(schema, type):
-        rooted = _dataclass_to_schema(schema)
+        rooted = _close_objects(_dataclass_to_schema(schema))
         return {"format": {"type": "json_schema", "schema": rooted}}
 
     if hasattr(schema, "__annotations__"):
-        rooted = _annotations_to_schema(schema)
+        rooted = _close_objects(_annotations_to_schema(schema))
         return {"format": {"type": "json_schema", "schema": rooted}}
 
     logger.warning(
@@ -94,6 +94,27 @@ def _clean_schema(schema: dict[str, Any]) -> dict[str, Any]:
         }
 
     return schema
+
+
+def _close_objects(node: Any) -> Any:
+    """Set ``additionalProperties: false`` on every object node.
+
+    Claude's structured-output grammar rejects any ``object`` schema that
+    does not state ``additionalProperties`` explicitly ("For 'object' type,
+    'additionalProperties' must be explicitly set to false").  Pydantic
+    only emits the key for ``extra="forbid"`` models, and the cleaner
+    strips it anyway, so nested records (``list[Item]``) used to fail with
+    a 400 on every structured request.  Applied to the typed builders
+    only; raw dict schemas are passed through as the caller wrote them.
+    """
+    if isinstance(node, list):
+        return [_close_objects(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    out = {k: _close_objects(v) for k, v in node.items()}
+    if out.get("type") == "object" and "additionalProperties" not in out:
+        out["additionalProperties"] = False
+    return out
 
 
 def _inline_refs(obj: Any, defs: dict[str, Any]) -> Any:

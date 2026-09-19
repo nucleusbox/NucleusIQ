@@ -34,6 +34,56 @@ def test_sanitize_messages_coerces_flat_tool_calls() -> None:
     assert tc0["type"] == "function"
     assert tc0["id"] == "call_1"
     assert tc0["function"]["name"] == "get_weather"
+    assert tc0["function"]["arguments"] == {"city": "Paris"}
+
+
+def test_sanitize_messages_decodes_json_string_arguments_for_ollama_client() -> None:
+    """The ``ollama`` client validates ``function.arguments`` as a Mapping.
+
+    Agent history replays assistant tool calls with JSON-string arguments
+    (OpenAI shape); sending them back verbatim fails validation on every
+    multi-turn tool conversation.
+    """
+    msgs = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "read_document",
+                        "arguments": '{"path": "a.pdf"}',
+                    },
+                },
+                {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {"name": "noop", "arguments": ""},
+                },
+                {
+                    "id": "call_3",
+                    "type": "function",
+                    "function": {"name": "broken", "arguments": "not json"},
+                },
+                {
+                    "id": "call_4",
+                    "type": "function",
+                    "function": {"name": "already", "arguments": {"k": 1}},
+                },
+            ],
+        }
+    ]
+    out = sanitize_messages(msgs)
+    args = [tc["function"]["arguments"] for tc in out[0]["tool_calls"]]
+    assert args == [{"path": "a.pdf"}, {}, {"_raw": "not json"}, {"k": 1}]
+    # The original message is not mutated.
+    assert msgs[0]["tool_calls"][0]["function"]["arguments"] == '{"path": "a.pdf"}'
+
+    from ollama._types import Message
+
+    Message(**out[0])  # must validate against the client's schema
 
 
 def test_build_options_maps_num_predict_and_stop_scalar() -> None:

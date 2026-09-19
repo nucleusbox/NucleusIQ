@@ -17,6 +17,12 @@ from nucleusiq.tools.errors import (
     ToolValidationError,
 )
 from nucleusiq.tools.protocols import ExpandableTool
+from nucleusiq.tools.web_search import (
+    WebSearchBackend,
+    WebSearchBackendFactory,
+    WebSearchProvider,
+    WebSearchTool,
+)
 
 __all__ = [
     "BaseTool",
@@ -26,6 +32,10 @@ __all__ = [
     "FileExtractTool",
     "FileReadTool",
     "FileSearchTool",
+    "WebSearchBackend",
+    "WebSearchBackendFactory",
+    "WebSearchProvider",
+    "WebSearchTool",
     "tool",
     "ToolError",
     "ToolExecutionError",

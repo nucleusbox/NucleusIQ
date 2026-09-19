@@ -10,6 +10,8 @@ New modes can be registered via ``Agent.register_mode()`` without
 modifying the Agent class (Open/Closed Principle).
 """
 
+import asyncio
+import contextlib
 import json
 import time
 from abc import ABC, abstractmethod
@@ -26,7 +28,18 @@ from nucleusiq.agents.chat_models import (
     messages_to_dicts,
 )
 from nucleusiq.agents.config.agent_config import AgentState
-from nucleusiq.agents.messaging.message_builder import MessageBuilder
+from nucleusiq.agents.diagnostics.run_report import TerminationReason, recorder_for
+from nucleusiq.agents.messaging.message_builder import (
+    DEFAULT_TASK_CONTEXT_CHARS,
+    MessageBuilder,
+)
+from nucleusiq.agents.modes.loop_guards import (
+    ContextToolBudget,
+    ProgressTracker,
+    deadline_exceeded,
+    explicit_timeout,
+    is_stalled_tool_content,
+)
 from nucleusiq.agents.modes.tool_payload import tool_result_to_context_string
 from nucleusiq.agents.observability import (
     build_llm_call_record,
@@ -34,9 +47,11 @@ from nucleusiq.agents.observability import (
     build_server_tool_call_records,
     build_tool_call_record,
 )
+from nucleusiq.agents.structured_output.errors import StructuredOutputError
 from nucleusiq.agents.structured_output.resolver import get_provider_from_llm
 from nucleusiq.agents.task import Task
 from nucleusiq.agents.usage.usage_tracker import CallPurpose
+from nucleusiq.llms.errors import ContextLengthError, LLMTimeoutError
 from nucleusiq.plugins.base import ModelRequest, ToolRequest
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 
@@ -116,6 +131,47 @@ def _extract_prompt_technique(agent: Any) -> str | None:
         return str(tech) if isinstance(tech, str) else None
     except Exception:
         return None
+
+
+def _usage_field(usage: Any, *names: str) -> int | None:
+    """Read the first present token field from a usage object or dict."""
+    if usage is None:
+        return None
+    for name in names:
+        value = (
+            usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+        )
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
+def _record_llm_call_diagnostics(agent: Any, usage: Any) -> None:
+    rec = recorder_for(agent)
+    if rec is None:
+        return
+    rec.record_llm_call(
+        prompt_tokens=_usage_field(usage, "prompt_tokens", "input_tokens"),
+        completion_tokens=_usage_field(usage, "completion_tokens", "output_tokens"),
+    )
+
+
+def _set_termination(
+    agent: Any,
+    reason: TerminationReason,
+    message: str = "",
+    *,
+    at_tool_call: int | None = None,
+) -> None:
+    rec = recorder_for(agent)
+    if rec is not None:
+        rec.set_termination(reason, message, at_tool_call=at_tool_call)
+
+
+# After this many emergency compactions in one execute(), stop the
+# tool loop. Autonomous defaults to 300 tool calls; without a cap the
+# model re-fetches after each emergency wipe and never finishes.
+_EMERGENCY_LOOP_LIMIT = 3
 
 
 class BaseExecutionMode(ABC):
@@ -215,12 +271,20 @@ class BaseExecutionMode(ABC):
         if agent.llm and hasattr(agent.llm, "process_attachments"):
             processor = agent.llm.process_attachments
 
+        try:
+            from nucleusiq.agents.context.budgets import budgets_for
+
+            context_cap = budgets_for(agent).handoff_chars("task_context")
+        except Exception:
+            context_cap = DEFAULT_TASK_CONTEXT_CHARS
+
         messages = MessageBuilder.build(
             task,
             plan,
             prompt=agent.prompt,
             logger=agent._logger,
             attachment_processor=processor,
+            max_context_chars=context_cap,
         )
 
         if agent.memory:
@@ -309,6 +373,186 @@ class BaseExecutionMode(ABC):
                         parts.append(t)
             return "\n".join(parts) if parts else None
         return None
+
+    @staticmethod
+    def emergency_loop_exhausted(agent: "Agent") -> bool:
+        """True when emergency compaction has fired too many times this run."""
+        engine = getattr(agent, "_context_engine", None)
+        count = getattr(engine, "emergency_count", 0) if engine is not None else 0
+        if not isinstance(count, int) or isinstance(count, bool):
+            return False
+        return count >= _EMERGENCY_LOOP_LIMIT
+
+    # ------------------------------------------------------------------ #
+    # Structured-output contract (WS-8)                                    #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def structured_contract(agent: "Agent") -> Any:
+        """Return a ``StructuredOutputContract`` when ``response_format`` is set.
+
+        ``None`` for prose runs, for agents without the resolver (mocks),
+        or when the schema cannot be resolved — callers then behave
+        exactly as before this contract existed.
+        """
+        if getattr(agent, "response_format", None) is None:
+            return None
+        resolver = getattr(agent, "_resolve_response_format", None)
+        if not callable(resolver):
+            return None
+        try:
+            output_config = resolver()
+        except Exception:
+            return None
+        from nucleusiq.agents.structured_output.config import OutputSchema
+        from nucleusiq.agents.structured_output.contract import (
+            StructuredOutputContract,
+        )
+
+        # Strict type check: test doubles (MagicMock) expose every
+        # attribute, and a phantom contract would trigger finalizer calls.
+        if not isinstance(output_config, OutputSchema):
+            return None
+        try:
+            return StructuredOutputContract(output_config)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _note_schema_check(agent: "Agent", check: Any) -> None:
+        """Remember the latest schema verdict for ``AgentResult`` typing."""
+        with contextlib.suppress(Exception):
+            agent._last_schema_check = check
+        rec = recorder_for(agent)
+        if rec is not None:
+            rec.record_decision(
+                "structured_output",
+                {"valid": bool(check.valid), "errors": (check.errors or "")[:200]},
+            )
+
+    async def _structured_finalizer_pass(
+        self,
+        agent: "Agent",
+        messages: list[ChatMessage],
+        contract: Any,
+        *,
+        errors: str | None = None,
+    ) -> Any:
+        """Tools-free call that must emit the schema — the JSON twin of synthesis.
+
+        With no tools on the request, providers that support constrained
+        decoding (``response_format`` json_schema / json_object) can
+        enforce the schema server-side; the OpenAI-compatible adapter
+        only injects the schema into the prompt when tools are present,
+        so removing tools here is what unlocks real enforcement on vLLM.
+        """
+        final_messages = list(messages)
+        final_messages.append(
+            ChatMessage(role="user", content=contract.finalizer_instruction(errors))
+        )
+        engine = getattr(agent, "_context_engine", None)
+        if engine is not None:
+            try:
+                final_messages = engine.prepare_for_synthesis(final_messages)
+            except Exception as exc:
+                agent._logger.debug(
+                    "Finalizer rehydration skipped (fail-open): %s", exc
+                )
+
+        call_kwargs = self.build_call_kwargs(
+            agent,
+            final_messages,
+            None,
+            max_output_tokens=getattr(agent.config, "llm_max_output_tokens", 2048),
+        )
+        response = await self.call_llm(
+            agent, call_kwargs, final_messages, None, purpose=CallPurpose.SYNTHESIS
+        )
+        rec = recorder_for(agent)
+        if rec is not None:
+            rec.record_finalizer_run()
+        structured = self.handle_structured_output(agent, response)
+        if structured is not None:
+            return (
+                structured.get("output") if isinstance(structured, dict) else structured
+            )
+        self.validate_response(response)
+        return self.extract_content(response.choices[0].message) or ""
+
+    async def enforce_structured_output(
+        self,
+        agent: "Agent",
+        content: Any,
+        messages: list[ChatMessage],
+        contract: Any,
+    ) -> tuple[Any, Any]:
+        """Validate ``content`` against the contract; repair once if needed.
+
+        Returns ``(content, check)``.  On an invalid first answer the
+        structured finalizer runs **once**; if it produces valid JSON that
+        becomes the content.  Otherwise the caller receives the best
+        candidate with an invalid ``check`` so the Autonomous validation
+        layer can retry with the exact validator errors.
+        """
+        check = contract.check(content)
+        if check.valid:
+            self._note_schema_check(agent, check)
+            return content, check
+
+        rec = recorder_for(agent)
+        if rec is not None:
+            rec.record_schema_validation_failure()
+        agent._logger.warning(
+            "Output does not satisfy schema %s — running structured finalizer: %s",
+            contract.schema_name,
+            (check.errors or "")[:160],
+        )
+        try:
+            repaired = await self._structured_finalizer_pass(
+                agent, messages, contract, errors=check.errors
+            )
+        except Exception as exc:
+            agent._logger.warning("Structured finalizer failed (fail-open): %s", exc)
+            self._note_schema_check(agent, check)
+            return content, check
+
+        repaired_check = contract.check(repaired)
+        if repaired_check.valid:
+            self._note_schema_check(agent, repaired_check)
+            out = (
+                repaired if isinstance(repaired, str) else repaired_check.canonical_json
+            )
+            return out, repaired_check
+
+        if rec is not None:
+            rec.record_schema_validation_failure()
+        self._note_schema_check(agent, repaired_check)
+        # Prefer the repaired text when it is at least non-empty JSON-ish;
+        # the retry message will carry the validator errors either way.
+        best = repaired if isinstance(repaired, str) and repaired.strip() else content
+        return best, repaired_check
+
+    @staticmethod
+    def should_run_synthesis(agent: "Agent") -> bool:
+        """Whether the tools-free prose synthesis pass may run.
+
+        Synthesis exists to expand a terse *prose* wrap-up after tool
+        use.  A configured ``response_format`` is the real deliverable
+        (JSON / Pydantic).  That payload is almost always under the
+        word threshold, so the old "write the full deliverable" nudge
+        overwrote schema output with markdown.  Skip synthesis whenever
+        a schema is resolved — same effect as ``enable_synthesis=False``.
+        """
+        if not getattr(getattr(agent, "config", None), "enable_synthesis", True):
+            return False
+        resolve = getattr(agent, "_resolve_response_format", None)
+        if callable(resolve):
+            try:
+                if resolve() is not None:
+                    return False
+            except Exception:
+                return True
+        return True
 
     def handle_structured_output(self, agent: "Agent", response: Any) -> Any | None:
         """Return the wrapped structured-output result, or ``None``.
@@ -421,31 +665,49 @@ class BaseExecutionMode(ABC):
             try:
                 messages = await engine.prepare(messages)
                 call_kwargs["messages"] = messages_to_dicts(messages)
+                # prepare() fits a *copy*. If that copy is reduced and
+                # we keep the fat live list, the next turn re-triggers
+                # the same compaction (and emergency can loop toward
+                # Autonomous's 300-call default). Any reduced view is
+                # the continuing transcript — not only emergency.
+                if caller_messages is not None and messages is not caller_messages:
+                    caller_messages[:] = messages
+                    rec = recorder_for(agent)
+                    if rec is not None:
+                        rec.record_writeback()
             except Exception:
                 pass
 
         t0 = time.perf_counter()
-        if pm is None or not pm.has_plugins():
-            response = await agent.llm.call(**call_kwargs)
-        else:
-            reserved = {"model", "messages", "tools", "max_output_tokens"}
-            extra = {k: v for k, v in call_kwargs.items() if k not in reserved}
-
-            request = ModelRequest(
-                model=call_kwargs.get("model", "default"),
-                messages=messages
-                if messages is not None
-                else call_kwargs.get("messages", []),
-                tools=tool_specs,
-                max_output_tokens=call_kwargs.get("max_output_tokens", 2048),
-                call_count=pm.increment_model_calls(),
-                agent_name=agent.name,
-                extra_kwargs=extra,
-            )
-
-            request = await pm.run_before_model(request)
-            response = await pm.execute_model_call(request, agent.llm.call)
-            response = await pm.run_after_model(request, response)
+        timeout = explicit_timeout(getattr(agent, "config", None), "llm_call_timeout")
+        overflow_attempt = 0
+        parse_fallback_used = False
+        while True:
+            try:
+                response = await self._invoke_llm(
+                    agent, pm, call_kwargs, messages, tool_specs, timeout
+                )
+                break
+            except ContextLengthError as exc:
+                overflow_attempt += 1
+                recovered = await self._recover_from_overflow(
+                    agent,
+                    engine,
+                    call_kwargs,
+                    messages,
+                    caller_messages,
+                    attempt=overflow_attempt,
+                    error=exc,
+                )
+                if recovered is None:
+                    raise
+                messages = recovered
+            except StructuredOutputError as exc:
+                if parse_fallback_used or not self._disable_provider_parse(
+                    agent, call_kwargs, error=exc
+                ):
+                    raise
+                parse_fallback_used = True
 
         duration_ms = (time.perf_counter() - t0) * 1000
 
@@ -462,6 +724,8 @@ class BaseExecutionMode(ABC):
         tracker = getattr(agent, "_usage_tracker", None)
         if tracker is not None:
             tracker.record_from_response(purpose, response)
+
+        _record_llm_call_diagnostics(agent, getattr(response, "usage", None))
 
         tracer = getattr(agent, "_tracer", None)
         if tracer is not None:
@@ -486,6 +750,201 @@ class BaseExecutionMode(ABC):
                 tracer.record_tool_call(stc)
 
         return response
+
+    @staticmethod
+    async def _invoke_llm(
+        agent: "Agent",
+        pm: Any,
+        call_kwargs: dict[str, Any],
+        messages: list[ChatMessage] | None,
+        tool_specs: list[dict[str, Any]] | None,
+        timeout: float | None,
+    ) -> Any:
+        """One provider round-trip through the plugin pipeline, with timeout."""
+
+        async def _do() -> Any:
+            if pm is None or not pm.has_plugins():
+                return await agent.llm.call(**call_kwargs)
+            reserved = {"model", "messages", "tools", "max_output_tokens"}
+            extra = {k: v for k, v in call_kwargs.items() if k not in reserved}
+            request = ModelRequest(
+                model=call_kwargs.get("model", "default"),
+                messages=messages
+                if messages is not None
+                else call_kwargs.get("messages", []),
+                tools=tool_specs,
+                max_output_tokens=call_kwargs.get("max_output_tokens", 2048),
+                call_count=pm.increment_model_calls(),
+                agent_name=agent.name,
+                extra_kwargs=extra,
+            )
+            request = await pm.run_before_model(request)
+            response = await pm.execute_model_call(request, agent.llm.call)
+            return await pm.run_after_model(request, response)
+
+        if timeout is None:
+            return await _do()
+        try:
+            return await asyncio.wait_for(_do(), timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            detail = f"LLM call exceeded llm_call_timeout={timeout:g}s"
+            _set_termination(agent, TerminationReason.LLM_TIMEOUT, detail)
+            raise LLMTimeoutError(
+                detail,
+                provider=str(getattr(agent.llm, "provider", "unknown") or "unknown"),
+                original_error=exc,
+            ) from exc
+
+    @staticmethod
+    def _disable_provider_parse(
+        agent: "Agent",
+        call_kwargs: dict[str, Any],
+        *,
+        error: Exception,
+    ) -> bool:
+        """Turn a provider-side structured-output parse failure into a
+        recoverable step (WS-8).
+
+        In NATIVE mode the provider receives ``response_format=(fmt,
+        SchemaType)`` and parses the reply into ``SchemaType`` itself.  A
+        model that returns two JSON objects, JSON followed by prose, or a
+        field that fails validation makes that parse raise
+        ``StructuredOutputError`` **inside** ``llm.call`` — before the
+        core contract (repair → finalizer → ``schema_invalid``) ever sees
+        the text.  Left alone the run ends in ``ResultStatus.ERROR`` for
+        something the framework knows how to handle.
+
+        This strips the schema type (keeping the server-side JSON
+        constraint) so the retry returns the raw reply and the normal
+        contract path decides.  Returns ``True`` when the kwargs were
+        changed and one retry is warranted, ``False`` otherwise.
+        """
+        fmt = call_kwargs.get("response_format")
+        if isinstance(fmt, tuple) and len(fmt) == 2 and isinstance(fmt[1], type):
+            provider_format: Any = fmt[0]
+        elif isinstance(fmt, type):
+            # Bare schema class: every provider builds its wire format from
+            # the class *and* parses into it.  Ask the resolved OutputSchema
+            # for the same wire format so the constraint survives without
+            # the parse.
+            try:
+                output_config = agent._resolve_response_format()
+                provider = (
+                    get_provider_from_llm(getattr(agent, "llm", None)) or "openai"
+                )
+                provider_format = output_config.for_provider(provider)
+            except Exception:
+                return False
+            if not isinstance(provider_format, dict):
+                return False
+        else:
+            return False
+        call_kwargs["response_format"] = (provider_format, None)
+        detail = f"{type(error).__name__}: {str(error)[:160]}"
+        agent._logger.warning(
+            "Provider could not parse the structured reply (%s). Retrying once "
+            "without provider-side parsing; the output contract will validate "
+            "the raw text instead.",
+            detail,
+        )
+        rec = recorder_for(agent)
+        if rec is not None:
+            with contextlib.suppress(Exception):
+                rec.record_event("structured_parse_fallback", detail)
+        return True
+
+    async def _recover_from_overflow(
+        self,
+        agent: "Agent",
+        engine: Any,
+        call_kwargs: dict[str, Any],
+        messages: list[ChatMessage] | None,
+        caller_messages: list[ChatMessage] | None,
+        *,
+        attempt: int,
+        error: Exception,
+    ) -> list[ChatMessage] | None:
+        """Turn a provider ``ContextLengthError`` into a recoverable step.
+
+        Attempt 1: force the emergency compaction tier and write the
+        reduced transcript back (our token estimate under-counted; the
+        server is the authority).  Attempt 2: shrink ``max_output_tokens``
+        so ``prompt + reply`` fits the window.  Anything further records
+        ``termination_reason=context_overflow`` with the numbers and
+        re-raises so the caller fails with a precise message instead of
+        a bare 400.
+
+        Returns the message list to retry with, or ``None`` to give up.
+        """
+        rec = recorder_for(agent)
+        window = int(getattr(engine, "resolved_max_tokens", 0) or 0)
+        counter = getattr(engine, "token_counter", None)
+        prompt_tokens = 0
+        if counter is not None and messages is not None:
+            with contextlib.suppress(Exception):
+                prompt_tokens = int(counter.count_messages(messages))
+        max_out = call_kwargs.get("max_output_tokens")
+
+        if attempt == 1 and engine is not None and messages is not None:
+            try:
+                reduced = await engine.force_emergency(messages)
+            except Exception as exc:
+                agent._logger.debug("Forced emergency compaction failed: %s", exc)
+                reduced = messages
+            after = prompt_tokens
+            if counter is not None:
+                with contextlib.suppress(Exception):
+                    after = int(counter.count_messages(reduced))
+            if after < prompt_tokens:
+                agent._logger.warning(
+                    "Provider rejected the prompt as too long (%s). Forced "
+                    "emergency compaction %d → %d tokens; retrying once.",
+                    str(error)[:120],
+                    prompt_tokens,
+                    after,
+                )
+                call_kwargs["messages"] = messages_to_dicts(reduced)
+                if caller_messages is not None:
+                    caller_messages[:] = reduced
+                if rec is not None:
+                    rec.record_compaction("emergency_compactor", emergency=True)
+                    rec.record_writeback()
+                    rec.record_event(
+                        "context_overflow_recovery",
+                        f"emergency compaction {prompt_tokens}->{after} tokens",
+                    )
+                return reduced
+            # Nothing to compact — fall through to the max_tokens step.
+            attempt = 2
+
+        if attempt == 2 and isinstance(max_out, int) and window > 0:
+            new_max = window - prompt_tokens - 256
+            if 128 <= new_max < max_out:
+                agent._logger.warning(
+                    "Provider rejected the request as too long (%s). Reducing "
+                    "max_output_tokens %d → %d (window %d, prompt ≈ %d); "
+                    "retrying once.",
+                    str(error)[:120],
+                    max_out,
+                    new_max,
+                    window,
+                    prompt_tokens,
+                )
+                call_kwargs["max_output_tokens"] = new_max
+                if rec is not None:
+                    rec.record_event(
+                        "context_overflow_recovery",
+                        f"max_output_tokens {max_out}->{new_max}",
+                    )
+                return messages if messages is not None else []
+
+        detail = (
+            f"Context overflow: window={window or 'unknown'} prompt≈{prompt_tokens} "
+            f"max_output_tokens={max_out} — {str(error)[:200]}"
+        )
+        agent._logger.error("%s", detail)
+        _set_termination(agent, TerminationReason.CONTEXT_OVERFLOW, detail)
+        return None
 
     async def call_tool(
         self,
@@ -621,14 +1080,39 @@ class BaseExecutionMode(ABC):
         empty_retries = 2
         tracker = getattr(agent, "_usage_tracker", None)
         pre_synth_snapshot: list[ChatMessage] | None = None
+        recorder = recorder_for(agent)
+        cap_getter = getattr(agent.config, "get_effective_max_context_tool_calls", None)
+        context_cap = 2 * max_tool_calls
+        if callable(cap_getter):
+            try:
+                value = cap_getter()
+                if isinstance(value, int):
+                    context_cap = value
+            except Exception:
+                pass
+        context_budget = ContextToolBudget(context_cap)
+        progress = ProgressTracker()
+        contract = self.structured_contract(agent)
+        stop_reason = TerminationReason.TOOL_BUDGET
+        stop_detail = f"Maximum tool calls ({max_tool_calls}) reached"
 
         while tool_call_count < max_tool_calls:
+            if deadline_exceeded(agent):
+                stop_reason = TerminationReason.DEADLINE
+                stop_detail = (
+                    f"Wall-clock budget (max_execution_time="
+                    f"{getattr(agent.config, 'max_execution_time', '?')}s) exhausted "
+                    f"after {tool_call_count} tool calls"
+                )
+                break
             call_round += 1
+            if recorder is not None:
+                recorder.record_round(call_round)
 
             # Snapshot messages *before* masking may compress data.
             # Synthesis needs the full, unmasked context.
             if (
-                getattr(agent.config, "enable_synthesis", True)
+                self.should_run_synthesis(agent)
                 and tool_call_count > 0
                 and call_round > 2
             ):
@@ -642,6 +1126,11 @@ class BaseExecutionMode(ABC):
             if engine is not None:
                 try:
                     prepared = await engine.prepare(messages)
+                    if prepared is not messages:
+                        messages[:] = prepared
+                        prepared = messages
+                        if recorder is not None:
+                            recorder.record_writeback()
                 except Exception:
                     prepared = messages
 
@@ -665,6 +1154,7 @@ class BaseExecutionMode(ABC):
                     break
 
             if errored:
+                _set_termination(agent, TerminationReason.ERROR, "LLM stream error")
                 return
 
             stream_duration_ms = (time.perf_counter() - stream_t0) * 1000
@@ -672,6 +1162,11 @@ class BaseExecutionMode(ABC):
             yield StreamEvent.llm_end_event(call_round)
 
             if complete_event is None:
+                _set_termination(
+                    agent,
+                    TerminationReason.ERROR,
+                    "LLM stream produced no COMPLETE event",
+                )
                 yield StreamEvent.error_event("LLM stream produced no COMPLETE event")
                 return
 
@@ -681,6 +1176,9 @@ class BaseExecutionMode(ABC):
                     complete_event.metadata,
                     call_round=call_round,
                 )
+            _record_llm_call_diagnostics(
+                agent, (complete_event.metadata or {}).get("usage")
+            )
 
             tracer = getattr(agent, "_tracer", None)
             if tracer is not None:
@@ -707,6 +1205,7 @@ class BaseExecutionMode(ABC):
             # --- Tool calls detected → execute and loop ---
             if raw_tool_calls:
                 parsed_calls = [ToolCallRequest.from_raw(tc) for tc in raw_tool_calls]
+                round_start = len(messages)
                 messages.append(
                     ChatMessage(
                         role="assistant",
@@ -722,16 +1221,19 @@ class BaseExecutionMode(ABC):
                 for tc in parsed_calls:
                     if not tc.name:
                         continue
+                    is_ctx_tool = is_context_management_tool_name(tc.name)
                     # Recall tools (memory operations) bypass the
-                    # tool-call budget — see §6.4 of the v2 redesign.
-                    if (
-                        not is_context_management_tool_name(tc.name)
-                        and tool_call_count >= max_tool_calls
-                    ):
+                    # tool-call budget — see §6.4 of the v2 redesign —
+                    # but consume their own ``ContextToolBudget``.
+                    if not is_ctx_tool and tool_call_count >= max_tool_calls:
                         agent._logger.warning(
                             "Tool call limit (%d) reached", max_tool_calls
                         )
                         break
+                    if is_ctx_tool:
+                        context_budget.consume()
+                    if recorder is not None:
+                        recorder.record_tool_call(context_management=is_ctx_tool)
 
                     try:
                         args = json.loads(tc.arguments) if tc.arguments else {}
@@ -780,6 +1282,8 @@ class BaseExecutionMode(ABC):
                             args_hash,
                             prior_call_id,
                         )
+                        if recorder is not None:
+                            recorder.record_dedup_banner()
                         messages.append(
                             ChatMessage(
                                 role="tool",
@@ -794,7 +1298,27 @@ class BaseExecutionMode(ABC):
                         continue
 
                     try:
-                        result = await self.call_tool(agent, tc, tool_round=call_round)
+                        step_timeout = explicit_timeout(
+                            getattr(agent, "config", None), "step_timeout"
+                        )
+                        if step_timeout is None:
+                            result = await self.call_tool(
+                                agent, tc, tool_round=call_round
+                            )
+                        else:
+                            try:
+                                result = await asyncio.wait_for(
+                                    self.call_tool(agent, tc, tool_round=call_round),
+                                    timeout=step_timeout,
+                                )
+                            except asyncio.TimeoutError:
+                                result = (
+                                    f"Error: Tool '{tc.name}' timed out after "
+                                    f"{step_timeout:g}s (step_timeout). Continue without it."
+                                )
+                                agent._logger.warning("%s", result)
+                                if recorder is not None:
+                                    recorder.record_tool_error()
                         agent._activate_context_state_for_tool_result(
                             tool_name=tc.name,
                             tool_call_id=tc.id,
@@ -802,6 +1326,8 @@ class BaseExecutionMode(ABC):
                             tool_args=args,
                         )
                         result_str = tool_result_to_context_string(result)
+                        if recorder is not None and is_stalled_tool_content(result_str):
+                            recorder.record_recall_error()
 
                         # Context window management: compress large tool results
                         engine = getattr(agent, "_context_engine", None)
@@ -820,13 +1346,27 @@ class BaseExecutionMode(ABC):
                         # Auto-injected context-management tools do not count
                         # against the user's tool budget — they are memory ops,
                         # not external actions.
-                        if not is_context_management_tool_name(tc.name):
+                        if not is_ctx_tool:
                             tool_call_count += 1
                         if is_idempotent and tc.id is not None:
                             dedup_cache[cache_key] = tc.id
                     except Exception as e:
+                        if recorder is not None:
+                            recorder.record_tool_error()
+                        _set_termination(
+                            agent, TerminationReason.ERROR, f"Tool '{tc.name}' failed"
+                        )
                         yield StreamEvent.error_event(f"Tool '{tc.name}' failed: {e}")
                         return
+
+                # Guards run on the raw round *before* masking so the
+                # signature sees real tool content.
+                verdict = progress.observe(messages[round_start:])
+                if recorder is not None:
+                    if verdict.stalled_round:
+                        recorder.record_stalled_round()
+                    if verdict.identical_streak > 1:
+                        recorder.record_no_progress_round()
 
                 # Post-response hook: observation masking (Tier 0) for streaming path
                 # Runs after assistant + tool results are in messages, before next LLM call
@@ -838,12 +1378,63 @@ class BaseExecutionMode(ABC):
                     except Exception:
                         pass
 
+                if verdict.no_progress:
+                    stop_reason = TerminationReason.NO_PROGRESS
+                    stop_detail = f"No progress: {verdict.reason}"
+                    agent._logger.warning(
+                        "Stopping tool loop — %s (round %d)", verdict.reason, call_round
+                    )
+                    break
+                if verdict.should_nudge:
+                    nudge = progress.nudge_message()
+                    if nudge is not None:
+                        agent._logger.warning(
+                            "Loop guard: repeated tool round detected (round %d) — "
+                            "nudging model to answer with existing evidence",
+                            call_round,
+                        )
+                        messages.append(nudge)
+                        if recorder is not None:
+                            recorder.record_event("no_progress_nudge")
+                if context_budget.exhausted:
+                    stop_reason = TerminationReason.CONTEXT_TOOL_BUDGET
+                    stop_detail = (
+                        f"Context-management tool budget ({context_budget.cap}) "
+                        "exhausted"
+                    )
+                    agent._logger.warning("%s", stop_detail)
+                    break
+                if self.emergency_loop_exhausted(agent):
+                    stop_reason = TerminationReason.EMERGENCY_COMPACTION
+                    stop_detail = (
+                        "Repeated emergency compaction — context cannot absorb "
+                        "more tool results"
+                    )
+                    agent._logger.warning(
+                        "Stopping tool loop after repeated emergency "
+                        "compaction — context cannot absorb more tool results"
+                    )
+                    break
+
                 continue
 
             # --- Content returned, no tools → synthesis or done ---
             if full_content.strip():
                 synth_threshold = getattr(agent.config, "synthesis_word_threshold", 500)
-                if (
+                if contract is not None:
+                    # Schema is the deliverable: check, repair once, never
+                    # run the prose synthesis pass.
+                    repaired, _check = await self.enforce_structured_output(
+                        agent, full_content, messages, contract
+                    )
+                    if isinstance(repaired, str) and repaired != full_content:
+                        # Tokens already streamed were the rejected draft;
+                        # the COMPLETE event below carries the final JSON.
+                        yield StreamEvent.thinking_event(
+                            f"Structured finalizer produced {contract.schema_name} JSON"
+                        )
+                        full_content = repaired
+                elif (
                     pre_synth_snapshot is not None
                     and len(full_content.split()) < synth_threshold
                 ):
@@ -965,6 +1556,7 @@ class BaseExecutionMode(ABC):
                             # explicitly here to keep both paths
                             # converging on the same masked final state.
                             self._finalize_post_response(agent, messages)
+                            _set_termination(agent, TerminationReason.COMPLETED)
                             yield StreamEvent.complete_event(
                                 synth_event.content or "",
                                 metadata=synth_event.metadata,
@@ -981,6 +1573,7 @@ class BaseExecutionMode(ABC):
                 # end in an identical masked state for downstream
                 # consumers (Critic/Refiner in Autonomous mode).
                 self._finalize_post_response(agent, messages)
+                _set_termination(agent, TerminationReason.COMPLETED)
                 yield StreamEvent.complete_event(
                     full_content, metadata=complete_event.metadata
                 )
@@ -989,6 +1582,8 @@ class BaseExecutionMode(ABC):
             # --- Empty response → retry once ---
             if empty_retries > 0:
                 empty_retries -= 1
+                if recorder is not None:
+                    recorder.record_empty_response()
                 messages.append(
                     ChatMessage(
                         role="user",
@@ -1000,9 +1595,15 @@ class BaseExecutionMode(ABC):
                 )
                 continue
 
+            _set_termination(
+                agent,
+                TerminationReason.EMPTY_RESPONSE,
+                "LLM returned no content and no tool calls after retry",
+            )
             yield StreamEvent.error_event(
                 "LLM returned no content and no tool calls after retry"
             )
             return
 
-        yield StreamEvent.error_event(f"Maximum tool calls ({max_tool_calls}) reached")
+        _set_termination(agent, stop_reason, stop_detail, at_tool_call=tool_call_count)
+        yield StreamEvent.error_event(stop_detail)

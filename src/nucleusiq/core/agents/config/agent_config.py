@@ -7,7 +7,7 @@ from typing import Literal
 from nucleusiq.agents.config.observability_config import ObservabilityConfig
 from nucleusiq.agents.context.config import ContextConfig
 from nucleusiq.llms.llm_params import LLMParams
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ExecutionMode(str, Enum):
@@ -22,7 +22,14 @@ class AgentConfig(BaseModel):
     """Configuration settings for agent behavior."""
 
     max_execution_time: int = Field(
-        default=3600, description="Maximum execution time in seconds"
+        default=3600,
+        description=(
+            "Wall-clock budget for one ``execute()`` in seconds (0 = unlimited). "
+            "Checked before every LLM round, tool batch and Autonomous attempt; "
+            "when exceeded the loop stops with termination reason ``deadline`` "
+            "and produces its best answer from the evidence gathered so far. "
+            "Sub-agents receive the parent's *remaining* time."
+        ),
     )
     max_retries: int = Field(default=3, description="Maximum number of retry attempts")
     allow_code_execution: bool = Field(
@@ -89,10 +96,21 @@ class AgentConfig(BaseModel):
     # Timeout settings (in seconds)
     step_timeout: int = Field(
         default=60,
-        description="Timeout in seconds for each step execution. If exceeded, step fails.",
+        description=(
+            "Timeout in seconds for one tool execution inside the tool loop. "
+            "Enforced only when set explicitly (the default is documentation "
+            "only, so long-running tools keep working). On expiry the tool "
+            "result becomes an error message and the loop continues."
+        ),
     )
     llm_call_timeout: int = Field(
-        default=90, description="Timeout in seconds for individual LLM API calls."
+        default=90,
+        description=(
+            "Timeout in seconds for one LLM API call. Enforced only when set "
+            "explicitly — reasoning models routinely exceed 90 s, so the "
+            "default is not applied. On expiry the call raises "
+            "``LLMTimeoutError``."
+        ),
     )
     step_max_retries: int = Field(
         default=2,
@@ -107,6 +125,19 @@ class AgentConfig(BaseModel):
             "DIRECT=25, STANDARD=80, AUTONOMOUS=300."
         ),
     )
+    max_context_tool_calls: int | None = Field(
+        default=None,
+        description=(
+            "Separate cap for framework context-management tool calls "
+            "(recall_tool_result, list_recalled_evidence, workspace / "
+            "evidence / corpus tools). These never count toward "
+            "``max_tool_calls`` — that quota is for the user's external "
+            "actions — but without their own cap a model stuck retrying a "
+            "recall could loop indefinitely. None = 2 × effective "
+            "``max_tool_calls``. When exhausted the loop stops with "
+            "termination reason ``context_tool_budget``."
+        ),
+    )
 
     # Synthesis pass (breaks mode inertia after heavy tool use)
     enable_synthesis: bool = Field(
@@ -115,7 +146,9 @@ class AgentConfig(BaseModel):
             "After multiple rounds of tool calls, make one final LLM call "
             "without tools to produce the synthesized output. Prevents "
             "mode inertia where the model stays in tool-calling behaviour "
-            "and returns a terse summary instead of the full deliverable."
+            "and returns a terse summary instead of the full deliverable. "
+            "Automatically skipped when response_format is set — the schema "
+            "is the deliverable; a prose synthesis pass would overwrite it."
         ),
     )
     synthesis_word_threshold: int = Field(
@@ -136,11 +169,108 @@ class AgentConfig(BaseModel):
             "In the new architecture, max_retries controls validation retry cycles."
         ),
     )
+    enable_decomposition: bool = Field(
+        default=True,
+        description=(
+            "Autonomous mode only. When False the Decomposer classifier is "
+            "never called: the task runs as a single agent with validation, "
+            "Critic and Refiner intact and no sub-agents are spawned. Use "
+            "for jobs where every part depends on the same documents or "
+            "fills one output record — splitting those loses coverage. "
+            "``max_sub_agents=1`` has the same routing effect but still "
+            "pays the classifier LLM call."
+        ),
+    )
     max_sub_agents: int = Field(
         default=5,
         description=(
             "Maximum parallel sub-agents for complex task decomposition "
             "in autonomous mode."
+        ),
+    )
+    decomposition_max_owners_per_resource: int = Field(
+        default=1,
+        ge=1,
+        description=(
+            "Coverage contract for COMPLEX splits when ``Task.resources`` is "
+            "set: every resource must be claimed by at least one sub-task and "
+            "by at most this many. A split that shares a source between "
+            "children (each re-reads the same documents) is downgraded to "
+            "SIMPLE with the reason in the run report."
+        ),
+    )
+    decomposition_gather_first: bool = Field(
+        default=False,
+        description=(
+            "Opt-in for COMPLEX runs with ``Task.resources``: before the "
+            "analysis children start, one read-only 'gather' child fetches "
+            "every resource (idempotent tools only, at most 2 × len(resources) "
+            "tool calls) into the parent's shared evidence stores. Children "
+            "then search / recall that material instead of each re-reading "
+            "the same documents. Requires tools declared ``idempotent=True``."
+        ),
+    )
+    coverage_followup: bool = Field(
+        default=True,
+        description=(
+            "Only when ``Task.resources`` is set. After the sub-tasks (COMPLEX) "
+            "or the first accepted-by-validation answer (SIMPLE), resources no "
+            "tool touched and the answer does not name get exactly one bounded "
+            "follow-up: a child capped at 2 × len(unprocessed) tool calls, or "
+            "one retry attempt telling the model which resources to process. "
+            "Coverage is always recorded in ``result.metadata['coverage']`` / "
+            "``diagnostics.coverage``; ``evidence_gate_enforce=True`` turns a "
+            "residual gap into an ABSTAINED result."
+        ),
+    )
+
+    # Preflight fitness (Autonomous mode).  ``working`` = window −
+    # response reserve − system prompt − tool schemas, measured at setup.
+    preflight_min_working_tokens: int = Field(
+        default=16_000,
+        ge=0,
+        description=(
+            "Autonomous mode needs at least this many working tokens per "
+            "call (window minus reply reserve, system prompt and tool "
+            "schemas). Below it the run is downgraded to STANDARD (see "
+            "``preflight_downgrade``) because Critic/Refiner hand-offs and "
+            "sub-agent synthesis cannot fit. 0 disables the check."
+        ),
+    )
+    preflight_marginal_working_tokens: int = Field(
+        default=32_000,
+        ge=0,
+        description=(
+            "Below this many working tokens Autonomous mode runs but the "
+            "run report marks fitness ``marginal`` and logs the breakdown."
+        ),
+    )
+    preflight_standard_min_working_tokens: int = Field(
+        default=8_000,
+        ge=0,
+        description=(
+            "STANDARD mode logs a warning (never downgrades) below this many "
+            "working tokens."
+        ),
+    )
+    preflight_downgrade: bool = Field(
+        default=True,
+        description=(
+            "When the Autonomous preflight finds fewer than "
+            "``preflight_min_working_tokens`` working tokens, run the task in "
+            "STANDARD mode instead (recorded as decision ``preflight`` and "
+            "event ``preflight_downgraded``). Set False to force Autonomous "
+            "anyway; the warning is still logged."
+        ),
+    )
+    sub_agent_context: ContextConfig | None = Field(
+        default=None,
+        description=(
+            "Context budget for Autonomous COMPLEX sub-agents. "
+            "None (default) copies this agent's ``context`` so a 65K "
+            "parent does not spawn an 8K child. Set explicitly only "
+            "when sub-agents should use a different window or strategy "
+            "than the parent. Sub-agents always run in STANDARD mode."
         ),
     )
     n_parallel_attempts: int = Field(
@@ -231,6 +361,54 @@ class AgentConfig(BaseModel):
         raise TypeError(
             "evidence_gate_required_tags must be None, str, list[str], or tuple[str, ...]"
         )
+
+    @model_validator(mode="after")
+    def _validate_output_budget_fits_window(self) -> AgentConfig:
+        """Fail at construction when the reply budget cannot fit the window.
+
+        On servers with a shared input/output window (vLLM
+        ``--max-model-len``) a request with ``prompt + max_tokens`` above
+        the window is rejected with HTTP 400 — typically on tool round
+        40, not at build time.  Only values the user set **explicitly**
+        are checked here; defaults are derived by the context engine.
+        """
+        ctx = self.context
+        if ctx is None:
+            return self
+        explicit = getattr(ctx, "model_fields_set", set())
+        reserve_explicit = "response_reserve" in explicit
+        window = ctx.max_context_tokens
+        if reserve_explicit and window is not None and ctx.response_reserve >= window:
+            raise ValueError(
+                f"ContextConfig.response_reserve ({ctx.response_reserve}) must be "
+                f"smaller than max_context_tokens ({window}); nothing would be "
+                "left for the prompt."
+            )
+        if (
+            reserve_explicit
+            and "llm_max_output_tokens" in self.model_fields_set
+            and self.llm_max_output_tokens > ctx.response_reserve
+        ):
+            raise ValueError(
+                f"AgentConfig.llm_max_output_tokens ({self.llm_max_output_tokens}) "
+                f"exceeds ContextConfig.response_reserve ({ctx.response_reserve}). "
+                "The reply budget sent as max_tokens must fit inside the reserve, "
+                "otherwise a full prompt plus the reply overflows the model window "
+                f"({window if window is not None else 'auto-detected'}) and the "
+                "server rejects the request."
+            )
+        return self
+
+    def get_effective_max_context_tool_calls(self) -> int:
+        """Cap on context-management tool calls per execution.
+
+        Explicit ``max_context_tool_calls`` wins; otherwise twice the
+        effective ``max_tool_calls`` so recall traffic is generous but
+        finite.
+        """
+        if self.max_context_tool_calls is not None:
+            return max(0, int(self.max_context_tool_calls))
+        return 2 * self.get_effective_max_tool_calls()
 
     @property
     def effective_tracing(self) -> bool:

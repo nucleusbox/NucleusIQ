@@ -11,7 +11,9 @@ via a pluggable registry.  All heavy logic lives in:
 """
 
 import asyncio
+import contextlib
 import inspect
+import json
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -26,6 +28,7 @@ from nucleusiq.agents.agent_result import (
 from nucleusiq.agents.builder.base_agent import BaseAgent
 from nucleusiq.agents.components.executor import Executor
 from nucleusiq.agents.config.agent_config import AgentMetrics, AgentState
+from nucleusiq.agents.context.budgets import FALLBACK_WINDOW
 from nucleusiq.agents.errors import AgentConfigError
 from nucleusiq.agents.modes.autonomous_mode import AutonomousMode
 
@@ -44,6 +47,23 @@ from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.plugins.manager import PluginManager
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
 from pydantic import Field, PrivateAttr
+
+
+def _declares_window(llm: Any) -> bool:
+    """True when the provider overrides ``BaseLLM.get_context_window``.
+
+    The base implementation is a constant 128K guess; only an override
+    (provider model registry, user subclass) counts as a declared window.
+    """
+    try:
+        from nucleusiq.llms.base_llm import BaseLLM
+
+        return (
+            getattr(type(llm), "get_context_window", None)
+            is not BaseLLM.get_context_window
+        )
+    except Exception:
+        return True
 
 
 class Agent(BaseAgent):
@@ -136,6 +156,31 @@ class Agent(BaseAgent):
     _tool_dedup_cache: dict[tuple[str, str], str] = PrivateAttr(default_factory=dict)
     _execution_progress: Any = PrivateAttr(default=None)
     _sub_agent_context_tels: list = PrivateAttr(default_factory=list)
+    # Always-on per-run diagnostics collector (see agents/diagnostics).
+    _run_recorder: Any = PrivateAttr(default=None)
+    _last_run_report: Any = PrivateAttr(default=None)
+    # Latest ``SchemaCheck`` recorded by a mode / validation layer when
+    # ``response_format`` is set (WS-8).  ``_build_result`` re-checks the
+    # final output anyway; this is kept for diagnostics.
+    _last_schema_check: Any = PrivateAttr(default=None)
+    # Wall-clock deadline (``time.monotonic()``) for the current run.
+    _run_deadline: Any = PrivateAttr(default=None)
+    # Preflight fitness decision for the current run (dict) and the mode
+    # actually used when preflight downgraded the requested gear.
+    _preflight: Any = PrivateAttr(default=None)
+    _effective_mode_value: Any = PrivateAttr(default=None)
+    # Shared evidence (WS-3): a sub-agent's read-only view of its parent's
+    # store / corpus / dossier, set by ``Decomposer.create_sub_agent``.
+    _parent_evidence: Any = PrivateAttr(default=None)
+    # Which declared ``Task.resources`` tool traffic has touched (WS-4).
+    _resource_tracker: Any = PrivateAttr(default=None)
+    # The single bounded coverage follow-up a run may spend (WS-4):
+    # ``{"kind": "child" | "retry", ...}`` once used, else ``None``.
+    _coverage_followup: Any = PrivateAttr(default=None)
+    # Material handed to the generator that is neither the task nor a tool
+    # result — the sub-agent findings a COMPLEX synthesis reads (I-10).
+    # ``{"label", "text", "complete"}`` while set; the Critic shows it too.
+    _generator_inputs: Any = PrivateAttr(default=None)
     # ExpandableTool adapters (e.g., MCPTool from nucleusiq-mcp) kept for
     # cleanup at shutdown.  See ``initialize()`` / ``_cleanup_expandable_tools``.
     _expandable_tools: list = PrivateAttr(default_factory=list)
@@ -414,20 +459,51 @@ class Agent(BaseAgent):
                 return None
 
             max_tokens = ctx_config.max_context_tokens
+            window_is_fallback = False
             if max_tokens is None and self.llm:
                 try:
                     raw = self.llm.get_context_window()
                     max_tokens = int(raw) if isinstance(raw, (int, float)) else None
                 except Exception:
                     max_tokens = None
+                # ``BaseLLM.get_context_window`` returns a constant; only a
+                # provider override is a *declared* window.
+                window_is_fallback = max_tokens is None or not _declares_window(
+                    self.llm
+                )
+            elif max_tokens is None:
+                window_is_fallback = True
 
             counter = self._build_token_counter()
+
+            if window_is_fallback:
+                # Same last-resort number as ``BaseLLM.get_context_window``;
+                # surfaced so the run report can explain a mis-sized run.
+                self._logger.warning(
+                    "Context window unknown for %s — assuming %d tokens. Set "
+                    "ContextConfig.max_context_tokens to the model's real window.",
+                    getattr(self.llm, "model_name", "llm"),
+                    FALLBACK_WINDOW,
+                )
+
+            store = None
+            parent_view = getattr(self, "_parent_evidence", None)
+            parent_store = getattr(parent_view, "store", None)
+            if parent_store is not None:
+                from nucleusiq.agents.context.shared_evidence import (
+                    LayeredContentStore,
+                )
+
+                store = LayeredContentStore(parent_store)
 
             return ContextEngine(
                 config=ctx_config,
                 token_counter=counter,
-                max_tokens=max_tokens or 128_000,
+                max_tokens=max_tokens or FALLBACK_WINDOW,
                 tracer=self._tracer,
+                max_output_tokens=int(self.config.llm_max_output_tokens),
+                window_is_fallback=window_is_fallback,
+                store=store,
             )
         except Exception:
             self._logger.debug("Context engine creation failed, proceeding without it")
@@ -584,19 +660,45 @@ class Agent(BaseAgent):
         task: str,
         output_shape: str = "",
         recalled_snippets: tuple[str, ...] = (),
-        max_chars: int = 12_000,
+        max_chars: int | None = None,
+        role: str = "synthesis_package",
     ) -> Any:
-        """Build a bounded synthesis package from this run's curated state."""
+        """Build a bounded synthesis package from this run's curated state.
+
+        ``max_chars`` defaults to the window-derived budget for ``role``
+        (see :class:`BudgetResolver`); pass an explicit value only to
+        override it.  The package carries the run's resource coverage so
+        every consumer sees, as a harness-verified fact, which declared
+        resources the tools actually read.
+        """
         from nucleusiq.agents.context.synthesis_package import build_synthesis_package
 
+        if max_chars is None:
+            max_chars = self._package_budget_chars(role)
+        tracker = getattr(self, "_resource_tracker", None)
+        coverage = None
+        if tracker is not None and getattr(tracker, "resources", None):
+            with contextlib.suppress(Exception):
+                coverage = tracker.to_dict()
         return build_synthesis_package(
             task=task,
             output_shape=output_shape,
             workspace=self.workspace,
             evidence=self.evidence_dossier,
             recalled_snippets=recalled_snippets,
+            coverage=coverage,
             max_chars=max_chars,
         )
+
+    def _package_budget_chars(self, role: str) -> int:
+        """Window-derived char budget for a synthesis-package consumer."""
+        from nucleusiq.agents.context.budgets import budgets_for
+        from nucleusiq.agents.context.synthesis_package import DEFAULT_PACKAGE_CHARS
+
+        try:
+            return budgets_for(self).handoff_chars(role)  # type: ignore[arg-type]
+        except Exception:
+            return DEFAULT_PACKAGE_CHARS
 
     @property
     def document_corpus(self) -> Any:
@@ -647,9 +749,16 @@ class Agent(BaseAgent):
         *,
         task: str,
         output_shape: str = "",
-        max_chars: int = 12_000,
+        max_chars: int | None = None,
+        role: str = "synthesis_package",
     ) -> list[Any] | None:
-        """Build package-based synthesis messages when curated state exists."""
+        """Build package-based synthesis messages when curated state exists.
+
+        The package is sized for ``role`` through :class:`BudgetResolver`
+        unless ``max_chars`` is given.  When the package had to omit items
+        its own visibility note is prepended so the consumer never mistakes
+        a cut list for a complete one.
+        """
         if not self._has_context_state():
             return None
 
@@ -659,8 +768,30 @@ class Agent(BaseAgent):
             task=task,
             output_shape=output_shape,
             max_chars=max_chars,
+            role=role,
         )
         self._last_synthesis_package = package
+        recorder = getattr(self, "_run_recorder", None)
+        if recorder is not None:
+            with contextlib.suppress(Exception):
+                recorder.record_decision(
+                    f"package:{role}",
+                    {
+                        "chars": package.metadata.get("char_count"),
+                        "max_chars": package.metadata.get("max_chars"),
+                        "complete": package.metadata.get("complete"),
+                        "omitted_items": {
+                            k: v
+                            for k, v in (
+                                package.metadata.get("omitted_items") or {}
+                            ).items()
+                            if v
+                        },
+                        "omitted_sections": list(
+                            package.metadata.get("omitted_sections") or []
+                        ),
+                    },
+                )
         phase_controller = getattr(self, "_phase_controller", None)
         if phase_controller is not None:
             phase_controller.enter("ORGANIZE_EVIDENCE")
@@ -684,11 +815,13 @@ class Agent(BaseAgent):
         if phase_controller is not None:
             phase_controller.synthesis_used_package = True
 
+        note = package.visibility_note()
+        preamble = f"{note}\n\n" if note else ""
         return [
             ChatMessage(
                 role="user",
                 content=(
-                    f"{package.text}\n\n"
+                    f"{preamble}{package.text}\n\n"
                     "Using only the curated package above, produce the complete "
                     "final answer requested by the task. Clearly qualify any known gaps."
                 ),
@@ -704,6 +837,12 @@ class Agent(BaseAgent):
         tool_args: dict[str, Any] | None = None,
     ) -> None:
         """Internal L4.5 route from business tool result to context state."""
+        tracker = getattr(self, "_resource_tracker", None)
+        if tracker is not None:
+            with contextlib.suppress(Exception):
+                tracker.observe(
+                    tool_name=tool_name, tool_args=tool_args, tool_result=tool_result
+                )
         activator = getattr(self, "_context_state_activator", None)
         if activator is None:
             return
@@ -759,6 +898,16 @@ class Agent(BaseAgent):
         self._tracer = (
             DefaultExecutionTracer() if self.config.effective_tracing else None
         )
+        from nucleusiq.agents.diagnostics.run_report import RunRecorder
+
+        self._run_recorder = RunRecorder()
+        self._last_schema_check = None
+        self._effective_mode_value = None
+        self._preflight = None
+        # Wall clock (WS-6 6.3): monotonic deadline checked at every loop
+        # boundary.  ``0`` means unlimited.
+        budget_s = int(getattr(self.config, "max_execution_time", 0) or 0)
+        self._run_deadline = time.monotonic() + budget_s if budget_s > 0 else None
 
         if self._plugin_manager is not None and self._tracer is not None:
             self._plugin_manager._tracer = self._tracer
@@ -773,8 +922,28 @@ class Agent(BaseAgent):
         from nucleusiq.agents.context.workspace import InMemoryWorkspace
 
         self._workspace = InMemoryWorkspace()
-        self._evidence_dossier = InMemoryEvidenceDossier()
-        self._document_corpus = InMemoryDocumentCorpus()
+        parent_view = getattr(self, "_parent_evidence", None)
+        if parent_view is not None:
+            # Sub-agent: read through to the parent's evidence, write locally.
+            from nucleusiq.agents.context.shared_evidence import (
+                LayeredDocumentCorpus,
+                LayeredEvidenceDossier,
+            )
+
+            self._evidence_dossier = LayeredEvidenceDossier(
+                getattr(parent_view, "dossier", None)
+            )
+            self._document_corpus = LayeredDocumentCorpus(
+                getattr(parent_view, "corpus", None)
+            )
+        else:
+            self._evidence_dossier = InMemoryEvidenceDossier()
+            self._document_corpus = InMemoryDocumentCorpus()
+        from nucleusiq.agents.context.coverage import ResourceTouchTracker
+
+        self._resource_tracker = ResourceTouchTracker(task.effective_resources())
+        self._coverage_followup = None
+        self._generator_inputs = None
         self._phase_controller = PhaseController()
         self._evidence_gate = EvidenceGate(
             required_tags=tuple(self.config.evidence_gate_required_tags),
@@ -837,7 +1006,153 @@ class Agent(BaseAgent):
             )
 
         mode = self._resolve_mode()
+        mode = self._run_preflight(mode)
         return task, mode, agent_ctx
+
+    # ------------------------------------------------------------------ #
+    # Preflight fitness (WS-6 6.7)                                         #
+    # ------------------------------------------------------------------ #
+
+    def _measure_fixed_costs(self) -> tuple[int, int]:
+        """Tokens every call pays before any evidence: system prompt + tool schemas."""
+        engine = self._context_engine
+        counter = getattr(engine, "token_counter", None)
+        if counter is None:
+            counter = self._build_token_counter()
+
+        def _count(text: str) -> int:
+            try:
+                return int(counter.count(text))
+            except Exception:
+                return max(1, len(text) // 4)
+
+        system_text = ""
+        prompt = getattr(self, "prompt", None)
+        for attr in ("system", "system_prompt"):
+            value = getattr(prompt, attr, None)
+            if isinstance(value, str) and value.strip():
+                system_text = value
+                break
+        system_text += f"\n{self.role or ''}\n{self.objective or ''}"
+        system_tokens = _count(system_text)
+
+        tool_tokens = 0
+        for tool in self.tools or []:
+            spec_fn = getattr(tool, "get_spec", None)
+            if not callable(spec_fn):
+                continue
+            try:
+                tool_tokens += _count(json.dumps(spec_fn(), default=str))
+            except Exception:
+                tool_tokens += 50
+        return system_tokens, tool_tokens
+
+    def _run_preflight(self, mode: BaseExecutionMode) -> BaseExecutionMode:
+        """Decide whether the resolved window can carry the requested gear.
+
+        ``working = window − response_reserve − system − tool_schemas`` is
+        what a single call can spend on evidence and reasoning.  Below
+        ``preflight_min_working_tokens`` Autonomous mode cannot fit its
+        Critic/Refiner hand-offs or sub-agent synthesis, so the run is
+        downgraded to STANDARD (unless ``preflight_downgrade=False``).
+        The numbers always land in the run report.
+        """
+        engine = self._context_engine
+        if engine is None:
+            return mode
+        try:
+            system_tokens, tool_tokens = self._measure_fixed_costs()
+            engine.set_fixed_costs(
+                system_tokens=system_tokens, tool_schema_tokens=tool_tokens
+            )
+            budgets = engine.budgets
+        except Exception as exc:
+            self._logger.debug("Preflight skipped: %s", exc)
+            return mode
+
+        mode_value = (
+            self.config.execution_mode.value
+            if hasattr(self.config.execution_mode, "value")
+            else str(self.config.execution_mode)
+        )
+        working = budgets.usable_tokens
+        cfg = self.config
+        preflight: dict[str, Any] = {
+            "mode_requested": mode_value,
+            "window": budgets.window,
+            "window_is_fallback": bool(getattr(engine, "window_is_fallback", False)),
+            "response_reserve": budgets.response_reserve,
+            "system_tokens": system_tokens,
+            "tool_schema_tokens": tool_tokens,
+            "working_tokens": working,
+            "fitness": "ok",
+            "action": "none",
+        }
+
+        if mode_value == "autonomous":
+            min_ok = int(cfg.preflight_min_working_tokens)
+            marginal = int(cfg.preflight_marginal_working_tokens)
+            if min_ok > 0 and working < min_ok:
+                preflight["fitness"] = "unfit"
+                breakdown = (
+                    f"window {budgets.window} − reserve {budgets.response_reserve} − "
+                    f"system {system_tokens} − tool schemas {tool_tokens} = "
+                    f"{working} working tokens (< {min_ok})"
+                )
+                if cfg.preflight_downgrade:
+                    preflight["action"] = "downgraded_to_standard"
+                    self._logger.warning(
+                        "Preflight: %s. Autonomous mode cannot fit its Critic/"
+                        "Refiner hand-offs in this window — running in STANDARD "
+                        "mode instead (set preflight_downgrade=False to force).",
+                        breakdown,
+                    )
+                    mode = StandardMode()
+                    self._effective_mode_value = "standard"
+                    recorder = getattr(self, "_run_recorder", None)
+                    if recorder is not None:
+                        with contextlib.suppress(Exception):
+                            recorder.record_event("preflight_downgraded", breakdown)
+                else:
+                    preflight["action"] = "forced"
+                    self._logger.warning(
+                        "Preflight: %s. Autonomous mode forced "
+                        "(preflight_downgrade=False); expect heavy compaction.",
+                        breakdown,
+                    )
+            elif marginal > 0 and working < marginal:
+                preflight["fitness"] = "marginal"
+                self._logger.info(
+                    "Preflight: %d working tokens (window %d, reserve %d, system %d, "
+                    "tool schemas %d) — Autonomous mode will run with tight hand-off "
+                    "budgets.",
+                    working,
+                    budgets.window,
+                    budgets.response_reserve,
+                    system_tokens,
+                    tool_tokens,
+                )
+        elif mode_value == "standard":
+            floor = int(cfg.preflight_standard_min_working_tokens)
+            if floor > 0 and working < floor:
+                preflight["fitness"] = "marginal"
+                self._logger.warning(
+                    "Preflight: only %d working tokens per call (window %d, reserve "
+                    "%d, system %d, tool schemas %d). Reduce tools or use a larger "
+                    "model window.",
+                    working,
+                    budgets.window,
+                    budgets.response_reserve,
+                    system_tokens,
+                    tool_tokens,
+                )
+
+        self._preflight = preflight
+        recorder = getattr(self, "_run_recorder", None)
+        if recorder is not None:
+            with contextlib.suppress(Exception):
+                recorder.record_decision("preflight", dict(preflight))
+        return mode
 
     # ------------------------------------------------------------------ #
     # EXECUTION — non-streaming                                            #
@@ -897,6 +1212,7 @@ class Agent(BaseAgent):
                 output = halt.result
                 if task_obj is None:
                     task_obj = task if isinstance(task, Task) else Task.from_dict(task)
+                self._record_termination("plugin_halt", "halted before execution")
                 return self._build_result(task_obj, status, output, None, None, t0)
 
             status = ResultStatus.SUCCESS
@@ -907,6 +1223,7 @@ class Agent(BaseAgent):
             except PluginHalt as halt:
                 status = ResultStatus.HALTED
                 output = halt.result
+                self._record_termination("plugin_halt", "plugin halted execution")
             except AbstentionSignal as signal:
                 # F2: Autonomous mode exhausted retries with Critic still
                 # failing. Surface as a first-class outcome rather than
@@ -918,6 +1235,9 @@ class Agent(BaseAgent):
                 output = signal.best_candidate
                 abstention_reason = signal.reason
                 abstention_code = getattr(signal, "abstain_reason", None)
+                self._record_termination(
+                    "critic_abstain", f"{abstention_code or ''} {signal.reason}".strip()
+                )
 
             if self._plugin_manager is not None:
                 output = await self._plugin_manager.run_after_agent(agent_ctx, output)
@@ -947,6 +1267,7 @@ class Agent(BaseAgent):
         except Exception as exc:
             if task_obj is None:
                 task_obj = task if isinstance(task, Task) else Task.from_dict(task)
+            self._record_termination("error", f"{type(exc).__name__}: {exc}")
             return self._build_result(
                 task_obj,
                 ResultStatus.ERROR,
@@ -957,6 +1278,276 @@ class Agent(BaseAgent):
             )
         finally:
             self._current_llm_overrides = {}
+
+    # ------------------------------------------------------------------ #
+    # Diagnostics helpers                                                  #
+    # ------------------------------------------------------------------ #
+
+    # Reasons a mode sets *before* raising; the generic ``error`` recorded
+    # by ``execute()``'s catch-all must not paper over them.
+    _STICKY_TERMINATIONS: ClassVar[frozenset[str]] = frozenset(
+        {"context_overflow", "deadline", "llm_timeout"}
+    )
+
+    def _record_termination(self, reason: str, message: str = "") -> None:
+        recorder = getattr(self, "_run_recorder", None)
+        if recorder is None:
+            return
+        with contextlib.suppress(Exception):
+            if reason == "error":
+                current = getattr(recorder, "termination_reason", None)
+                current_value = getattr(current, "value", current)
+                if current_value in self._STICKY_TERMINATIONS:
+                    return
+            recorder.set_termination(reason, message)
+
+    @property
+    def last_run_report(self) -> Any:
+        """The :class:`RunReport` of the most recent ``execute()`` (or ``None``)."""
+        return self._last_run_report
+
+    def _resolve_structured_result(
+        self, output: Any, status: ResultStatus
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Type the final output against ``response_format`` (WS-8).
+
+        Returns ``(parsed, structured)``.  ``parsed`` is the validated
+        schema instance or ``None``; ``structured`` is the verdict dict,
+        or ``None`` when no ``response_format`` is configured.  A final
+        answer that still fails the schema after the finalizer records
+        ``termination_reason="schema_invalid"`` — the caller keeps the
+        raw text in ``result.output`` and can decide what to do.
+        """
+        if self.response_format is None:
+            return None, None
+        from nucleusiq.agents.modes.base_mode import BaseExecutionMode
+
+        contract = BaseExecutionMode.structured_contract(self)
+        if contract is None:
+            return None, None
+        if status in (ResultStatus.ERROR, ResultStatus.HALTED):
+            return None, None
+
+        payload = output
+        if isinstance(output, dict) and "schema" in output and "mode" in output:
+            payload = output.get("output")
+        try:
+            check = contract.check(payload)
+        except Exception as exc:
+            self._logger.debug("Schema check skipped: %s", exc)
+            return None, None
+        self._last_schema_check = check
+
+        recorder = getattr(self, "_run_recorder", None)
+        finalizer_runs = 0
+        if recorder is not None:
+            with contextlib.suppress(Exception):
+                finalizer_runs = int(recorder.counters.finalizer_runs)
+        structured = contract.describe(check, finalizer_runs=finalizer_runs)
+        if not check.valid:
+            self._logger.warning(
+                "Final output does not satisfy schema %s: %s",
+                contract.schema_name,
+                (check.errors or "")[:200],
+            )
+            if status == ResultStatus.SUCCESS:
+                self._record_termination(
+                    "schema_invalid",
+                    f"Final output failed schema {contract.schema_name}: "
+                    f"{(check.errors or '')[:200]}",
+                )
+        return (check.value if check.valid else None), structured
+
+    def _resolved_config_for_report(self) -> dict[str, Any]:
+        """Snapshot of the numbers that actually governed this run."""
+        cfg = self.config
+        out: dict[str, Any] = {
+            "mode": (
+                cfg.execution_mode.value
+                if hasattr(cfg.execution_mode, "value")
+                else str(cfg.execution_mode)
+            ),
+            "max_tool_calls": cfg.get_effective_max_tool_calls(),
+            "max_context_tool_calls": cfg.get_effective_max_context_tool_calls(),
+            "max_retries": cfg.max_retries,
+            "llm_max_output_tokens": cfg.llm_max_output_tokens,
+            "enable_decomposition": getattr(cfg, "enable_decomposition", True),
+            "max_sub_agents": cfg.max_sub_agents,
+            "enable_synthesis": cfg.enable_synthesis,
+            "tracing": bool(cfg.effective_tracing),
+            "response_format_set": self.response_format is not None,
+        }
+        from nucleusiq.agents.context.workspace_tools import (
+            is_context_management_tool_name,
+        )
+
+        user_tools = [
+            t
+            for t in (self.tools or [])
+            if not is_context_management_tool_name(getattr(t, "name", None))
+        ]
+        out["tool_count"] = len(user_tools)
+        out["idempotent_tool_count"] = sum(
+            1 for t in user_tools if bool(getattr(t, "idempotent", False))
+        )
+        engine = getattr(self, "_context_engine", None)
+        if engine is not None:
+            with contextlib.suppress(Exception):
+                out["context_window"] = int(engine.resolved_max_tokens)
+            try:
+                ecfg = engine.config
+                out["response_reserve"] = int(
+                    getattr(engine, "resolved_response_reserve", ecfg.response_reserve)
+                )
+                strategy = getattr(ecfg, "strategy", None)
+                out["strategy"] = (
+                    strategy.value if hasattr(strategy, "value") else str(strategy)
+                )
+            except Exception:
+                pass
+            with contextlib.suppress(Exception):
+                out["optimal_budget"] = int(engine.resolved_optimal_budget)
+            with contextlib.suppress(Exception):
+                out["window_is_fallback"] = bool(engine.window_is_fallback)
+            with contextlib.suppress(Exception):
+                out["budgets"] = engine.budgets.to_dict()
+        elif self.llm is not None:
+            try:
+                out["context_window"] = int(self.llm.get_context_window())
+                out["strategy"] = "none"
+            except Exception:
+                pass
+        out["max_execution_time"] = int(getattr(cfg, "max_execution_time", 0) or 0)
+        for field in ("llm_call_timeout", "step_timeout"):
+            if field in getattr(cfg, "model_fields_set", set()):
+                out[field] = getattr(cfg, field)
+        preflight = getattr(self, "_preflight", None)
+        if isinstance(preflight, dict):
+            out["preflight"] = dict(preflight)
+        return out
+
+    def _finalize_coverage(self, output: Any) -> Any:
+        """Reconcile ``Task.resources`` against what the run touched (WS-4).
+
+        Returns a ``CoverageReport`` (also stored on the run recorder) or
+        ``None`` when the task declared no resources.
+        """
+        tracker = getattr(self, "_resource_tracker", None)
+        if tracker is None or not getattr(tracker, "resources", None):
+            return None
+        try:
+            from nucleusiq.agents.context.coverage import build_coverage
+
+            corpus = getattr(self, "_document_corpus", None)
+            doc_ids: list[str] = []
+            lister = getattr(corpus, "list_documents", None)
+            if callable(lister):
+                with contextlib.suppress(Exception):
+                    doc_ids = [str(getattr(d, "id", "")) for d in lister()]
+            text = output.get("output") if isinstance(output, dict) else output
+            coverage = build_coverage(
+                tracker,
+                answer_text=str(text) if text is not None else "",
+                followup=getattr(self, "_coverage_followup", None),
+                enforce=bool(getattr(self.config, "evidence_gate_enforce", False)),
+                corpus_document_ids=doc_ids,
+            )
+        except Exception as exc:
+            self._logger.debug("Coverage reconciliation skipped: %s", exc)
+            return None
+        recorder = getattr(self, "_run_recorder", None)
+        if recorder is not None:
+            with contextlib.suppress(Exception):
+                recorder.coverage = coverage.to_dict()
+            if coverage.unprocessed:
+                with contextlib.suppress(Exception):
+                    recorder.record_event(
+                        "coverage_gap",
+                        f"{len(coverage.unprocessed)}/{len(coverage.resources)} "
+                        "resource(s) unprocessed: "
+                        + ", ".join(coverage.unprocessed[:5]),
+                    )
+        return coverage
+
+    def _build_run_report(
+        self, task: Task, status: ResultStatus, mode_value: str, model_name: str | None
+    ) -> Any:
+        from nucleusiq.agents.diagnostics.run_report import (
+            RunRecorder,
+            TerminationReason,
+        )
+
+        recorder = getattr(self, "_run_recorder", None)
+        if not isinstance(recorder, RunRecorder):
+            return None
+
+        # Compaction counters come from the engine's telemetry so the
+        # report agrees with ``context_telemetry`` byte for byte.
+        engine = getattr(self, "_context_engine", None)
+        if engine is not None:
+            try:
+                tel = engine.telemetry
+                by: dict[str, int] = {}
+                for ev in getattr(tel, "compaction_events", ()) or ():
+                    name = getattr(ev, "strategy", "unknown")
+                    by[name] = by.get(name, 0) + 1
+                recorder.counters.compactions_by_strategy = by
+                recorder.counters.emergency_count = int(
+                    getattr(engine, "emergency_count", 0) or 0
+                )
+                recorder.counters.unseen_evidence_evicted = sum(
+                    int(getattr(ev, "unseen_evicted", 0) or 0)
+                    for ev in getattr(tel, "compaction_events", ()) or ()
+                )
+            except Exception:
+                pass
+
+        default_reason = {
+            ResultStatus.SUCCESS: TerminationReason.COMPLETED,
+            ResultStatus.ERROR: TerminationReason.ERROR,
+            ResultStatus.HALTED: TerminationReason.PLUGIN_HALT,
+            ResultStatus.ABSTAINED: TerminationReason.CRITIC_ABSTAIN,
+        }.get(status, TerminationReason.COMPLETED)
+
+        try:
+            from nucleusiq import __version__ as framework_version
+        except Exception:
+            framework_version = ""
+
+        try:
+            from nucleusiq.agents.structured_output.resolver import (
+                get_provider_from_llm,
+            )
+
+            provider = get_provider_from_llm(self.llm) if self.llm else None
+        except Exception:
+            provider = None
+
+        try:
+            report = recorder.build(
+                framework_version=str(framework_version),
+                provider=provider,
+                model=model_name,
+                mode=mode_value,
+                agent_name=self.name,
+                task_id=task.id,
+                status=status.value,
+                config_resolved=self._resolved_config_for_report(),
+                default_reason=default_reason,
+            )
+        except Exception as exc:
+            self._logger.debug("Run report build skipped: %s", exc)
+            return None
+
+        # Analyzer is pure and never raises, but stay defensive: a report
+        # without findings is still worth more than no report.
+        try:
+            from nucleusiq.agents.diagnostics.analyzer import attach_findings
+
+            report = attach_findings(report)
+        except Exception as exc:
+            self._logger.debug("Run report analysis skipped: %s", exc)
+        return report
 
     def _build_result(
         self,
@@ -977,6 +1568,11 @@ class Agent(BaseAgent):
             if hasattr(self.config.execution_mode, "value")
             else str(self.config.execution_mode)
         )
+        # Preflight may have downgraded the gear; the result says which
+        # one actually ran (the request is in ``diagnostics.decisions``).
+        effective = getattr(self, "_effective_mode_value", None)
+        if isinstance(effective, str) and effective:
+            mode_value = effective
         model_name: str | None = None
         if self.llm is not None:
             model_name = getattr(self.llm, "model", None) or getattr(
@@ -1098,6 +1694,48 @@ class Agent(BaseAgent):
             except Exception:
                 pass
 
+        parsed, structured = self._resolve_structured_result(output, status)
+        if structured is not None:
+            metadata["raw_output"] = (
+                output.get("output") if isinstance(output, dict) else output
+            )
+
+        coverage = self._finalize_coverage(output)
+        if coverage is not None:
+            metadata["coverage"] = coverage.to_dict()
+            if coverage.blocked and status == ResultStatus.SUCCESS:
+                # ``evidence_gate_enforce``: an answer that leaves declared
+                # resources unprocessed is not certified.  The output is
+                # kept so the caller can still inspect it.
+                status = ResultStatus.ABSTAINED
+                abstention_code = abstention_code or "coverage_incomplete"
+                abstention_reason = abstention_reason or (
+                    f"{len(coverage.unprocessed)} declared resource(s) were "
+                    "never processed: " + ", ".join(coverage.unprocessed[:5])
+                )
+                self._logger.warning("Coverage gate blocked: %s", abstention_reason)
+
+        report = self._build_run_report(task, status, mode_value, model_name)
+        self._last_run_report = report
+        termination_reason: str | None = None
+        if report is not None:
+            termination_reason = report.termination.reason.value
+            self._logger.info(
+                "Run ended: reason=%s rounds=%d llm_calls=%d tool_calls=%d "
+                "(context %d, dedup %d, recall_errors %d) compactions=%d "
+                "emergency=%d findings=%s",
+                termination_reason,
+                report.counters.rounds,
+                report.counters.llm_calls,
+                report.counters.tool_calls_business,
+                report.counters.tool_calls_context,
+                report.counters.dedup_banners,
+                report.counters.recall_errors,
+                sum(report.counters.compactions_by_strategy.values()),
+                report.counters.emergency_count,
+                [f.code for f in report.findings] or "none",
+            )
+
         return AgentResult(
             agent_id=str(self.id),
             agent_name=self.name,
@@ -1111,6 +1749,9 @@ class Agent(BaseAgent):
             duration_ms=(time.perf_counter() - t0) * 1000,
             abstention_reason=abstention_reason,
             abstention_code=abstention_code,
+            termination_reason=termination_reason,
+            parsed=parsed,
+            structured=structured,
             usage=usage_dict,
             tool_calls=tool_calls_t,
             llm_calls=llm_calls_t,
@@ -1118,6 +1759,7 @@ class Agent(BaseAgent):
             memory_snapshot=memory_snap,
             autonomous=autonomous_out,
             context_telemetry=context_tel,
+            diagnostics=report,
             warnings=warnings_t,
             metadata=metadata,
         )
@@ -1166,7 +1808,17 @@ class Agent(BaseAgent):
         try:
             task, mode, agent_ctx = await self._setup_execution(task, llm_params)
         except PluginHalt as halt:
+            self._record_termination("plugin_halt", "halted before execution")
             yield StreamEvent.complete_event(str(halt.result) if halt.result else "")
+            return
+        except AgentConfigError:
+            # Misconfiguration is a programmer error — fail fast, same as
+            # before.  Runtime failures below become stream events.
+            raise
+        except Exception as exc:
+            self._record_termination("error", f"{type(exc).__name__}: {exc}")
+            self._logger.error("Streaming setup failed: %s", exc)
+            yield StreamEvent.error_event(f"{type(exc).__name__}: {exc}")
             return
 
         final_result: str | None = None
@@ -1179,6 +1831,7 @@ class Agent(BaseAgent):
                     yield event
             except PluginHalt as halt:
                 final_result = str(halt.result) if halt.result else ""
+                self._record_termination("plugin_halt", "plugin halted execution")
                 yield StreamEvent.complete_event(final_result)
             except AbstentionSignal as signal:
                 # F2: surface abstention as a terminal stream event.
@@ -1192,15 +1845,54 @@ class Agent(BaseAgent):
                 final_result = (
                     str(signal.best_candidate) if signal.best_candidate else ""
                 )
-                yield StreamEvent.complete_event(final_result)
                 code = getattr(signal, "abstain_reason", None)
+                self._record_termination(
+                    "critic_abstain", f"{code or ''} {signal.reason}".strip()
+                )
+                yield StreamEvent.complete_event(final_result)
                 prefix = f"ABSTAINED[{code}]" if code else "ABSTAINED"
                 yield StreamEvent.error_event(f"{prefix}: {signal.reason}")
+            except Exception as exc:
+                # Same contract as ``execute()``: every failure becomes a
+                # typed result.  ``BaseException`` (cancellation, ^C) still
+                # propagates so callers can stop the run.
+                self._record_termination("error", f"{type(exc).__name__}: {exc}")
+                self._logger.error("Streaming execution failed: %s", exc)
+                self.state = AgentState.ERROR
+                yield StreamEvent.error_event(f"{type(exc).__name__}: {exc}")
 
             if self._plugin_manager and final_result is not None:
                 await self._plugin_manager.run_after_agent(agent_ctx, final_result)
         finally:
             self._current_llm_overrides = {}
+            try:
+                mode_value = (
+                    self.config.execution_mode.value
+                    if hasattr(self.config.execution_mode, "value")
+                    else str(self.config.execution_mode)
+                )
+                model_name = None
+                if self.llm is not None:
+                    model_name = getattr(self.llm, "model", None) or getattr(
+                        self.llm, "model_name", None
+                    )
+                status = (
+                    ResultStatus.ERROR
+                    if self.state == AgentState.ERROR
+                    else ResultStatus.SUCCESS
+                )
+                # Streaming has no AgentResult to carry ``metadata["coverage"]``;
+                # reconcile here so the run report still records it.
+                with contextlib.suppress(Exception):
+                    self._finalize_coverage(final_result)
+                self._last_run_report = self._build_run_report(
+                    task if isinstance(task, Task) else Task.from_dict(task),
+                    status,
+                    mode_value,
+                    model_name,
+                )
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ #
     # STRUCTURED OUTPUT HELPERS (cross-cutting, used by all modes)        #

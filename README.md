@@ -21,7 +21,7 @@
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome"></a>
 </p>
 
-<!-- Per-package PyPI badges (all first-party packages are stable as of v0.7.13) -->
+<!-- Per-package PyPI badges (all first-party packages are stable as of v0.7.14) -->
 <p align="center">
   <a href="https://pypi.org/project/nucleusiq/"><img src="https://img.shields.io/pypi/v/nucleusiq?label=nucleusiq&color=brightgreen" alt="nucleusiq"></a>
   <a href="https://pypi.org/project/nucleusiq-openai/"><img src="https://img.shields.io/pypi/v/nucleusiq-openai?label=openai&color=brightgreen" alt="nucleusiq-openai"></a>
@@ -83,19 +83,15 @@ Interactive scorecard on [Nucleusbox](https://www.nucleusbox.com/): every major 
 
 ## ✨ What's New
 
-> **`nucleusiq` 0.7.13** — September 2026
-> Coordinated release adding a generic OpenAI-compatible provider and declaring provider identity in core:
-> **`nucleusiq-openai-compatible` 0.1.0 Stable** — bring-your-own-model / bring-your-own-key for any Chat Completions server (vLLM, SGLang, TGI, llama.cpp, LM Studio, NVIDIA NIM, OpenRouter, Together, Fireworks, Azure OpenAI v1) ·
-> **`nucleusiq` 0.7.13** — `BaseLLM.PROVIDER_NAME` so identity is declared, not guessed from the class name ·
-> **`nucleusiq-openai` 0.7.1** — Responses API usage now reports prompt / completion tokens (streaming and non-streaming) ·
-> **`nucleusiq-mcp` 0.1.1** — security floor `mcp>=1.28.1` ·
-> Gemini / Anthropic / Groq / Ollama maintenance bumps (`0.3.1` / `0.2.1` / `0.1.1` / `0.2.1`).
+> **`nucleusiq` 0.7.14** — September 2026
+> Coordinated patch: Autonomous harness hardening + `WebSearchTool` in core, plus two provider bugfixes:
+> **`nucleusiq` 0.7.14** — named `termination_reason`, always-on run diagnostics, enforced `response_format`, window-derived budgets, Critic/Refiner evidence parity, coverage follow-up, no-progress / compaction loop guards ·
+> **`nucleusiq-ollama` 0.2.2** — multi-turn tool `arguments` accepted as a mapping by the official Ollama SDK ·
+> **`nucleusiq-anthropic` 0.2.2** — nested structured-output schemas set `additionalProperties: false` on every object (Claude grammar).
 >
-> - 🧩 **Self-hosted and OpenAI-compatible clouds** — one adapter, no model-name heuristics. Capabilities come from an engine preset (`vllm`, `sglang`, `tgi`, `llamacpp`, `lmstudio`, `ollama`, `generic`) or an explicit override.
-> - 🪪 **Declared provider identity** — `get_provider_from_llm()` reads `PROVIDER_NAME` first. Without it, `OpenAICompatibleLLM` would match as `"openai"` and send OpenAI-cloud structured output to a self-hosted server.
-> - 🔧 **Live-endpoint fixes** — flat tool-call sanitization, streaming `tool_calls` on COMPLETE, and inbound `response_format` routed through the structured-output policy (vLLM tool-suppression workaround).
+> Unchanged this line: OpenAI 0.7.1, openai-compatible 0.1.0, Gemini 0.3.1, Groq 0.1.1, MCP 0.1.1.
 >
-> Previous coordinated line: [v0.7.12](CHANGELOG.md#0712--2026-05-26) (first stable provider matrix + native-tool observability). See [CHANGELOG.md](CHANGELOG.md) for the full notes.
+> Previous coordinated line: [v0.7.13](CHANGELOG.md#0713--2026-09-05) (OpenAI-compatible provider + declared `PROVIDER_NAME`). See [CHANGELOG.md](CHANGELOG.md) for the full notes.
 
 ---
 
@@ -309,7 +305,7 @@ NucleusIQ ships as a **core framework + thin provider/tool packages**. Install o
 
 | Package | Status | Version | Description |
 |---|---|---|---|
-| [`nucleusiq`](https://pypi.org/project/nucleusiq/) | 🟢 Stable | `0.7.13` | Core framework: agents, prompts, tools, memory, plugins, modes, tracing |
+| [`nucleusiq`](https://pypi.org/project/nucleusiq/) | 🟢 Stable | `0.7.14` | Core framework: agents, prompts, tools, memory, plugins, modes, tracing |
 
 ### LLM Providers
 
@@ -317,14 +313,14 @@ NucleusIQ ships as a **core framework + thin provider/tool packages**. Install o
 |---|---|---|---|
 | [`nucleusiq-openai`](https://pypi.org/project/nucleusiq-openai/) | 🟢 Stable | `0.7.1` | OpenAI (gpt-4o, o-series); Responses API + Chat Completions; native `code_interpreter`, `file_search`, `web_search`; Responses usage mapped to `prompt_tokens` / `completion_tokens` · [README](src/providers/llms/openai/README.md) |
 | [`nucleusiq-gemini`](https://pypi.org/project/nucleusiq-gemini/) | 🟢 Stable | `0.3.1` | Google Gemini; native Google Search + Code Execution emitted as `ToolCallRecord(executed_by="provider")`; URL Context, Maps grounding · [README](src/providers/llms/gemini/README.md) |
-| [`nucleusiq-anthropic`](https://pypi.org/project/nucleusiq-anthropic/) | 🟢 Stable | `0.2.1` | Anthropic Claude (Messages API); **native server tools** (`AnthropicTool.web_search()` / `web_fetch()` / `code_execution()` w/ auto-`anthropic-beta`), **prompt caching** (`cache_tools` / `cache_system`), **extended thinking** (`thinking="low"\|"medium"\|"high"\|"max"`), **server-tool observability** · [README](src/providers/llms/anthropic/README.md) |
+| [`nucleusiq-anthropic`](https://pypi.org/project/nucleusiq-anthropic/) | 🟢 Stable | `0.2.2` | Anthropic Claude (Messages API); **native server tools** (`AnthropicTool.web_search()` / `web_fetch()` / `code_execution()` w/ auto-`anthropic-beta`), **prompt caching** (`cache_tools` / `cache_system`), **extended thinking** (`thinking="low"\|"medium"\|"high"\|"max"`), **server-tool observability** · [README](src/providers/llms/anthropic/README.md) |
 
 ### Inference Backends
 
 | Package | Status | Version | Description |
 |---|---|---|---|
 | [`nucleusiq-groq`](https://pypi.org/project/nucleusiq-groq/) | 🟢 Stable | `0.1.1` | Groq inference (Chat Completions) via official `groq` SDK; hosted-tool observability stub (`message.executed_tools` → `server_tool_calls`) · [README](src/providers/inference/groq/README.md) · [Guide](https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/groq-provider/) |
-| [`nucleusiq-ollama`](https://pypi.org/project/nucleusiq-ollama/) | 🟢 Stable | `0.2.1` | Local/remote Ollama via official `ollama` SDK; **vision wire** for OpenAI-style multimodal messages; structured output, `think` pass-through · [README](src/providers/inference/ollama/README.md) · [Guide](https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/ollama-provider/) |
+| [`nucleusiq-ollama`](https://pypi.org/project/nucleusiq-ollama/) | 🟢 Stable | `0.2.2` | Local/remote Ollama via official `ollama` SDK; **vision wire** for OpenAI-style multimodal messages; structured output, `think` pass-through · [README](src/providers/inference/ollama/README.md) · [Guide](https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/ollama-provider/) |
 | [`nucleusiq-openai-compatible`](https://pypi.org/project/nucleusiq-openai-compatible/) | 🟢 Stable | `0.1.0` | **BYOM / BYOK** — any OpenAI Chat Completions server (vLLM, SGLang, TGI, llama.cpp, LM Studio, NIM, OpenRouter, Together, …). Declared capabilities, no model-name heuristics. Requires `nucleusiq>=0.7.13` · [README](src/providers/inference/openai_compatible/README.md) |
 
 ### Tool Adapters
@@ -410,7 +406,7 @@ cd src/providers/llms/gemini && python -m pytest tests/integration/ -q
 - **Published docs** — https://nucleusbox.github.io/nucleusiq-docs/
 - **Docs repository** — https://github.com/nucleusbox/nucleusiq-docs
 - [INSTALLATION.md](INSTALLATION.md) — Setup instructions (pip, uv, development)
-- [CHANGELOG.md](CHANGELOG.md) — Release notes (**v0.7.13** is current)
+- [CHANGELOG.md](CHANGELOG.md) — Release notes (**v0.7.14** is current)
 - [RELEASE.md](RELEASE.md) — Release process and branching strategy
 - [v0.7.12 release notes](https://nucleusbox.github.io/nucleusiq-docs/reference/release-notes/v0.7.12/) — previous coordinated stable line
 - [Provider guides](https://nucleusbox.github.io/nucleusiq-docs/python/nucleusiq/guides/) — OpenAI, Gemini, Anthropic, Groq, Ollama, MCP

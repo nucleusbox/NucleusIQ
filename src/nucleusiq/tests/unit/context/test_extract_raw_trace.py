@@ -308,3 +308,69 @@ class TestSummarizeToolResultsWiring:
             "rehydrated content through unchanged — not slice the "
             "first N chars (which are boilerplate)."
         )
+
+
+# ------------------------------------------------------------------ #
+# I-10 — every receipt shape is rehydrated for the verifier         #
+# ------------------------------------------------------------------ #
+
+
+class TestOffloadReceiptsAreRehydrated:
+    """Tier-1 / adaptive offload leaves ``[context_ref: key]`` receipts, not
+    masker markers.  Until 0.7.13 the Critic and Refiner only rehydrated
+    the masker shape, so offloaded evidence reached them as previews."""
+
+    @staticmethod
+    def _offloaded(payload: str) -> tuple[list[ChatMessage], ContentStore, str]:
+        store = ContentStore()
+        ref = store.store("tool:reader:1", payload, original_tokens=900)
+        messages = [
+            _assistant_with_tool_call("tc-1", "reader", '{"page":7}'),
+            ChatMessage(
+                role="tool", content=ref.to_marker(), name="reader", tool_call_id="tc-1"
+            ),
+        ]
+        return messages, store, ref.key
+
+    def test_receipt_store_key_recognises_both_shapes(self):
+        from nucleusiq.agents.context.store import receipt_store_key
+
+        marker = build_marker(
+            tool_name="reader", args_preview="{}", key="tool:reader:9", tokens=1
+        )
+        assert receipt_store_key(marker) == "tool:reader:9"
+        _, _, key = self._offloaded("payload")
+        store = ContentStore()
+        ref = store.store(key, "payload", original_tokens=3)
+        assert receipt_store_key(ref.to_marker()) == key
+        assert receipt_store_key("plain result mentioning ref: x") is None
+        assert receipt_store_key(None) is None
+
+    def test_extract_raw_trace_rehydrates_context_ref_receipts(self):
+        signal = "THE_REAL_TOTAL_IS_45000"
+        payload = ("filler " * 300) + signal
+        messages, store, _ = self._offloaded(payload)
+
+        out = extract_raw_trace(messages, store, max_chars_per_result=50_000)
+
+        assert out[1].content == payload
+        assert signal in out[1].content
+        assert messages[1].content.startswith("[context_ref:")  # pure
+
+    def test_prepare_for_synthesis_rehydrates_context_ref_receipts(self):
+        from nucleusiq.agents.context.config import ContextConfig
+        from nucleusiq.agents.context.engine import ContextEngine
+
+        engine = ContextEngine(ContextConfig(max_context_tokens=64_000))
+        signal = "THE_REAL_TOTAL_IS_45000"
+        payload = ("filler " * 300) + signal
+        ref = engine.store.store("tool:reader:1", payload, original_tokens=900)
+        messages = [
+            ChatMessage(role="user", content="synthesise"),
+            _assistant_with_tool_call("tc-1", "reader", "{}"),
+            ChatMessage(
+                role="tool", content=ref.to_marker(), name="reader", tool_call_id="tc-1"
+            ),
+        ]
+        out = engine.prepare_for_synthesis(messages)
+        assert signal in str(out[2].content)

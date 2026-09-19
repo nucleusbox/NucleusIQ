@@ -56,6 +56,11 @@ from nucleusiq.agents.context.policy import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
+#: Bounds for the auto-resolved ``response_reserve`` (see
+#: :meth:`ContextConfig.resolve_response_reserve`).
+RESPONSE_RESERVE_FLOOR = 1_024
+RESPONSE_RESERVE_CEILING = 16_384
+
 
 class ContextStrategy(str, Enum):
     """Context window management strategies.
@@ -504,3 +509,50 @@ class ContextConfig(BaseModel):
             return config.optimal_budget
         fraction_budget = int(config.optimal_budget_fraction * context_window)
         return max(1, min(fraction_budget, config.optimal_budget_ceiling))
+
+    @staticmethod
+    def resolve_response_reserve(
+        config: ContextConfig,
+        context_window: int,
+        max_output_tokens: int | None = None,
+    ) -> int:
+        """Resolve the effective ``response_reserve`` for a given model.
+
+        Resolution order:
+
+        1. An explicit ``response_reserve`` always wins (the ``AgentConfig``
+           validator has already checked it fits the window).
+        2. The field default (8 192) is kept whenever it is *sane* for this
+           model — it takes at most a quarter of the window and still
+           covers ``max_output_tokens + 512``.  Every 128K cloud user
+           therefore sees exactly the historical value.
+        3. Otherwise the reserve is derived from the model::
+
+               reserve = max(
+                   clamp(window // 16, 1_024, 16_384), max_output_tokens + 512
+               )
+               reserve = min(reserve, window // 2)
+
+        For an 8K model the old fixed 8 192 was *larger than the window* —
+        the ledger's effective limit went negative, utilization pinned at
+        100 %, and emergency compaction fired on every turn.  The derived
+        value (2 560 for a 2 048-token reply) leaves a real prompt budget.
+        Raising ``AgentConfig.llm_max_output_tokens`` past the default
+        reserve grows the reserve with it, so ``prompt + max_tokens`` can
+        never exceed the window by configuration alone.
+        """
+        explicit = getattr(config, "model_fields_set", set())
+        if "response_reserve" in explicit:
+            return int(config.response_reserve)
+        window = max(1, int(context_window))
+        max_out = int(max_output_tokens or 0)
+        default = int(config.response_reserve)
+        if default <= window // 4 and default >= max_out + 512:
+            return default
+        reserve = max(
+            RESPONSE_RESERVE_FLOOR,
+            min(RESPONSE_RESERVE_CEILING, window // 16),
+        )
+        if max_out > 0:
+            reserve = max(reserve, max_out + 512)
+        return max(1, min(reserve, window // 2))

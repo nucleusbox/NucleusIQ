@@ -68,6 +68,8 @@ class RefinerRunner:
                 tool_summary,
                 total_char_cap=total_cap,
             )
+            tool_summary = _prepend_coverage_facts(agent, tool_summary)
+            tool_summary = _prepend_generator_inputs(agent, tool_summary)
             return await self._refiner.revise(
                 agent=agent,
                 task_objective=task_objective,
@@ -103,9 +105,11 @@ def _compute_refiner_char_caps(
     if cfg is None or agent.llm is None:
         return None, None
 
+    from nucleusiq.agents.context.budgets import budgets_for
     from nucleusiq.agents.context.store import compute_per_tool_cap
 
-    context_window = agent.llm.get_context_window()
+    # Resolved window, same rule as the Critic (see ``_critic_per_tool_cap``).
+    context_window = budgets_for(agent).window
     num_tool_results = sum(1 for m in messages if getattr(m, "role", None) == "tool")
 
     per_tool_cap = compute_per_tool_cap(
@@ -138,7 +142,7 @@ def _append_evidence_gaps_summary(
 ) -> str | None:
     """Append bounded dossier gaps to the Refiner evidence summary."""
     gap_summary = _summarize_dossier_gaps(
-        agent, max_chars=_gap_summary_cap(total_char_cap)
+        agent, max_chars=_gap_summary_cap(total_char_cap, agent)
     )
     if not gap_summary:
         return tool_summary
@@ -158,6 +162,49 @@ def _append_evidence_gaps_summary(
         tool_summary if remaining is None else tool_summary[:remaining]
     )
     return f"{bounded_tool_summary}\n\n{gap_summary}".strip()
+
+
+def _prepend_coverage_facts(agent: Agent, tool_summary: str | None) -> str | None:
+    """Put the harness-verified resource coverage ahead of the tool evidence.
+
+    I-10: the Refiner acts on a Critic's word.  When that Critic saw a
+    partial view and called records "unsupported", the Refiner must be
+    able to see that the resources behind those records *were* read —
+    otherwise it deletes correct content to satisfy the critique.
+    """
+    tracker = getattr(agent, "_resource_tracker", None)
+    if tracker is None or not getattr(tracker, "resources", None):
+        return tool_summary
+    try:
+        from nucleusiq.agents.context.synthesis_package import coverage_facts
+
+        facts = coverage_facts(tracker.to_dict())
+    except Exception:
+        return tool_summary
+    if not facts:
+        return tool_summary
+    block = f"## Resources Processed (harness-verified)\n{facts}"
+    return f"{block}\n\n{tool_summary}" if tool_summary else block
+
+
+def _prepend_generator_inputs(agent: Agent, tool_summary: str | None) -> str | None:
+    """Give the Refiner the hand-off the synthesizer worked from (I-10).
+
+    A COMPLEX synthesis usually makes no tool calls of its own — its
+    evidence is the sub-agent findings.  ``summarize_tool_results`` is then
+    empty and the Refiner would revise nine records with no material at
+    all.  The text is sized by the window already (``synthesis_finding``
+    budget role), so it fits where the synthesis prompt fitted.
+    """
+    inputs = getattr(agent, "_generator_inputs", None)
+    if not isinstance(inputs, dict):
+        return tool_summary
+    text = str(inputs.get("text") or "").strip()
+    if not text:
+        return tool_summary
+    label = str(inputs.get("label") or "material handed to the generator")
+    block = f"## Material The Generator Was Given ({label})\n{text}"
+    return f"{block}\n\n{tool_summary}" if tool_summary else block
 
 
 def _summarize_dossier_gaps(agent: Agent, *, max_chars: int = 2_000) -> str:
@@ -192,10 +239,19 @@ def _summarize_dossier_gaps(agent: Agent, *, max_chars: int = 2_000) -> str:
     return "\n".join(lines)[:max_chars]
 
 
-def _gap_summary_cap(total_char_cap: int | None) -> int:
+def _gap_summary_cap(total_char_cap: int | None, agent: Agent | None = None) -> int:
+    """Chars for the dossier gap section — window-derived when possible."""
+    ceiling = 2_000
+    if agent is not None:
+        try:
+            from nucleusiq.agents.context.budgets import budgets_for
+
+            ceiling = budgets_for(agent).handoff_chars("gap_summary")
+        except Exception:
+            ceiling = 2_000
     if total_char_cap is None:
-        return 2_000
-    return max(0, min(2_000, total_char_cap // 4))
+        return ceiling
+    return max(0, min(ceiling, total_char_cap // 4))
 
 
 __all__ = [

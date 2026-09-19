@@ -25,10 +25,16 @@ class MockLLM(BaseLLM):
         model_name: str = "mock-model",
         *,
         stream_chunk_size: int = 1,
+        context_window: int = 128_000,
     ):
         self.model_name = model_name
         self.stream_chunk_size = stream_chunk_size
+        self.context_window = context_window
         self._call_count = 0
+
+    def get_context_window(self) -> int:
+        """Declared window (so tests are not flagged as ``window_is_fallback``)."""
+        return int(self.context_window)
 
     # ------------------------------------------------------------------ #
     # Internal response types                                             #

@@ -190,11 +190,27 @@ class Refiner:
         std_mode._ensure_executor(agent)
         tool_specs = std_mode._get_tool_specs(agent)
 
+        contract = std_mode.structured_contract(agent)
+        max_candidate_chars = _MAX_CANDIDATE_CHARS
+        max_tool_summary_chars = _MAX_TOOL_SUMMARY_CHARS
+        try:
+            from nucleusiq.agents.context.budgets import budgets_for
+
+            budgets = budgets_for(agent)
+            max_candidate_chars = budgets.handoff_chars("refiner_candidate")
+            max_tool_summary_chars = budgets.handoff_chars("refiner_tool_summary")
+        except Exception:
+            pass
         prompt = self._build_revision_prompt(
             task_objective=task_objective,
             candidate=candidate,
             critique=critique,
             tool_result_summary=tool_result_summary,
+            output_contract=(
+                contract.refiner_instruction() if contract is not None else None
+            ),
+            max_candidate_chars=max_candidate_chars,
+            max_tool_summary_chars=max_tool_summary_chars,
         )
 
         revision_messages: list[ChatMessage] = [
@@ -250,6 +266,9 @@ class Refiner:
         candidate: Any,
         critique: CritiqueResult,
         tool_result_summary: str | None,
+        output_contract: str | None = None,
+        max_candidate_chars: int = _MAX_CANDIDATE_CHARS,
+        max_tool_summary_chars: int = _MAX_TOOL_SUMMARY_CHARS,
     ) -> str:
         issues_block = (
             "\n".join(f"- {i}" for i in critique.issues)
@@ -264,13 +283,39 @@ class Refiner:
 
         tool_block = ""
         if tool_result_summary:
-            truncated = tool_result_summary[:_MAX_TOOL_SUMMARY_CHARS]
+            truncated = tool_result_summary[: max(0, int(max_tool_summary_chars))]
             tool_block = (
                 "\n## Tool Results From Previous Attempt (bounded summary)\n"
                 f"{truncated}\n"
             )
 
-        candidate_str = str(candidate or "")[:_MAX_CANDIDATE_CHARS]
+        candidate_str = str(candidate or "")[: max(0, int(max_candidate_chars))]
+        contract_block = (
+            f"\n## Output Contract\n{output_contract}\n" if output_contract else ""
+        )
+
+        # I-10: a Critic that saw less than the generator may raise doubts
+        # but must not, through the Refiner, get correct content deleted.
+        partial_view = getattr(critique, "evidence_view", "unknown") == "partial"
+        original = getattr(critique, "original_verdict", None)
+        view_block = ""
+        if partial_view:
+            downgrade = (
+                f" Its own verdict was {original.value.upper()} and was downgraded "
+                "because of that."
+                if original is not None and original != critique.verdict
+                else ""
+            )
+            view_block = (
+                "\n## Critic Evidence Visibility\n"
+                "The Critic saw only PART of the evidence the previous attempt "
+                f"was built from.{downgrade} Therefore: do NOT remove records, "
+                "figures or claims the Critic called unsupported or missing "
+                "unless the tool results below CONTRADICT them. Resources listed "
+                "as processed WERE read by tools even if their content is not "
+                "shown here. Keep such content and qualify it if you cannot "
+                "confirm it.\n"
+            )
 
         return (
             f"## Task\n{task_objective}\n\n"
@@ -281,14 +326,19 @@ class Refiner:
             f"- overall: {critique.feedback or '(none)'}\n\n"
             f"## Issues To Fix\n{issues_block}\n\n"
             f"## Suggested Improvements\n{suggestions_block}\n"
-            f"{tool_block}\n"
+            f"{view_block}{tool_block}{contract_block}\n"
             "## Revision Instructions\n"
             "1. Fix ONLY the specific issues listed above — keep what was correct.\n"
             "2. Re-synthesise the answer using the tool results already gathered.\n"
             "3. Do NOT call tools unless the Critic specifically identified "
             "MISSING data that cannot be inferred from the summary above.\n"
             "4. Return a complete, self-contained final answer that addresses "
-            "the original task.\n"
+            "the original task"
+            + (
+                " and satisfies the Output Contract above.\n"
+                if output_contract
+                else ".\n"
+            )
         )
 
     # ------------------------------------------------------------------ #

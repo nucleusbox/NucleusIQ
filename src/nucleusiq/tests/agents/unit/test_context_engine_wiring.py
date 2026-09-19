@@ -188,6 +188,37 @@ class TestPrepareCompaction:
         assert tel.compaction_count > 0
         assert len(prepared) < len(msgs)
 
+    @pytest.mark.asyncio
+    async def test_emergency_flag_when_recent_turns_cannot_evict(self):
+        """When conversation compaction cannot drop enough, emergency fires
+        and is recorded so the live transcript can be replaced."""
+        engine = ContextEngine(
+            config=ContextConfig(
+                max_context_tokens=280,
+                optimal_budget=280,
+                response_reserve=20,
+                tool_result_threshold=10_000,
+                strategy="progressive",
+                preserve_recent_turns=40,
+                emergency_trigger=0.50,
+                compaction_trigger=0.50,
+                tool_compaction_trigger=0.50,
+            ),
+            token_counter=DefaultTokenCounter(),
+            max_tokens=280,
+        )
+
+        filler = " ".join(["word"] * 40)
+        msgs = [ChatMessage(role="system", content="sys")]
+        for i in range(12):
+            msgs.append(ChatMessage(role="user", content=f"q{i} {filler}"))
+            msgs.append(ChatMessage(role="assistant", content=f"a{i} {filler}"))
+
+        prepared = await engine.prepare(msgs)
+        assert engine.last_prepare_was_emergency is True
+        assert engine.emergency_count == 1
+        assert len(prepared) < len(msgs)
+
 
 # ------------------------------------------------------------------ #
 # Test: ingest_tool_result compresses large results                    #

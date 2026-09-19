@@ -31,8 +31,9 @@ logger = logging.getLogger(__name__)
 
 class WebSearchTool(BaseTool):
     """
-    Web search tool that can work with any LLM supporting function calling.
-    Compatible with: OpenAI, Anthropic, Gemini, etc.
+    Teaching mock only. Production agents should use the shipped tool::
+
+        from nucleusiq.tools import WebSearchTool  # DuckDuckGo by default
     """
 
     def __init__(self, api_key: str | None = None):

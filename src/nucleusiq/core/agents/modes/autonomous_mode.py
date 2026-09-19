@@ -58,6 +58,7 @@ from nucleusiq.agents.components.critic import (
 from nucleusiq.agents.components.decomposer import Decomposer, TaskAnalysis
 from nucleusiq.agents.components.refiner import Refiner, RevisionCandidate
 from nucleusiq.agents.components.validation import ValidationPipeline
+from nucleusiq.agents.diagnostics.run_report import recorder_for
 from nucleusiq.agents.modes.autonomous import helpers, telemetry
 from nucleusiq.agents.modes.autonomous.complex_runner import ComplexRunner
 from nucleusiq.agents.modes.autonomous.critic_runner import CriticRunner
@@ -122,7 +123,7 @@ class AutonomousMode(BaseExecutionMode):
         await self.store_task_in_memory(agent, task)
 
         decomposer = Decomposer(logger=agent._logger)
-        analysis = await decomposer.analyze(agent, task)
+        analysis = await self._classify(agent, task, decomposer)
 
         n = int(getattr(agent.config, "n_parallel_attempts", 1) or 1)
         max_sub = int(getattr(agent.config, "max_sub_agents", 5) or 5)
@@ -189,7 +190,7 @@ class AutonomousMode(BaseExecutionMode):
         yield StreamEvent.thinking_event("Analyzing task complexity…")
 
         decomposer = Decomposer(logger=agent._logger)
-        analysis = await decomposer.analyze(agent, task)
+        analysis = await self._classify(agent, task, decomposer)
 
         n = int(getattr(agent.config, "n_parallel_attempts", 1) or 1)
         max_sub = int(getattr(agent.config, "max_sub_agents", 5) or 5)
@@ -233,6 +234,60 @@ class AutonomousMode(BaseExecutionMode):
         )
         async for event in runner.run_stream(agent, task):
             yield event
+
+    # ------------------------------------------------------------------ #
+    # Classification                                                      #
+    # ------------------------------------------------------------------ #
+
+    async def _classify(
+        self, agent: Agent, task: Task, decomposer: Decomposer
+    ) -> TaskAnalysis:
+        """Decide SIMPLE vs COMPLEX, or skip the classifier entirely.
+
+        ``enable_decomposition=False`` (or ``max_sub_agents < 2``) means
+        the outcome is already known — SIMPLE — so we do not spend an
+        LLM call asking.  The decision and its reason are recorded in
+        the run report either way.
+        """
+        recorder = recorder_for(agent)
+        enabled = getattr(agent.config, "enable_decomposition", True)
+        if isinstance(enabled, bool) and not enabled:
+            reason = "enable_decomposition=False"
+        else:
+            max_sub_raw = getattr(agent.config, "max_sub_agents", 5)
+            max_sub = max_sub_raw if isinstance(max_sub_raw, int) else 5
+            reason = f"max_sub_agents={max_sub}" if max_sub < 2 else ""
+
+        if reason:
+            agent._logger.info(
+                "Skipping task classification (%s) — running as SIMPLE", reason
+            )
+            if recorder is not None:
+                recorder.record_decision(
+                    "classification",
+                    {"is_complex": False, "classifier_called": False, "reason": reason},
+                )
+            return TaskAnalysis(is_complex=False, reasoning=reason)
+
+        analysis = await decomposer.analyze(agent, task)
+        if recorder is not None:
+            to_decision = getattr(analysis, "to_decision", None)
+            decision = (
+                to_decision()
+                if callable(to_decision)
+                else {
+                    "is_complex": bool(analysis.is_complex),
+                    "classifier_called": True,
+                    "sub_tasks": len(analysis.sub_tasks),
+                    "reasoning": (analysis.reasoning or "")[:300],
+                }
+            )
+            recorder.record_decision("classification", decision)
+            if getattr(analysis, "downgrade_reason", ""):
+                recorder.record_event(
+                    "decomposition_downgraded", str(analysis.downgrade_reason)[:300]
+                )
+        return analysis
 
     # ------------------------------------------------------------------ #
     # Simple path                                                         #

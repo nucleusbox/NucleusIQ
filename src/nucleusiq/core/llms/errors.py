@@ -174,6 +174,15 @@ class ContextLengthError(LLMError):
     """
 
 
+class LLMTimeoutError(LLMError):
+    """One LLM call exceeded ``AgentConfig.llm_call_timeout``.
+
+    Raised by the agent harness (not the provider) when the user set an
+    explicit per-call timeout and the provider did not answer in time.
+    Retryable by definition — the request may simply have been slow.
+    """
+
+
 class ProviderError(LLMError):
     """Catch-all for provider errors that don't fit a specific category.
 

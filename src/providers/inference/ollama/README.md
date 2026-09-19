@@ -8,7 +8,7 @@ Stable provider for running **NucleusIQ** agents against [Ollama](https://docs.o
 
 ## Install
 
-**0.2.1** — **Development Status :: 5 - Production/Stable**. Requires **`nucleusiq>=0.7.12`** (pulled in automatically by `pip`).
+**0.2.2** — **Development Status :: 5 - Production/Stable**. Requires **`nucleusiq>=0.7.12`** (pulled in automatically by `pip`).
 
 ```bash
 pip install nucleusiq-ollama
@@ -32,7 +32,7 @@ For Ollama's **`/v1` OpenAI shim** (or any other Chat Completions server) use [`
 
 ## Status
 
-**0.2.1** — **Development Status :: 5 - Production/Stable**. First stable line plus declared `PROVIDER_NAME` / dependency completeness.
+**0.2.2** — **Development Status :: 5 - Production/Stable**. Patch: multi-turn tool histories now send `function.arguments` as a mapping (the official `ollama` SDK rejects a JSON string). First stable line plus declared `PROVIDER_NAME` / dependency completeness.
 
 - **Chat + streaming + tools + structured outputs** (JSON schema / `format`) + `think` pass-through.
 - **Vision (image messages)** in the wire layer — OpenAI-style multimodal content lists with `image_url` parts whose URL is a `data:image/*;base64,...` data URL are converted to Ollama's `message.images` shape; HTTP(S) URLs are skipped with a warning (pre-encode them as data URLs to send images).

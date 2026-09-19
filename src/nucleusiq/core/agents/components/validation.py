@@ -13,6 +13,7 @@ to decide whether to accept the result or retry.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -72,6 +73,14 @@ class ValidationPipeline:
             self._logger.info("Validation FAIL (Layer 1): %s", l1.reason)
             return l1
 
+        # Layer 1.5: Output-schema contract (deterministic, only when the
+        # user set ``response_format``).  Before this layer a prose
+        # summary could sail through to the Critic and be accepted.
+        ls = self._check_schema(agent, result)
+        if not ls.valid:
+            self._logger.info("Validation FAIL (schema): %s", ls.reason)
+            return ls
+
         # Layer 2: Plugin validators (user-provided)
         l2 = await self._run_plugin_validators(agent, result)
         if not l2.valid:
@@ -129,6 +138,36 @@ class ValidationPipeline:
             )
 
         return ValidationResult(valid=True, layer="tool_output", reason="OK")
+
+    # ------------------------------------------------------------------ #
+    # Layer 1.5: Output-schema contract                                    #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _check_schema(agent: Agent, result: Any) -> ValidationResult:
+        """Validate ``result`` against ``Agent.response_format`` when set."""
+        from nucleusiq.agents.modes.base_mode import BaseExecutionMode
+
+        contract = BaseExecutionMode.structured_contract(agent)
+        if contract is None:
+            return ValidationResult(valid=True, layer="schema", reason="No schema")
+
+        check = contract.check(result)
+        with contextlib.suppress(Exception):
+            agent._last_schema_check = check
+        if check.valid:
+            return ValidationResult(
+                valid=True, layer="schema", reason=f"Valid {contract.schema_name}"
+            )
+        return ValidationResult(
+            valid=False,
+            layer="schema",
+            reason=(
+                f"Output does not satisfy the required schema "
+                f"{contract.schema_name}: {check.errors[:300]}"
+            ),
+            details=[contract.retry_message(check)],
+        )
 
     # ------------------------------------------------------------------ #
     # Layer 2: Plugin validators                                           #
@@ -208,11 +247,20 @@ class ValidationPipeline:
                 task_objective = getattr(msg, "content", "") or ""
                 break
 
+        task_cap, result_cap = 1_000, 2_000
+        try:
+            from nucleusiq.agents.context.budgets import budgets_for
+
+            budgets = budgets_for(agent)
+            task_cap = budgets.handoff_chars("validation_task")
+            result_cap = budgets.handoff_chars("validation_result")
+        except Exception:
+            pass
         prompt = (
             "Review this result for obvious errors, contradictions, "
             "or incomplete answers.\n\n"
-            f"## TASK\n{task_objective[:1000]}\n\n"
-            f"## RESULT\n{str(result)[:2000]}\n\n"
+            f"## TASK\n{task_objective[:task_cap]}\n\n"
+            f"## RESULT\n{str(result)[:result_cap]}\n\n"
             "Respond with ONLY 'PASS' if the result looks reasonable, "
             "or 'FAIL: <brief reason>' if there's an obvious problem."
         )

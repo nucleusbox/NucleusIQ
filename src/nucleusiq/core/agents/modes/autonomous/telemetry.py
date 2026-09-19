@@ -91,7 +91,23 @@ def record_critic_verdict(
     attempt: int,
     critique: CritiqueResult,
 ) -> None:
-    """Append a ``CritiqueSnapshot`` to ``AutonomousDetail.critic_verdicts``."""
+    """Append a ``CritiqueSnapshot`` to ``AutonomousDetail.critic_verdicts``.
+
+    Also bumps ``RunCounters.critic_verdicts`` so the run report (and the
+    analyzer) see the verdict trajectory without needing the tracer.
+    """
+    recorder = getattr(agent, "_run_recorder", None)
+    if recorder is not None:
+        try:
+            recorder.record_critic_verdict(critique.verdict.value)
+            if getattr(critique, "downgraded", False):
+                recorder.record_event(
+                    "critic_verdict",
+                    f"attempt {attempt}: {critique.original_verdict.value}"  # type: ignore[union-attr]
+                    f"→{critique.verdict.value} (partial evidence view)",
+                )
+        except Exception:
+            pass
     tracer = _tracer(agent)
     if tracer is None:
         return

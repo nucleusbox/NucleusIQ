@@ -427,6 +427,7 @@ class TestBuiltinExports:
         assert "FileSearchTool" in __all__
         assert "DirectoryListTool" in __all__
         assert "FileExtractTool" in __all__
+        assert "WebSearchTool" in __all__
 
 
 class TestFileReadEncoding:

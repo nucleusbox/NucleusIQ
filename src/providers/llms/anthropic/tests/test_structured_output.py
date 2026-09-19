@@ -130,6 +130,43 @@ def test_build_nested_pydantic_inlines_defs() -> None:
     assert oc is not None
     sch = oc["format"]["schema"]
     assert sch.get("type") == "object"
+    assert "$defs" not in sch and "$ref" not in str(sch)
+
+
+class _Record(BaseModel):
+    path: str
+    total: float
+
+
+class _Extraction(BaseModel):
+    documents: list[_Record]
+    grand_total: float
+
+
+def test_every_object_is_closed_for_claude_grammar() -> None:
+    """Claude rejects object schemas without an explicit
+    ``additionalProperties: false`` — including nested array items."""
+    oc = build_anthropic_output_config(_Extraction)
+    assert oc is not None
+    sch = oc["format"]["schema"]
+    assert sch["additionalProperties"] is False
+    items = sch["properties"]["documents"]["items"]
+    assert items["type"] == "object"
+    assert items["additionalProperties"] is False
+
+    # Typed dataclass / TypedDict builders too.
+    assert (
+        build_anthropic_output_config(_Tagged)["format"]["schema"][
+            "additionalProperties"
+        ]
+        is False
+    )
+    assert (
+        build_anthropic_output_config(_ScoreTd)["format"]["schema"][
+            "additionalProperties"
+        ]
+        is False
+    )
 
 
 @dataclass

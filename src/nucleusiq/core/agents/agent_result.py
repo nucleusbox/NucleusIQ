@@ -318,6 +318,23 @@ class AgentResult(BaseModel):
     # equivalent to ``None`` so the literal can grow without breaking
     # clients.
     abstention_code: str | None = None
+    # Why the run stopped — one of ``TerminationReason`` values
+    # (``"completed"``, ``"tool_budget"``, ``"no_progress"``,
+    # ``"context_tool_budget"``, ``"emergency_compaction"``, ``"deadline"``,
+    # ``"context_overflow"``, ``"critic_abstain"``, ``"schema_invalid"``,
+    # ``"plugin_halt"``, ``"error"``, ...).  Always populated; the full
+    # record with counters lives in ``diagnostics``.
+    termination_reason: str | None = None
+
+    # --- Structured output (populated when ``Agent.response_format`` is set) ---
+    # ``output`` stays the raw text the model produced (so ``str(result)``
+    # is unchanged JSON); ``parsed`` is the validated instance of the
+    # user's schema (Pydantic model / dataclass / TypedDict / dict) or
+    # ``None`` when the run could not satisfy the schema.  ``structured``
+    # carries the verdict: ``{"schema", "mode", "valid", "finalizer_runs",
+    # "errors"}``.
+    parsed: Any = None
+    structured: dict[str, Any] | None = None
 
     # --- Tool observability (populated since 0.7.4) ---
     tool_calls: tuple[ToolCallRecord, ...] = ()
@@ -342,6 +359,13 @@ class AgentResult(BaseModel):
 
     # --- Context window telemetry (populated since 0.7.6) ---
     context_telemetry: Any = None
+
+    # --- Run diagnostics (always on, summary level) ---
+    # A ``RunReport``: resolved configuration, counters, decisions,
+    # termination record and analyzer findings.  Never contains task
+    # text, tool arguments or payloads; ``diagnostics.redacted()`` is
+    # safe to paste into an issue.
+    diagnostics: Any = None
 
     # --- Non-fatal issues (populated since 0.7.4) ---
     warnings: tuple[str, ...] = ()
@@ -381,6 +405,13 @@ class AgentResult(BaseModel):
         return self.status == ResultStatus.ABSTAINED
 
     @property
+    def schema_valid(self) -> bool | None:
+        """``True``/``False`` when a ``response_format`` was set; else ``None``."""
+        if not self.structured:
+            return None
+        return bool(self.structured.get("valid"))
+
+    @property
     def tool_call_count(self) -> int:
         """Total number of tool calls in this execution."""
         return len(self.tool_calls)
@@ -408,6 +439,17 @@ class AgentResult(BaseModel):
         if self.model:
             lines.append(f"  Model  : {self.model}")
         lines.append(f"  Time   : {self.duration_ms:.1f}ms")
+        if self.termination_reason:
+            lines.append(f"  Ended  : {self.termination_reason}")
+        if self.structured:
+            st = self.structured
+            verdict = "valid" if st.get("valid") else "INVALID"
+            extra = (
+                f" ({st.get('errors')})"
+                if not st.get("valid") and st.get("errors")
+                else ""
+            )
+            lines.append(f"  Schema : {st.get('schema')} {verdict}{extra}")
 
         if self.is_error:
             lines.append(f"  Error  : [{self.error_type}] {self.error}")
@@ -493,6 +535,12 @@ class AgentResult(BaseModel):
             lines.append(f"  Warns  : {len(self.warnings)}")
             for w in self.warnings:
                 lines.append(f"    - {w}")
+
+        findings = getattr(self.diagnostics, "findings", None)
+        if findings:
+            lines.append(f"  Diag   : {len(findings)} finding(s)")
+            for f in list(findings)[:3]:
+                lines.append(f"    [{f.severity}] {f.code}: {f.title}")
 
         return "\n".join(lines)
 

@@ -96,6 +96,40 @@ class TestCriticRunnerCapWiring:
         assert cap == 50_000  # hits ceiling because num_tool_results=0→1
 
 
+class TestCapUsesResolvedWindow:
+    """The cap must follow the *resolved* window, not the provider default.
+
+    Live regression (gpt-oss:120b via Ollama, 65K configured, provider
+    reports a flat 8192): the Critic's evidence collapsed to 500 chars per
+    result, it saw 3 of 9 invoices, failed a correct answer as ungrounded
+    and the Refiner deleted the other six records.
+    """
+
+    def test_explicit_context_config_window_wins_over_provider_default(self):
+        agent = _make_agent(
+            ctx_window=8_192,
+            context_cfg=ContextConfig(max_context_tokens=65_536),
+        )
+        messages = [ChatMessage(role="tool", content="x") for _ in range(9)]
+        critic_cap = _compute_critic_per_tool_cap(agent, messages)
+        refiner_cap, refiner_total = _compute_refiner_char_caps(agent, messages)
+        cfg = agent.config.context
+        # (65_536 - 5_000 - 8_000) / 9 ≈ 5_837 tokens → ~23K chars, far above the floor.
+        assert (
+            critic_cap is not None and critic_cap > cfg.tool_result_per_call_min_chars
+        )
+        assert critic_cap == ((65_536 - 5_000 - 8_000) // 9) * 4
+        assert (
+            refiner_cap is not None and refiner_cap > cfg.tool_result_per_call_min_chars
+        )
+        assert refiner_total == (65_536 - 8_000 - 16_000) * 4
+
+    def test_provider_window_still_used_when_nothing_is_configured(self):
+        agent = _make_agent(ctx_window=32_000)
+        messages = [ChatMessage(role="tool", content="x") for _ in range(60)]
+        assert _compute_critic_per_tool_cap(agent, messages) == 1264
+
+
 class TestRefinerRunnerCapWiring:
     def test_returns_per_tool_and_total_caps(self):
         agent = _make_agent(ctx_window=128_000)

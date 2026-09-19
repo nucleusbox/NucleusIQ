@@ -16,6 +16,7 @@ the shared shape will be obvious).
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,205 @@ if TYPE_CHECKING:
 
 # F2: single threshold for UNCERTAIN verdicts; no per-attempt relaxation.
 _UNCERTAIN_ACCEPT_THRESHOLD = 0.7
+
+
+def _per_finding_chars(agent: Agent, n_findings: int) -> int:
+    """Chars each child's result may occupy in the synthesis prompt (WS-1).
+
+    Derived from the parent's window so three children on a 65K model
+    hand over their whole findings instead of the first 2 000 chars.
+    """
+    try:
+        from nucleusiq.agents.context.budgets import budgets_for
+
+        return budgets_for(agent).handoff_chars(
+            "synthesis_finding", items=max(1, n_findings)
+        )
+    except Exception:
+        return 2_000
+
+
+async def _maybe_gather_first(agent: Agent, task: Task, decomposer: Decomposer) -> None:
+    """Run the opt-in gather pre-pass (WS-3) and record what it did."""
+    if not bool(getattr(agent.config, "decomposition_gather_first", False)):
+        return
+    recorder = getattr(agent, "_run_recorder", None)
+    summary: dict[str, Any]
+    try:
+        summary = await decomposer.run_gather_phase(agent, task)
+    except Exception as exc:  # never let the pre-pass kill the run
+        summary = {"ran": False, "skipped": f"error: {exc}"[:300]}
+        agent._logger.warning("Gather-first pre-pass failed: %s", exc)
+    if recorder is None:
+        return
+    try:
+        recorder.record_decision("gather_first", summary)
+        if summary.get("ran"):
+            recorder.record_event(
+                "gather_first_completed",
+                f"touched {len(summary.get('touched') or [])}/"
+                f"{summary.get('resources', 0)} resource(s); "
+                f"status={summary.get('status', '')}",
+            )
+        else:
+            recorder.record_event(
+                "gather_first_skipped", str(summary.get("skipped", ""))[:300]
+            )
+    except Exception:
+        pass
+
+
+async def _reconcile_coverage(
+    agent: Agent,
+    task: Task,
+    decomposer: Decomposer,
+    findings: list[dict[str, Any]],
+) -> None:
+    """WS-4: ``unprocessed = resources − touched``; when non-empty and a
+    follow-up is allowed, run one bounded child on exactly those resources
+    and append its finding.  Records the decision either way."""
+    tracker = getattr(agent, "_resource_tracker", None)
+    if tracker is None or not getattr(tracker, "resources", None):
+        return
+    recorder = getattr(agent, "_run_recorder", None)
+    try:
+        corpus = getattr(agent, "_document_corpus", None)
+        lister = getattr(corpus, "list_documents", None)
+        if callable(lister):
+            tracker.mark([getattr(d, "id", "") for d in lister()], via="corpus")
+    except Exception:
+        pass
+
+    unprocessed = list(tracker.unprocessed)
+    decision: dict[str, Any] = {
+        "resources": len(tracker.resources),
+        "touched_before": len(tracker.touched),
+        "unprocessed_before": unprocessed,
+        "followup": None,
+    }
+    from nucleusiq.agents.context.coverage import has_business_tools
+
+    if (
+        unprocessed
+        and bool(getattr(agent.config, "coverage_followup", True))
+        and has_business_tools(agent)
+    ):
+        try:
+            finding = await decomposer.run_coverage_followup(agent, task, unprocessed)
+        except Exception as exc:
+            agent._logger.warning("Coverage follow-up failed: %s", exc)
+            finding = None
+        if finding is not None:
+            findings.append(finding)
+            agent._coverage_followup = {
+                "kind": "child",
+                "ran": True,
+                "before": unprocessed,
+                "after": list(tracker.unprocessed),
+                "status": finding.get("status", ""),
+                "termination_reason": finding.get("termination_reason", ""),
+            }
+            decision["followup"] = dict(agent._coverage_followup)
+            if recorder is not None:
+                with contextlib.suppress(Exception):
+                    recorder.record_event(
+                        "coverage_followup",
+                        f"{len(unprocessed)} unprocessed → "
+                        f"{len(tracker.unprocessed)} after follow-up",
+                    )
+    decision["unprocessed_after"] = list(tracker.unprocessed)
+    if recorder is not None:
+        with contextlib.suppress(Exception):
+            recorder.record_decision("coverage", decision)
+
+
+def _record_findings(
+    agent: Agent, findings: list[dict[str, Any]], *, per_finding_chars: int
+) -> None:
+    """Put the per-child hand-off summary in the run report (WS-3).
+
+    ``synthesis_handoff`` records the character cap each finding got in
+    the synthesis prompt and which children exceeded it — the analyzer's
+    ``HANDOFF_TRUNCATED`` rule reads exactly these two fields.
+    """
+    recorder = getattr(agent, "_run_recorder", None)
+    if recorder is None:
+        return
+    try:
+        recorder.record_decision(
+            "sub_task_findings",
+            [
+                {
+                    "id": f.get("id"),
+                    "status": f.get("status", ""),
+                    "termination_reason": f.get("termination_reason", ""),
+                    "resources": len(f.get("resources") or []),
+                    "touched_resources": len(f.get("touched_resources") or []),
+                    "refs": len(f.get("refs") or []),
+                    "result_chars": len(str(f.get("result", ""))),
+                    "merged": f.get("merged") or {},
+                }
+                for f in findings
+            ],
+        )
+        truncated = [
+            str(f.get("id"))
+            for f in findings
+            if len(str(f.get("result", ""))) > int(per_finding_chars)
+        ]
+        recorder.record_decision(
+            "synthesis_handoff",
+            {
+                "per_finding_chars": int(per_finding_chars),
+                "findings": len(findings),
+                "truncated": truncated,
+            },
+        )
+        for f in findings:
+            if f.get("merged"):
+                recorder.record_event(
+                    "evidence_merged",
+                    f"child {f.get('id')}: {f['merged']}",
+                )
+    except Exception:
+        pass
+
+
+def _publish_generator_inputs(
+    agent: Agent,
+    decomposer: Decomposer,
+    findings: list[dict[str, Any]],
+    *,
+    per_finding_chars: int,
+) -> None:
+    """Make the synthesizer's hand-off visible to the Critic (I-10).
+
+    In the COMPLEX path the evidence the generator reads is not a tool
+    trace — it is the sub-agent findings in the synthesis prompt.  Without
+    this the Critic of a tool-less synthesis saw only the answer and the
+    (often empty) curated package, and verified nine records against
+    nothing.  The text is the exact section the synthesizer received.
+    """
+    try:
+        text = decomposer.build_findings_section(
+            findings, per_finding_chars=per_finding_chars
+        )
+        truncated = [
+            str(f.get("id"))
+            for f in findings
+            if len(str(f.get("result", ""))) > int(per_finding_chars)
+        ]
+        agent._generator_inputs = {
+            "label": "sub-agent findings handed to the synthesizer",
+            "text": text,
+            # Children whose finding the synthesizer itself saw cut — the
+            # Critic sees the same cut text, so parity holds; the analyzer's
+            # HANDOFF_TRUNCATED rule reports the cut separately.
+            "truncated": truncated,
+            "items": len(findings),
+        }
+    except Exception as exc:
+        agent._logger.debug("Generator inputs not published: %s", exc)
 
 
 class ComplexRunner:
@@ -93,11 +293,17 @@ class ComplexRunner:
         sub_step = progress.add_step("decompose", "Run parallel sub-tasks")
         sub_step.mark_executing()
 
+        await _maybe_gather_first(agent, task, decomposer)
         findings = await decomposer.run_sub_tasks(
             parent=agent,
             sub_tasks=analysis.sub_tasks,
             max_sub_agents=max_sub,
+            parent_task=task,
         )
+        findings = list(findings)
+        await _reconcile_coverage(agent, task, decomposer, findings)
+        per_finding_chars = _per_finding_chars(agent, len(findings))
+        _record_findings(agent, findings, per_finding_chars=per_finding_chars)
 
         telemetry.rollup_sub_agent_metrics(agent, decomposer._sub_agent_results)
 
@@ -108,7 +314,14 @@ class ComplexRunner:
 
         # --- Step 2: Synthesize with validation + Critic/Refiner ----
         synth_step = progress.add_step("synthesize", "Combine findings")
-        synth_prompt = decomposer.build_synthesis_prompt(task.objective, findings)
+        synth_prompt = decomposer.build_synthesis_prompt(
+            task.objective,
+            findings,
+            per_finding_chars=per_finding_chars,
+        )
+        _publish_generator_inputs(
+            agent, decomposer, findings, per_finding_chars=per_finding_chars
+        )
         tool_specs = self._std_mode._get_tool_specs(agent)
         messages = self._std_mode.build_messages(
             agent, Task(id=f"{task.id}-synth", objective=synth_prompt)
@@ -428,11 +641,17 @@ class ComplexRunner:
         sub_step = progress.add_step("decompose", "Run parallel sub-tasks")
         sub_step.mark_executing()
 
+        await _maybe_gather_first(agent, task, decomposer)
         findings = await decomposer.run_sub_tasks(
             parent=agent,
             sub_tasks=analysis.sub_tasks,
             max_sub_agents=max_sub,
+            parent_task=task,
         )
+        findings = list(findings)
+        await _reconcile_coverage(agent, task, decomposer, findings)
+        per_finding_chars = _per_finding_chars(agent, len(findings))
+        _record_findings(agent, findings, per_finding_chars=per_finding_chars)
 
         telemetry.rollup_sub_agent_metrics(agent, decomposer._sub_agent_results)
 
@@ -441,7 +660,14 @@ class ComplexRunner:
             f"Sub-tasks complete — synthesizing {len(findings)} findings…"
         )
 
-        synth_prompt = decomposer.build_synthesis_prompt(task.objective, findings)
+        synth_prompt = decomposer.build_synthesis_prompt(
+            task.objective,
+            findings,
+            per_finding_chars=per_finding_chars,
+        )
+        _publish_generator_inputs(
+            agent, decomposer, findings, per_finding_chars=per_finding_chars
+        )
         tool_specs = self._std_mode._get_tool_specs(agent)
         messages = self._std_mode.build_messages(
             agent, Task(id=f"{task.id}-synth", objective=synth_prompt)

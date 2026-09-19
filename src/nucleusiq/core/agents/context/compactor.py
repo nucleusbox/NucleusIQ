@@ -111,6 +111,14 @@ _MASKED_MARKER_TEMPLATE = (
 )
 
 _REF_LINE_RE = re.compile(r"^ref:\s*(\S+)\s*$", re.MULTILINE)
+_CONTEXT_REF_PREFIX = "[context_ref:"
+_CONTEXT_REF_RE = re.compile(r"^\[context_ref:\s*([^\]]+)\]", re.MULTILINE)
+
+# One system catalog, not N orphaned tool messages. Eviction (Tier 2
+# or Tier 3) may drop bulky turns, but store-backed evidence must
+# stay addressable or dedup/recall become a non-convergent loop.
+_EVIDENCE_CATALOG_PREFIX = "[evidence available for recall]"
+_EVIDENCE_CATALOG_MAX_ENTRIES = 40
 
 _ARGS_PREVIEW_MAX_CHARS = 200
 _ARGS_UNAVAILABLE = "(unavailable)"
@@ -140,6 +148,16 @@ _EMERGENCY_MARKER = (
     "[CONTEXT COMPACTED: emergency reduction triggered at {util:.0%} utilization. "
     "{dropped} messages removed (~{tokens} tokens). "
     "Only system prompt and last {kept} messages preserved.]"
+)
+
+# Adaptive Tier-1 squeeze (see ``Compactor._tool_pass``).  A receipt with
+# its preview costs on the order of 100-200 tokens, so offloading a
+# result smaller than this frees nothing and only adds indirection.
+_ADAPTIVE_OFFLOAD_MIN_TOKENS = 256
+_ADAPTIVE_RECEIPT_HINT = (
+    "[offloaded to fit the context window before you saw it — the preview "
+    'above is the head of the result; call recall_tool_result(ref="{key}") '
+    "if you need the rest. Do NOT call the original tool again.]"
 )
 
 
@@ -295,6 +313,141 @@ def build_marker(
     )
 
 
+def _extract_store_ref(content: str) -> str | None:
+    """Return the store key from a known receipt shape, else ``None``.
+
+    Two receipt formats exist today:
+
+    * ``[observation consumed]`` + ``ref: {key}`` (post-response masker)
+    * ``[context_ref: {key}]`` (Tier-1 tool-result offload)
+
+    Unknown tool payloads are not treated as receipts — a raw result
+    that happens to contain the substring ``ref:`` must still be
+    offloaded, not skipped.
+    """
+    if content.startswith(MASK_PREFIX):
+        match = _REF_LINE_RE.search(content)
+        return match.group(1) if match else None
+    if content.startswith(_CONTEXT_REF_PREFIX):
+        match = _CONTEXT_REF_RE.search(content)
+        return match.group(1).strip() if match else None
+    return None
+
+
+_ARGS_LINE_RE = re.compile(r"^args:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _tool_call_args_by_id(messages: list[ChatMessage]) -> dict[str, str]:
+    """``tool_call_id -> args preview`` for every assistant call in ``messages``."""
+    out: dict[str, str] = {}
+    for msg in messages:
+        if getattr(msg, "role", None) != "assistant":
+            continue
+        for tc in getattr(msg, "tool_calls", None) or []:
+            call_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+            if call_id:
+                out[str(call_id)] = _build_args_preview(tc)
+    return out
+
+
+def _collect_addressable_evidence(
+    evicted: list[ChatMessage],
+    store: ContentStore | None,
+    token_counter: TokenCounter,
+) -> tuple[list[tuple[str, str, int, str]], int]:
+    """Collect store refs from evicted tool turns.
+
+    Already-offloaded receipts keep their key.  Raw tool results are
+    written to ``store`` first so eviction does not destroy them.
+    Returns ``(entries, newly_offloaded)`` where each entry is
+    ``(ref, tool_name, tokens, args_preview)``.
+
+    ``args_preview`` is what makes the catalog actionable: the model's
+    own ``tool_calls`` are evicted with the group, so without the
+    arguments it could not tell *which* input a ref belongs to and
+    would re-fetch it (the 0.7.13 dedup loop).  Arguments come from the
+    evicted assistant message (matched by ``tool_call_id``) or from the
+    ``args:`` line of an already-masked receipt.
+    """
+    seen: set[str] = set()
+    entries: list[tuple[str, str, int, str]] = []
+    offloaded = 0
+    args_by_id = _tool_call_args_by_id(evicted)
+
+    for msg in evicted:
+        if getattr(msg, "role", None) != "tool":
+            continue
+        content = getattr(msg, "content", None)
+        if not isinstance(content, str) or not content:
+            continue
+
+        tool_name = getattr(msg, "name", None) or "tool"
+        try:
+            tokens = token_counter.count(content)
+        except Exception:
+            tokens = max(1, len(content) // 4)
+
+        args_preview = args_by_id.get(str(getattr(msg, "tool_call_id", "") or ""), "")
+        if not args_preview:
+            match = _ARGS_LINE_RE.search(content[:600])
+            if match:
+                args_preview = match.group(1)
+
+        ref = _extract_store_ref(content)
+        if ref is None and store is not None:
+            ref = f"obs:{tool_name}:{uuid.uuid4().hex[:8]}"
+            store.store(
+                key=ref,
+                content=content,
+                original_tokens=tokens,
+                tool_name=tool_name,
+            )
+            offloaded += 1
+
+        if ref and ref not in seen:
+            seen.add(ref)
+            entries.append((ref, tool_name, tokens, args_preview))
+
+    return entries, offloaded
+
+
+def _build_evidence_catalog(
+    entries: list[tuple[str, str, int, str]],
+) -> ChatMessage | None:
+    """One system catalog of evicted-but-recallable evidence.
+
+    A catalog is chat-template safe (no orphaned ``role=tool``
+    messages) and is the same object for conversation eviction and
+    emergency reduction — the model can ``recall_tool_result`` or
+    ``list_recalled_evidence`` from either tier.  Each line names the
+    call's arguments so the model can map refs back to its inputs.
+    """
+    if not entries:
+        return None
+
+    from nucleusiq.agents.chat_models import ChatMessage as CM
+
+    visible = entries[:_EVIDENCE_CATALOG_MAX_ENTRIES]
+    hidden = len(entries) - len(visible)
+    lines = [
+        _EVIDENCE_CATALOG_PREFIX,
+        "Earlier tool results were removed from the live transcript.",
+        "They are still in the context store. Do not re-call those",
+        "tools with the same arguments — recall instead.",
+    ]
+    for ref, tool_name, tokens, args_preview in visible:
+        args_part = (
+            f" args={args_preview}"
+            if args_preview and args_preview != _ARGS_UNAVAILABLE
+            else ""
+        )
+        lines.append(f'- ref="{ref}" tool={tool_name}{args_part} ~{tokens} tokens')
+    if hidden:
+        lines.append(f"... and {hidden} more.")
+    lines.append("Call recall_tool_result(ref=...) or list_recalled_evidence().")
+    return CM(role="system", content="\n".join(lines))
+
+
 def _group_touches_hot_ref(
     group: list[ChatMessage], hot_set: frozenset[str] | set[str]
 ) -> bool:
@@ -310,10 +463,10 @@ def _group_touches_hot_ref(
         if msg.role != "tool":
             continue
         content = msg.content
-        if not isinstance(content, str) or not content.startswith(MASK_PREFIX):
+        if not isinstance(content, str):
             continue
-        match = _REF_LINE_RE.search(content)
-        if match and match.group(1) in hot_set:
+        ref = _extract_store_ref(content)
+        if ref and ref in hot_set:
             return True
     return False
 
@@ -426,6 +579,181 @@ def _offload_tool_content(
     return marker_text, max(0, original_tokens - new_tokens)
 
 
+def _offload_unseen_tool_content(
+    content: str,
+    original_tokens: int,
+    tool_name: str,
+    token_counter: TokenCounter,
+    store: ContentStore,
+) -> tuple[str, int]:
+    """Lossless offload of a result the model has *not yet seen*.
+
+    Same store round-trip as :func:`_offload_tool_content`, but the
+    receipt tells the model explicitly that it never saw the full result,
+    how to recall it, and that re-running the tool is the wrong move —
+    the exact instruction a model needs when its own fresh tool output
+    was too large to fit.
+    """
+    key = f"{tool_name}:{uuid.uuid4().hex[:12]}"
+    preview_char_budget = max(200, len(content) // 10)
+    ref = store.store(
+        key=key,
+        content=content,
+        original_tokens=original_tokens,
+        preview_lines=_PREVIEW_HEAD_LINES,
+        preview_max_chars=preview_char_budget,
+        tool_name=tool_name,
+    )
+    marker_text = ref.to_marker() + "\n" + _ADAPTIVE_RECEIPT_HINT.format(key=key)
+    new_tokens = token_counter.count(marker_text)
+    return marker_text, max(0, original_tokens - new_tokens)
+
+
+def _tail_needs_squeeze(
+    head: list[ChatMessage],
+    tail: list[ChatMessage],
+    budget: ContextBudget,
+    token_counter: TokenCounter,
+) -> bool:
+    """True when task head + kept tail alone still exceed the working budget."""
+    if budget.effective_limit <= 0:
+        return False
+    return (
+        token_counter.count_messages(head) + token_counter.count_messages(tail)
+        > budget.effective_limit
+    )
+
+
+def _squeeze_tail(
+    tail: list[ChatMessage],
+    *,
+    head_tokens: int,
+    budget: ContextBudget,
+    config: ContextConfig,
+    token_counter: TokenCounter,
+    store: ContentStore | None,
+    hot_set: frozenset[str],
+    last_assistant: int,
+    position: dict[int, int],
+) -> tuple[list[ChatMessage], int, int, int]:
+    """Shrink the tool results of the kept tail until it fits the budget.
+
+    Returns ``(new_tail, tokens_freed, offloaded_count, lost_unseen_count)``.
+    Largest results go first.  With a store the content is offloaded
+    losslessly behind a preview + recall hint; without one it is
+    truncated head/tail and — if the model had not read it yet — counted
+    as lost evidence.
+    """
+    from nucleusiq.agents.chat_models import ChatMessage as CM
+
+    if budget.effective_limit <= 0:
+        return tail, 0, 0, 0
+    excess = head_tokens + token_counter.count_messages(tail) - budget.effective_limit
+    if excess <= 0:
+        return tail, 0, 0, 0
+
+    lossless = config.enable_offloading and store is not None
+    candidates: list[tuple[int, int]] = []
+    for idx, msg in enumerate(tail):
+        if msg.role != "tool" or not isinstance(msg.content, str):
+            continue
+        if _is_receipt(msg.content):
+            continue
+        if hot_set and _group_touches_hot_ref([msg], hot_set):
+            continue
+        tokens = token_counter.count(msg.content)
+        if tokens < _ADAPTIVE_OFFLOAD_MIN_TOKENS:
+            continue
+        candidates.append((-tokens, idx))
+    candidates.sort()
+
+    new_tail = list(tail)
+    freed_total = 0
+    offloaded = 0
+    lost_unseen = 0
+    for neg_tokens, idx in candidates:
+        if excess <= 0:
+            break
+        msg = new_tail[idx]
+        assert isinstance(msg.content, str)
+        tokens = -neg_tokens
+        unseen = position.get(id(msg), -1) > last_assistant
+        if lossless:
+            assert store is not None
+            offload = _offload_unseen_tool_content if unseen else _offload_tool_content
+            new_content, freed = offload(
+                msg.content, tokens, msg.name or "tool", token_counter, store
+            )
+            offloaded += 1
+        else:
+            new_content, freed = _truncate_tool_content(
+                msg.content, tokens, token_counter
+            )
+            if unseen and freed > 0:
+                lost_unseen += 1
+        if freed <= 0:
+            continue
+        new_tail[idx] = CM(
+            role=msg.role,
+            content=new_content,
+            name=msg.name,
+            tool_call_id=msg.tool_call_id,
+        )
+        excess -= freed
+        freed_total += freed
+    return new_tail, freed_total, offloaded, lost_unseen
+
+
+def _last_assistant_index(messages: list[ChatMessage]) -> int:
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "assistant":
+            return i
+    return -1
+
+
+def _is_receipt(content: object) -> bool:
+    return isinstance(content, str) and content.startswith(
+        (MASK_PREFIX, _CONTEXT_REF_PREFIX, _EVIDENCE_CATALOG_PREFIX)
+    )
+
+
+def _split_task_head(
+    messages: list[ChatMessage],
+) -> tuple[list[ChatMessage], list[ChatMessage]]:
+    """Return ``(task_head, rest)`` — invariant **I1**.
+
+    The task head is everything the model was *given* before it did
+    anything: the leading system messages plus every user / system
+    message that precedes the first assistant or tool turn.  Prompt
+    templates routinely emit several of those (a user preamble, the
+    ``Task.resources`` block, the objective itself); pinning only the
+    first one — the pre-0.7.14 rule — let emergency compaction evict the
+    objective and the resource list, after which the model "forgot" what
+    it still had to process.
+
+    If no user message precedes the first assistant turn (memory-first
+    transcripts), the first user message anywhere is pinned instead, so
+    the historical behaviour is preserved for that layout.
+    """
+    head: list[ChatMessage] = []
+    idx = 0
+    for msg in messages:
+        if msg.role in ("system", "user"):
+            head.append(msg)
+            idx += 1
+        else:
+            break
+    rest = messages[idx:]
+    if any(m.role == "user" for m in head):
+        return head, rest
+
+    for i, msg in enumerate(rest):
+        if msg.role == "user":
+            head.append(msg)
+            return head, rest[:i] + rest[i + 1 :]
+    return head, rest
+
+
 def _partition_for_conversation(
     messages: list[ChatMessage],
     preserve_recent: int,
@@ -436,9 +764,9 @@ def _partition_for_conversation(
 
     Pinning rules (Context Mgmt v2 — invariant **I1** + hot-set rescue):
 
-    * Leading system messages are always pinned.
-    * The first user message ("the task") is always pinned right
-      after the system head.  Without this pin, synthesis produces
+    * The task head (leading system messages plus the user messages that
+      precede the first assistant turn — see :func:`_split_task_head`)
+      is always pinned.  Without this pin, synthesis produces
       "I don't have the instructions you're referring to..." refusals
       once the conversation grows past ``preserve_recent`` groups.
     * Assistant messages with ``tool_calls`` and their following
@@ -449,33 +777,7 @@ def _partition_for_conversation(
       reference a hot ref is rescued back into the head, preserving
       original chronological order.
     """
-    pinned_head: list[ChatMessage] = []
-    idx = 0
-    for msg in messages:
-        if msg.role == "system":
-            pinned_head.append(msg)
-            idx += 1
-        else:
-            break
-
-    remaining = messages[idx:]
-    if not remaining:
-        return pinned_head, [], []
-
-    # I1 — pin the first user message (the original task).
-    first_user_idx_in_remaining: int | None = None
-    for i, msg in enumerate(remaining):
-        if msg.role == "user":
-            first_user_idx_in_remaining = i
-            break
-
-    if first_user_idx_in_remaining is not None:
-        pinned_head.append(remaining[first_user_idx_in_remaining])
-        remaining = (
-            remaining[:first_user_idx_in_remaining]
-            + remaining[first_user_idx_in_remaining + 1 :]
-        )
-
+    pinned_head, remaining = _split_task_head(messages)
     if not remaining:
         return pinned_head, [], []
 
@@ -537,10 +839,11 @@ class Compactor:
       result cannot blow the budget mid-turn.
     * **Conversation eviction** (was ``ConversationCompactor``) —
       drops oldest turn groups while honouring the I1 + hot-set pin
-      invariants.
+      invariants, and keeps evicted store refs in an evidence catalog.
     * **Emergency reduction** (was ``EmergencyCompactor``) —
       last-resort reduction to ``head + last group`` when utilisation
-      crosses the panic threshold.
+      crosses the panic threshold. Same addressability catalog as
+      conversation eviction — not a special-case marker keep.
     * **Post-response masking** (was ``ObservationMasker``) — replaces
       consumed tool results with structured markers; runs from
       :meth:`mask`.
@@ -582,7 +885,13 @@ class Compactor:
         # Triggered at ``tool_compaction_trigger``.  Cheap, instant.
         if current_util >= config.tool_compaction_trigger:
             current_messages, events_tier, current_util = await self._tool_pass(
-                current_messages, budget, config, token_counter, store, current_util
+                current_messages,
+                budget,
+                config,
+                token_counter,
+                store,
+                current_util,
+                hot_set=hot_set,
             )
             events.extend(events_tier)
             if current_util < config.tool_compaction_trigger:
@@ -595,6 +904,7 @@ class Compactor:
                 budget,
                 config,
                 token_counter,
+                store,
                 hot_set,
                 current_util,
             )
@@ -609,6 +919,7 @@ class Compactor:
                 budget,
                 config,
                 token_counter,
+                store,
                 hot_set,
                 current_util,
             )
@@ -752,8 +1063,27 @@ class Compactor:
         token_counter: TokenCounter,
         store: ContentStore | None,
         starting_util: float,
+        *,
+        hot_set: frozenset[str] | None = None,
     ) -> tuple[list[ChatMessage], list[CompactionEvent], float]:
-        """Per-tool-result offload / truncate (Tier 1, formerly ToolResultCompactor)."""
+        """Per-tool-result offload / truncate (Tier 1, formerly ToolResultCompactor).
+
+        Two steps:
+
+        1. **Static brake** — any single result above
+           ``config.tool_result_threshold`` is offloaded (or truncated when
+           offloading is off).  Unchanged behaviour.
+        2. **Adaptive squeeze** — if the transcript is still above the
+           conversation trigger *and* offloading is available, the largest
+           remaining raw tool results are offloaded largest-first until the
+           transcript is back under the Tier-1 trigger.  The threshold in
+           step 1 is absolute; this step is relative to the window, so a
+           *round* of medium results (nine 2K documents in a 12K window)
+           no longer sails past Tier 1 untouched and lands in emergency
+           eviction, where the model loses evidence it never got to read.
+           Every squeezed result stays recallable and keeps a preview; the
+           receipt tells the model not to re-run the tool.
+        """
         from nucleusiq.agents.chat_models import ChatMessage as CM
 
         t0 = time.perf_counter()
@@ -797,6 +1127,74 @@ class Compactor:
                 )
             )
 
+        # Step 2 — adaptive squeeze.
+        squeezed = 0
+        if (
+            config.enable_offloading
+            and store is not None
+            and budget.effective_limit > 0
+        ):
+            tokens_now = token_counter.count_messages(compacted)
+            target = int(config.tool_compaction_trigger * budget.effective_limit)
+            excess = tokens_now - target
+            if (
+                tokens_now / budget.effective_limit >= config.compaction_trigger
+                and excess > 0
+            ):
+                hot = hot_set or frozenset()
+                last_assistant = _last_assistant_index(compacted)
+                candidates: list[tuple[int, int, int]] = []  # (-tokens, seen_rank, idx)
+                for idx, msg in enumerate(compacted):
+                    if msg.role != "tool" or not isinstance(msg.content, str):
+                        continue
+                    if _is_receipt(msg.content):
+                        continue
+                    if hot and _group_touches_hot_ref([msg], hot):
+                        continue
+                    tokens = token_counter.count(msg.content)
+                    if tokens < _ADAPTIVE_OFFLOAD_MIN_TOKENS:
+                        continue
+                    # Results the model already responded to go first;
+                    # unseen results only when that is not enough.
+                    seen_rank = 0 if idx < last_assistant else 1
+                    candidates.append((seen_rank, -tokens, idx))
+                candidates.sort()
+                for seen_rank, neg_tokens, idx in candidates:
+                    if excess <= 0:
+                        break
+                    msg = compacted[idx]
+                    assert isinstance(msg.content, str)
+                    offload = (
+                        _offload_tool_content
+                        if seen_rank == 0
+                        else _offload_unseen_tool_content
+                    )
+                    new_content, freed = offload(
+                        msg.content,
+                        -neg_tokens,
+                        msg.name or "tool",
+                        token_counter,
+                        store,
+                    )
+                    compacted[idx] = CM(
+                        role=msg.role,
+                        content=new_content,
+                        name=msg.name,
+                        tool_call_id=msg.tool_call_id,
+                    )
+                    excess -= freed
+                    total_freed += freed
+                    artifacts_offloaded += 1
+                    squeezed += 1
+                if squeezed:
+                    logger.info(
+                        "Adaptive tool-result offload: %d result(s) moved to the "
+                        "content store to fit the working budget (%d → ~%d tokens)",
+                        squeezed,
+                        tokens_now,
+                        max(0, tokens_now - total_freed),
+                    )
+
         elapsed_ms = (time.perf_counter() - t0) * 1000
         tokens_after = token_counter.count_messages(compacted)
 
@@ -823,6 +1221,7 @@ class Compactor:
         budget: ContextBudget,
         config: ContextConfig,
         token_counter: TokenCounter,
+        store: ContentStore | None,
         hot_set: frozenset[str] | None,
         starting_util: float,
     ) -> tuple[list[ChatMessage], list[CompactionEvent], float]:
@@ -848,6 +1247,10 @@ class Compactor:
             token_counter.count(m.content) if isinstance(m.content, str) else 0
             for m in evictable
         )
+        evidence, newly_offloaded = _collect_addressable_evidence(
+            evictable, store, token_counter
+        )
+        catalog = _build_evidence_catalog(evidence)
 
         if config.enable_summarization:
             marker_content = _build_structured_summary(evictable, evicted_tokens)
@@ -859,10 +1262,18 @@ class Compactor:
             )
 
         marker = CM(role="system", content=marker_content)
-        compacted = pinned_head + [marker] + pinned_tail
+        compacted = list(pinned_head)
+        if catalog is not None:
+            compacted.append(catalog)
+        compacted.extend([marker, *pinned_tail])
 
         marker_cost = token_counter.count(marker_content)
-        freed = max(0, evicted_tokens - marker_cost)
+        catalog_cost = (
+            token_counter.count(catalog.content)
+            if catalog is not None and isinstance(catalog.content, str)
+            else 0
+        )
+        freed = max(0, evicted_tokens - marker_cost - catalog_cost)
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
         tokens_after = token_counter.count_messages(compacted)
@@ -874,7 +1285,7 @@ class Compactor:
                 tokens_before=tokens_before,
                 tokens_after=tokens_after,
                 tokens_freed=freed,
-                artifacts_offloaded=0,
+                artifacts_offloaded=newly_offloaded,
                 duration_ms=elapsed_ms,
             )
         ]
@@ -889,6 +1300,7 @@ class Compactor:
         budget: ContextBudget,
         config: ContextConfig,
         token_counter: TokenCounter,
+        store: ContentStore | None,
         hot_set: frozenset[str] | None,
         starting_util: float,
         *,
@@ -909,22 +1321,9 @@ class Compactor:
         t0 = time.perf_counter()
         tokens_before = token_counter.count_messages(messages)
 
-        # Split out leading system messages.
-        system_msgs: list[ChatMessage] = []
-        rest: list[ChatMessage] = []
-        for msg in messages:
-            if msg.role == "system" and not rest:
-                system_msgs.append(msg)
-            else:
-                rest.append(msg)
-
-        # I1 — pin the first user message.
-        first_user_msg: ChatMessage | None = None
-        for i, msg in enumerate(rest):
-            if msg.role == "user":
-                first_user_msg = msg
-                rest = rest[:i] + rest[i + 1 :]
-                break
+        # I1 — pin the task head (system messages + the user messages
+        # that precede the first assistant turn).
+        task_head, rest = _split_task_head(messages)
 
         # Build atomic groups (assistant + tool-result clusters).
         groups: list[list[ChatMessage]] = []
@@ -943,42 +1342,92 @@ class Compactor:
             groups.append(group)
 
         tail_group_count = 1
-        if len(groups) <= tail_group_count:
-            return messages, [], starting_util
-
         kept_groups = groups[-tail_group_count:]
         dropped_groups = groups[:-tail_group_count]
         kept_tail = [m for g in kept_groups for m in g]
+        if not dropped_groups and not _tail_needs_squeeze(
+            task_head, kept_tail, budget, token_counter
+        ):
+            # Nothing to drop and the tail already fits: no-op (legacy).
+            return messages, [], starting_util
 
         hot = hot_set or frozenset()
         rescued: list[ChatMessage] = []
-        truly_dropped: list[ChatMessage] = []
+        evicted: list[ChatMessage] = []
         for g in dropped_groups:
             if hot and _group_touches_hot_ref(g, hot):
                 rescued.extend(g)
-            else:
-                truly_dropped.extend(g)
+                continue
+            evicted.extend(g)
+
+        # Tool results that no assistant turn has followed were never read
+        # by the model.  Evicting them is the one compaction outcome that
+        # can silently turn a grounded answer into a guess, so it is
+        # counted and surfaced (``CompactionEvent.unseen_evicted`` →
+        # ``EVIDENCE_EVICTED_UNSEEN`` finding).
+        last_assistant = _last_assistant_index(messages)
+        position = {id(m): i for i, m in enumerate(messages)}
+        unseen_evicted = sum(
+            1
+            for m in evicted
+            if m.role == "tool"
+            and not _is_receipt(m.content)
+            and position.get(id(m), -1) > last_assistant
+        )
+
+        evidence, newly_offloaded = _collect_addressable_evidence(
+            evicted, store, token_counter
+        )
+        catalog = _build_evidence_catalog(evidence)
 
         dropped_tokens = sum(
             token_counter.count(m.content) if isinstance(m.content, str) else 0
-            for m in truly_dropped
+            for m in evicted
         )
 
         marker_text = _EMERGENCY_MARKER.format(
             util=budget.utilization,
-            dropped=len(truly_dropped),
+            dropped=len(evicted),
             tokens=dropped_tokens,
             kept=len(kept_tail),
         )
         marker = CM(role="system", content=marker_text)
         marker_cost = token_counter.count(marker_text)
+        catalog_cost = (
+            token_counter.count(catalog.content)
+            if catalog is not None and isinstance(catalog.content, str)
+            else 0
+        )
 
-        head: list[ChatMessage] = list(system_msgs)
-        if first_user_msg is not None:
-            head.append(first_user_msg)
+        head: list[ChatMessage] = list(task_head)
         head.extend(rescued)
-        compacted = head + [marker] + kept_tail
-        freed = max(0, dropped_tokens - marker_cost)
+        if catalog is not None:
+            head.append(catalog)
+
+        # The kept tail can itself be larger than the whole window — one
+        # round of tool calls that returned more than the model can read.
+        # Dropping everything else does not help then; the tail's own
+        # results must shrink.  Lossless (offload + preview + recall hint)
+        # when a store is available, lossy head/tail truncation otherwise.
+        # Only the lossy path counts as "unseen evicted": the model still
+        # gets a preview and a handle in the lossless one.
+        squeezed_tail, tail_freed, tail_offloaded, tail_lost_unseen = _squeeze_tail(
+            kept_tail,
+            head_tokens=token_counter.count_messages(head) + marker_cost,
+            budget=budget,
+            config=config,
+            token_counter=token_counter,
+            store=store,
+            hot_set=hot,
+            last_assistant=last_assistant,
+            position=position,
+        )
+        kept_tail = squeezed_tail
+        newly_offloaded += tail_offloaded
+        unseen_evicted += tail_lost_unseen
+
+        compacted = head + [marker] + kept_tail if evicted else head + kept_tail
+        freed = max(0, dropped_tokens - marker_cost - catalog_cost) + tail_freed
 
         # Note: ``CompactionEvent`` (telemetry) has no ``warnings``
         # field — the v1 engine's ``getattr(..., 'warnings', ())``
@@ -987,11 +1436,22 @@ class Compactor:
         # visibility but not propagated through the event object,
         # matching pre-Step-3 behaviour.
         warning_text = (
-            f"Emergency compaction: dropped {len(truly_dropped)} messages "
+            f"Emergency compaction: dropped {len(evicted)} messages "
             f"(~{dropped_tokens} tokens) at {budget.utilization:.0%} utilization"
             + (
                 f"; rescued {len(rescued)} hot-recalled tool message(s)"
                 if rescued
+                else ""
+            )
+            + (f"; catalogued {len(evidence)} recallable ref(s)" if evidence else "")
+            + (
+                f"; squeezed {tail_offloaded} oversized result(s) in the current turn"
+                if tail_offloaded
+                else ""
+            )
+            + (
+                f"; {unseen_evicted} tool result(s) lost before the model saw them"
+                if unseen_evicted
                 else ""
             )
         )
@@ -1009,8 +1469,9 @@ class Compactor:
                 tokens_before=tokens_before,
                 tokens_after=tokens_after,
                 tokens_freed=freed,
-                artifacts_offloaded=0,
+                artifacts_offloaded=newly_offloaded,
                 duration_ms=elapsed_ms,
+                unseen_evicted=unseen_evicted,
             )
         ]
         new_util = (
@@ -1118,6 +1579,7 @@ class ConversationCompactor(CompactionStrategy):
             budget,
             config,
             token_counter,
+            store,
             hot_set,
             budget.utilization,
         )
@@ -1191,6 +1653,7 @@ class EmergencyCompactor(CompactionStrategy):
             budget,
             config,
             token_counter,
+            store,
             hot_set,
             budget.utilization,
             out_warnings=captured_warnings,

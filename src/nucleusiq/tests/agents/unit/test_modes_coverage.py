@@ -3,8 +3,9 @@
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import BaseModel
 from nucleusiq.agents.agent import Agent
-from nucleusiq.agents.config import AgentState
+from nucleusiq.agents.config import AgentConfig, AgentState
 from nucleusiq.agents.modes.base_mode import BaseExecutionMode
 from nucleusiq.agents.modes.direct_mode import DirectMode
 from nucleusiq.agents.modes.standard_mode import StandardMode
@@ -34,6 +35,27 @@ def _make_agent(**overrides):
 
 
 class TestBaseExecutionModeHelpers:
+    def test_should_run_synthesis_skips_when_schema_set(self):
+        class Item(BaseModel):
+            n: int
+
+        agent = _make_agent(
+            response_format=Item,
+            config=AgentConfig(enable_synthesis=True),
+        )
+        assert BaseExecutionMode.should_run_synthesis(agent) is False
+
+    def test_should_run_synthesis_on_when_no_schema(self):
+        agent = _make_agent(config=AgentConfig(enable_synthesis=True))
+        assert BaseExecutionMode.should_run_synthesis(agent) is True
+
+    def test_emergency_loop_exhausted_after_three(self):
+        agent = _make_agent()
+        agent._context_engine = MagicMock(emergency_count=3)
+        assert BaseExecutionMode.emergency_loop_exhausted(agent) is True
+        agent._context_engine = MagicMock(emergency_count=2)
+        assert BaseExecutionMode.emergency_loop_exhausted(agent) is False
+
     def test_get_objective_dict(self):
         result = BaseExecutionMode.get_objective({"objective": "do stuff"})
         assert result == "do stuff"

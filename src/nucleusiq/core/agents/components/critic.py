@@ -187,6 +187,30 @@ class CritiqueResult(BaseModel):
             "Used for programmatic cross-check against the Generator's answer."
         ),
     )
+    evidence_view: str = Field(
+        default="unknown",
+        description=(
+            "How much of the Generator's evidence the Verifier was shown: "
+            "'complete' (every tool result whole, or every curated item "
+            "present), 'partial' (something was cut or dropped), or "
+            "'unknown' (legacy callers that did not report it).  Set by the "
+            "orchestrator, never by the model."
+        ),
+    )
+    original_verdict: Verdict | None = Field(
+        default=None,
+        description=(
+            "The model's own verdict when the orchestrator changed it — a "
+            "FAIL reached on partial evidence is downgraded to UNCERTAIN "
+            "(design invariant I-10) and the original is kept here."
+        ),
+    )
+
+    @property
+    def downgraded(self) -> bool:
+        return (
+            self.original_verdict is not None and self.original_verdict != self.verdict
+        )
 
 
 # ------------------------------------------------------------------ #
@@ -251,6 +275,7 @@ class Critic:
         allow_tool_instructions: bool = True,
         content_store: ContentStore | None = None,
         per_tool_char_cap: int | None = None,
+        output_contract: str | None = None,
     ) -> str:
         """Build an adaptive verification prompt for the Verifier Agent.
 
@@ -293,6 +318,11 @@ class Critic:
                 number of tool results in the trace.  Callers that do
                 not pass this parameter fall back to the legacy fixed
                 limits for backward compatibility.
+            output_contract: Optional schema-compliance criterion (from
+                ``StructuredOutputContract.critic_criterion``).  When the
+                user set ``response_format`` the Verifier must judge the
+                answer as a schema instance, not as prose — "well-
+                structured and clear" is the wrong yardstick for JSON.
 
         Returns:
             Prompt string to use as the Verifier Agent's task objective.
@@ -307,18 +337,29 @@ class Critic:
         used_tools = bool(trace and "[Tool Call]" in trace)
 
         if used_tools and allow_tool_instructions:
-            return self._build_tool_verification(
+            prompt = self._build_tool_verification(
                 task_objective,
                 final_result,
                 trace,
                 lim,
             )
-        return self._build_reasoning_verification(
-            task_objective,
-            final_result,
-            trace,
-            lim,
-        )
+        else:
+            prompt = self._build_reasoning_verification(
+                task_objective,
+                final_result,
+                trace,
+                lim,
+            )
+        if output_contract:
+            prompt = prompt.replace(
+                _VERDICT_FORMAT,
+                "## OUTPUT CONTRACT (overrides style criteria)\n"
+                f"{output_contract}\n"
+                "An answer that is not a single valid JSON object for this "
+                "schema is a SPECIFIC, CONCRETE error → FAIL.\n\n" + _VERDICT_FORMAT,
+                1,
+            )
+        return prompt
 
     # ------------------------------------------------------------------ #
     # Verification strategies (Open/Closed — add new strategies here)     #

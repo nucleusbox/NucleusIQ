@@ -231,8 +231,18 @@ class TestRefinerRevise:
         refiner = Refiner()
         agent = _make_agent()
 
-        big_candidate = "x" * 20_000
-        big_tool_summary = "t" * 20_000
+        # Hand-off caps are window-derived (WS-1). On the 128K fallback
+        # window the Refiner may see up to the role ceilings, so the
+        # inputs must exceed those to exercise truncation.
+        from nucleusiq.agents.context.budgets import budgets_for
+
+        budgets = budgets_for(agent)
+        cand_cap = budgets.handoff_chars("refiner_candidate")
+        tool_cap = budgets.handoff_chars("refiner_tool_summary")
+        assert cand_cap <= 32_000 and tool_cap <= 16_000
+
+        big_candidate = "x" * (cand_cap + 20_000)
+        big_tool_summary = "t" * (tool_cap + 20_000)
 
         seen_prompt: dict[str, str] = {}
 
@@ -262,12 +272,55 @@ class TestRefinerRevise:
             )
 
         body = seen_prompt["content"]
-        # Candidate and tool summary must both be truncated well below
-        # the raw 20 KB inputs. The prompt template contributes a few
-        # literal 'x'/'t' characters (e.g. the "Fix" line doesn't but
-        # allow a small headroom) so we test against a loose ceiling.
-        assert body.count("x") < 9_000, "candidate should be truncated"
-        assert body.count("t") < 5_000, "tool summary should be truncated"
+        # Candidate and tool summary must both be truncated to the
+        # window-derived caps. The prompt template contributes a few
+        # literal 'x'/'t' characters, so allow a small headroom.
+        assert body.count("x") < cand_cap + 200, "candidate should be truncated"
+        assert body.count("t") < tool_cap + 200, "tool summary should be truncated"
+
+    @pytest.mark.asyncio
+    async def test_small_window_shrinks_refiner_handoff(self):
+        """An 8K model must not receive a 32K-char candidate (WS-1)."""
+        from nucleusiq.agents.context.config import ContextConfig
+
+        refiner = Refiner()
+        agent = _make_agent()
+        agent.config = AgentConfig(
+            context=ContextConfig(max_context_tokens=8_000),
+            llm_max_output_tokens=1_024,
+        )
+        seen_prompt: dict[str, str] = {}
+
+        async def fake_loop(
+            self_std,
+            agent_arg,
+            task_arg,
+            messages,
+            tool_specs,
+            *,
+            purpose_override=None,
+        ) -> str:
+            user_msg = next(m for m in messages if m.role == "user")
+            seen_prompt["content"] = user_msg.content
+            return "short"
+
+        with patch(
+            "nucleusiq.agents.modes.standard_mode.StandardMode._tool_call_loop",
+            new=fake_loop,
+        ):
+            await refiner.revise(
+                agent=agent,
+                task_objective="obj",
+                candidate="x" * 20_000,
+                critique=_critique(),
+                tool_result_summary="t" * 20_000,
+            )
+
+        body = seen_prompt["content"]
+        assert body.count("x") < 8_000
+        assert body.count("t") < 4_000
+        # ...but never below the role floor (the Refiner needs *something*).
+        assert body.count("x") >= 2_000
 
 
 # ------------------------------------------------------------------ #

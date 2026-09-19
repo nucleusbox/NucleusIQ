@@ -26,6 +26,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from nucleusiq.agents.context.budget import ContextLedger, Region
+from nucleusiq.agents.context.budgets import BudgetResolver
 from nucleusiq.agents.context.compactor import Compactor
 from nucleusiq.agents.context.config import ContextConfig
 from nucleusiq.agents.context.counter import DefaultTokenCounter, TokenCounter
@@ -135,6 +136,13 @@ class ContextEngine:
         "_policies",
         "_policy_breakdown",
         "_policy_source_breakdown",
+        "_last_prepare_was_emergency",
+        "_emergency_count",
+        # Autonomous harness hardening — WS-1 budgets
+        "_resolved_reserve",
+        "_window_is_fallback",
+        "_system_tokens",
+        "_tool_schema_tokens",
     )
 
     def __init__(
@@ -144,11 +152,22 @@ class ContextEngine:
         *,
         max_tokens: int = 128_000,
         tracer: ExecutionTracerProtocol | None = None,
+        max_output_tokens: int | None = None,
+        window_is_fallback: bool = False,
+        store: ContentStore | None = None,
     ) -> None:
         self._config = config
         self._counter: TokenCounter = token_counter or DefaultTokenCounter()
 
         self._resolved_max = config.max_context_tokens or max_tokens
+        # WS-1: the reply reserve is derived from the window and the
+        # configured ``max_output_tokens`` unless the user pinned it.
+        self._resolved_reserve = ContextConfig.resolve_response_reserve(
+            config, self._resolved_max, max_output_tokens
+        )
+        self._window_is_fallback = bool(window_is_fallback)
+        self._system_tokens = 0
+        self._tool_schema_tokens = 0
         # v0.7.9 — optimal_budget is now adaptive to the model's real
         # context window.  When the user does not override it, we
         # compute ``min(fraction × ctx_window, ceiling)`` so that
@@ -162,9 +181,11 @@ class ContextEngine:
         )
         self._ledger = ContextLedger(
             min(self._resolved_optimal, self._resolved_max),
-            config.response_reserve,
+            self._resolved_reserve,
         )
-        self._store = ContentStore()
+        # A sub-agent passes a ``LayeredContentStore`` so recall reads fall
+        # through to its parent while its own offloads stay local (WS-3).
+        self._store = store if store is not None else ContentStore()
         # Step 3: a single Compactor replaces the v1 pipeline +
         # the four strategy classes.  See ``compactor.py``.
         self._compactor = Compactor()
@@ -202,6 +223,89 @@ class ContextEngine:
         self._policies: dict[str, ResolvedPolicy] = {}
         self._policy_breakdown: dict[str, int] = {}
         self._policy_source_breakdown: dict[str, int] = {}
+        self._last_prepare_was_emergency: bool = False
+        self._emergency_count: int = 0
+
+    @property
+    def resolved_max_tokens(self) -> int:
+        """Hard ceiling this engine sized against (model window)."""
+        return self._resolved_max
+
+    @property
+    def resolved_optimal_budget(self) -> int:
+        """Working budget compaction triggers fire against."""
+        return int(min(self._resolved_optimal, self._resolved_max))
+
+    @property
+    def resolved_response_reserve(self) -> int:
+        """Reply reserve this engine sized against (explicit or derived)."""
+        return int(self._resolved_reserve)
+
+    @property
+    def window_is_fallback(self) -> bool:
+        """True when the window came from the 128K last-resort default."""
+        return self._window_is_fallback
+
+    def set_fixed_costs(self, *, system_tokens: int, tool_schema_tokens: int) -> None:
+        """Record per-call fixed prompt costs measured at preflight."""
+        self._system_tokens = max(0, int(system_tokens))
+        self._tool_schema_tokens = max(0, int(tool_schema_tokens))
+
+    @property
+    def budgets(self) -> BudgetResolver:
+        """Window-derived hand-off budgets for every role (WS-1)."""
+        return BudgetResolver.from_config(
+            self._config,
+            window=self._resolved_max,
+            working_budget=self.resolved_optimal_budget,
+            response_reserve=self._resolved_reserve,
+            system_tokens=self._system_tokens,
+            tool_schema_tokens=self._tool_schema_tokens,
+        )
+
+    async def force_emergency(self, messages: list[ChatMessage]) -> list[ChatMessage]:
+        """Run the emergency tier regardless of measured utilization.
+
+        Used by ``call_llm`` when the provider rejected a request for
+        exceeding the context window: our token estimate said the
+        prompt fit, the server disagreed, so the reduction must be
+        forced rather than triggered.  Records a compaction event and
+        counts toward ``emergency_count`` like a natural trigger.
+        """
+        if self._config.strategy == "none":
+            return messages
+        self._recount(messages)
+        budget = self._ledger.snapshot()
+        lookback = getattr(self._config, "hot_set_lookback_turns", 3) or 0
+        hot_set = (
+            frozenset(self._recall_tracker.hot_set(lookback_turns=lookback))
+            if lookback > 0
+            else frozenset()
+        )
+        compacted, events, _util = await self._compactor._emergency_pass(
+            list(messages),
+            budget,
+            self._config,
+            self._counter,
+            self._store,
+            hot_set,
+            budget.utilization,
+        )
+        self._events.extend(events)
+        self._emergency_count += 1
+        self._last_prepare_was_emergency = True
+        self._recount(compacted)
+        return compacted
+
+    @property
+    def last_prepare_was_emergency(self) -> bool:
+        """True when the latest ``prepare()`` ran the emergency tier."""
+        return self._last_prepare_was_emergency
+
+    @property
+    def emergency_count(self) -> int:
+        """How many times emergency compaction fired this execution."""
+        return self._emergency_count
 
     async def prepare(self, messages: list[ChatMessage]) -> list[ChatMessage]:
         """Pre-LLM-call hook: ensure messages fit within optimal budget.
@@ -212,8 +316,10 @@ class ContextEngine:
         4. Return (possibly compacted) messages.
         """
         if self._config.strategy == "none":
+            self._last_prepare_was_emergency = False
             return messages
 
+        self._last_prepare_was_emergency = False
         self._recount(messages)
         budget = self._ledger.snapshot()
         self._tokens_before_mgmt = budget.allocated
@@ -259,6 +365,17 @@ class ContextEngine:
                     hot_set=hot_set,
                 )
             self._events.extend(events)
+            self._last_prepare_was_emergency = any(
+                e.strategy == "emergency_compactor" for e in events
+            )
+            if self._last_prepare_was_emergency:
+                self._emergency_count += 1
+                logger.warning(
+                    "Emergency compaction #%d this run — the reduced "
+                    "view must become the live transcript or the next "
+                    "turn will sit at 100%% utilization again",
+                    self._emergency_count,
+                )
 
             for event in events:
                 if event.tokens_freed > 0:
@@ -426,7 +543,7 @@ class ContextEngine:
 
         try:
             from nucleusiq.agents.chat_models import ChatMessage as CM
-            from nucleusiq.agents.context.store import _MASK_PREFIX, _REF_LINE_RE
+            from nucleusiq.agents.context.store import receipt_store_key
         except Exception:  # pragma: no cover — defensive
             return list(messages)
 
@@ -437,7 +554,7 @@ class ContextEngine:
             # final completion in :class:`ContextConfig`.  We subtract
             # it so a long synthesis answer never collides with the
             # rehydrated prompt.
-            reserve = max(0, int(self._config.response_reserve))
+            reserve = max(0, int(self._resolved_reserve))
             available = window - current_tokens - reserve
         except Exception as exc:
             logger.debug("prepare_for_synthesis: budget calc failed: %s", exc)
@@ -463,18 +580,13 @@ class ContextEngine:
                 break
             msg = out[i]
             content = msg.content
-            if (
-                msg.role != "tool"
-                or not isinstance(content, str)
-                or not content.startswith(_MASK_PREFIX)
-            ):
+            if msg.role != "tool":
+                continue
+            key = receipt_store_key(content)
+            if key is None:
                 continue
 
             try:
-                match = _REF_LINE_RE.search(content)
-                if not match:
-                    continue
-                key = match.group(1)
                 raw = self._store.retrieve(key)
             except Exception as exc:
                 logger.debug("prepare_for_synthesis: store lookup failed: %s", exc)

@@ -10,19 +10,57 @@ from typing import Any, Literal
 logger = logging.getLogger(__name__)
 
 
+def _arguments_to_mapping(arguments: Any) -> dict[str, Any]:
+    """Ollama's ``Message.ToolCall.Function.arguments`` is a ``Mapping``.
+
+    The framework (and every OpenAI-shaped provider) stores tool-call
+    arguments as a JSON *string*, so assistant turns replayed from history
+    must be decoded before they go back over the wire.  Undecodable strings
+    are preserved under ``_raw`` rather than dropped, so the model still
+    sees what it asked for.
+    """
+    if isinstance(arguments, dict):
+        return arguments
+    if arguments is None:
+        return {}
+    if isinstance(arguments, str):
+        text = arguments.strip()
+        if not text:
+            return {}
+        try:
+            decoded = json.loads(text)
+        except (ValueError, TypeError):
+            return {"_raw": arguments}
+        return decoded if isinstance(decoded, dict) else {"_raw": decoded}
+    try:
+        return dict(arguments)
+    except (TypeError, ValueError):
+        return {"_raw": str(arguments)}
+
+
 def _normalize_tool_call_entry(tc: Any) -> dict[str, Any]:
-    """Coerce one tool call to OpenAI-style ``type`` + nested ``function``."""
+    """Coerce one tool call to OpenAI-style ``type`` + nested ``function``.
+
+    ``function.arguments`` always comes out as a mapping (see
+    :func:`_arguments_to_mapping`).
+    """
     if not isinstance(tc, dict):
-        return {"type": "function", "function": {"name": "", "arguments": "{}"}}
+        return {"type": "function", "function": {"name": "", "arguments": {}}}
     if tc.get("type") == "function" and isinstance(tc.get("function"), dict):
-        return copy.deepcopy(tc)
+        out = copy.deepcopy(tc)
+        out["function"]["arguments"] = _arguments_to_mapping(
+            out["function"].get("arguments")
+        )
+        return out
     fn = tc.get("function")
     if isinstance(fn, dict) and "name" in fn:
-        out: dict[str, Any] = {
+        out = {
             "type": "function",
             "function": {
                 "name": fn["name"],
-                "arguments": fn.get("arguments", tc.get("arguments", "{}")),
+                "arguments": _arguments_to_mapping(
+                    fn.get("arguments", tc.get("arguments"))
+                ),
             },
         }
         if tc.get("id") is not None:
@@ -32,7 +70,7 @@ def _normalize_tool_call_entry(tc: Any) -> dict[str, Any]:
         "type": "function",
         "function": {
             "name": tc.get("name", ""),
-            "arguments": tc.get("arguments", "{}"),
+            "arguments": _arguments_to_mapping(tc.get("arguments")),
         },
     }
     if tc.get("id") is not None:

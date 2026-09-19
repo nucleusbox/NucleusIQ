@@ -305,6 +305,31 @@ _REF_LINE_RE = re.compile(r"^ref:\s*(\S+)\s*$", re.MULTILINE)
 #: the other way around).
 _MASK_PREFIX = "[observation consumed"
 
+#: Tier-1 / adaptive offload receipt (``ContentRef.to_marker``).
+_CONTEXT_REF_PREFIX = "[context_ref:"
+_CONTEXT_REF_RE = re.compile(r"^\[context_ref:\s*([^\]]+)\]", re.MULTILINE)
+
+
+def receipt_store_key(content: object) -> str | None:
+    """Return the store key when ``content`` is a receipt for offloaded content.
+
+    Both receipt shapes the compactor produces are recognised — the
+    post-response masker's ``[observation consumed] … ref: {key}`` and
+    the tool-result offloader's ``[context_ref: {key}]``.  Anything else
+    (including a raw payload that merely contains ``ref:``) returns
+    ``None``.  Every reader that rehydrates evidence for a verifier must
+    go through this so no receipt shape is silently left as a preview.
+    """
+    if not isinstance(content, str):
+        return None
+    if content.startswith(_MASK_PREFIX):
+        match = _REF_LINE_RE.search(content)
+        return match.group(1) if match else None
+    if content.startswith(_CONTEXT_REF_PREFIX):
+        match = _CONTEXT_REF_RE.search(content)
+        return match.group(1).strip() if match else None
+    return None
+
 
 def extract_raw_trace(
     messages: list[ChatMessage],
@@ -355,21 +380,11 @@ def extract_raw_trace(
 
     rehydrated: list[ChatMessage] = []
     for msg in messages:
-        content = msg.content
-        if (
-            msg.role != "tool"
-            or not isinstance(content, str)
-            or not content.startswith(_MASK_PREFIX)
-        ):
+        key = receipt_store_key(msg.content) if msg.role == "tool" else None
+        if key is None:
             rehydrated.append(msg)
             continue
 
-        match = _REF_LINE_RE.search(content)
-        if not match:
-            rehydrated.append(msg)
-            continue
-
-        key = match.group(1)
         raw = store.retrieve(key)
         if raw is None:
             rehydrated.append(msg)

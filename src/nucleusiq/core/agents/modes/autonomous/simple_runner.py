@@ -32,9 +32,12 @@ from nucleusiq.agents.components.progress import ExecutionProgress
 from nucleusiq.agents.components.refiner import Refiner
 from nucleusiq.agents.components.validation import ValidationPipeline
 from nucleusiq.agents.config.agent_config import AgentState
+from nucleusiq.agents.diagnostics.run_report import TerminationReason
 from nucleusiq.agents.modes.autonomous import helpers, telemetry
 from nucleusiq.agents.modes.autonomous.critic_runner import CriticRunner
 from nucleusiq.agents.modes.autonomous.refiner_runner import RefinerRunner
+from nucleusiq.agents.modes.base_mode import _set_termination
+from nucleusiq.agents.modes.loop_guards import deadline_exceeded
 from nucleusiq.agents.task import Task
 from nucleusiq.plugins.errors import PluginHalt
 from nucleusiq.streaming.events import StreamEvent, StreamEventType
@@ -61,6 +64,16 @@ _UNCERTAIN_ACCEPT_THRESHOLD = 0.7
 # Anything else falls through to hard abstention as before.
 _ACCEPT_WITH_WARNING_FLOOR = 0.55
 _ACCEPT_WITH_WARNING_IMPROVEMENT = 0.10
+
+
+def _coverage_retry(agent: Agent, result: Any) -> str | None:
+    """WS-4 one-shot retry prompt for unprocessed ``Task.resources``."""
+    try:
+        from nucleusiq.agents.context.coverage import coverage_retry_message
+
+        return coverage_retry_message(agent, result)
+    except Exception:
+        return None
 
 
 class SimpleRunner:
@@ -136,6 +149,20 @@ class SimpleRunner:
     # ------------------------------------------------------------------ #
     # Best-candidate + accept-with-warning helpers (F5 + F6)              #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _deadline_stop(agent: Agent, attempt: int) -> bool:
+        """True when the wall clock forbids another attempt (records ``deadline``)."""
+        if not deadline_exceeded(agent):
+            return False
+        detail = (
+            f"Wall-clock budget (max_execution_time="
+            f"{getattr(agent.config, 'max_execution_time', '?')}s) exhausted "
+            f"before attempt {attempt + 1}"
+        )
+        agent._logger.warning("[DEADLINE] %s — returning best candidate", detail)
+        _set_termination(agent, TerminationReason.DEADLINE, detail)
+        return True
 
     @staticmethod
     def _is_better_critique(
@@ -267,8 +294,12 @@ class SimpleRunner:
 
         attempt = 0
         final_attempt_index = 0
+        deadline_hit = False
         try:
             while attempt < budget.max_retries:
+                if attempt > 0 and self._deadline_stop(agent, attempt):
+                    deadline_hit = True
+                    break
                 final_attempt_index = attempt
                 self._apply_budget_to_config(agent, budget)
 
@@ -405,6 +436,26 @@ class SimpleRunner:
                     attempt += 1
                     continue
 
+                # WS-4: one bounded retry when declared resources were never
+                # processed nor named — only if an attempt is left, so a
+                # coverage gap can never turn the only answer into nothing.
+                coverage_msg = (
+                    _coverage_retry(agent, result)
+                    if attempt < budget.max_retries - 1
+                    else None
+                )
+                if coverage_msg is not None:
+                    agent._logger.info(
+                        "Attempt %d/%d [COVERAGE]: declared resources unprocessed — "
+                        "one bounded retry",
+                        attempt + 1,
+                        budget.max_retries,
+                    )
+                    messages.append(ChatMessage(role="user", content=coverage_msg))
+                    last_critique = None
+                    attempt += 1
+                    continue
+
                 critique = await self._mode._run_critic(
                     agent, self._critic, task.objective, result, messages
                 )
@@ -520,6 +571,15 @@ class SimpleRunner:
             cumulative_tokens=budget.cumulative_tokens_spent,
         )
 
+        if deadline_hit:
+            # Out of wall clock: the best candidate so far is the answer.
+            # Abstaining here would blame the Critic for a timing budget.
+            chosen = best_content if best_content is not None else result
+            step.mark_completed(str(chosen))
+            agent.state = AgentState.COMPLETED
+            agent._execution_progress = progress
+            return chosen
+
         # F5/F6 — last_critique being non-None means the Critic ran on
         # at least one attempt and the loop exited via STOP_ABSTAIN (or
         # natural exhaustion with the Critic having rejected the
@@ -617,8 +677,12 @@ class SimpleRunner:
 
         attempt = 0
         final_attempt_index = 0
+        deadline_hit = False
         try:
             while attempt < budget.max_retries:
+                if attempt > 0 and self._deadline_stop(agent, attempt):
+                    deadline_hit = True
+                    break
                 final_attempt_index = attempt
                 self._apply_budget_to_config(agent, budget)
 
@@ -762,6 +826,20 @@ class SimpleRunner:
                     attempt += 1
                     continue
 
+                coverage_msg = (
+                    _coverage_retry(agent, final_content)
+                    if attempt < budget.max_retries - 1
+                    else None
+                )
+                if coverage_msg is not None:
+                    yield StreamEvent.thinking_event(
+                        "Declared resources unprocessed — one bounded retry…"
+                    )
+                    messages.append(ChatMessage(role="user", content=coverage_msg))
+                    last_critique = None
+                    attempt += 1
+                    continue
+
                 yield StreamEvent.thinking_event("Verifying result with Critic…")
                 critique = await self._mode._run_critic(
                     agent, self._critic, task.objective, final_content, messages
@@ -855,6 +933,17 @@ class SimpleRunner:
             refined=refined_at_least_once,
             cumulative_tokens=budget.cumulative_tokens_spent,
         )
+
+        if deadline_hit:
+            chosen = best_content if best_content is not None else final_content
+            yield StreamEvent.thinking_event(
+                "Wall-clock budget exhausted — returning best candidate so far"
+            )
+            yield StreamEvent.complete_event(str(chosen or ""))
+            step.mark_completed(str(chosen))
+            agent.state = AgentState.COMPLETED
+            agent._execution_progress = progress
+            return
 
         # F5/F6 — mirror the sync-path policy for streaming.
         if last_critique is not None:

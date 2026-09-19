@@ -1,8 +1,10 @@
-"""Built-in file tools for NucleusIQ agents.
+"""Built-in tools for NucleusIQ agents.
 
-All tools inherit from ``BaseTool`` and are sandboxed to a
-``workspace_root`` directory.  They plug directly into Standard
-and Autonomous mode tool loops with zero extra wiring.
+File tools are sandboxed to a ``workspace_root``. ``WebSearchTool`` is a
+first-class core tool (DuckDuckGo by default; switch ``provider=`` for
+Google, Bing, Brave, Tavily, or Serper). All inherit from ``BaseTool``
+and plug into Standard and Autonomous mode tool loops with zero extra
+wiring.
 
 Usage::
 
@@ -12,6 +14,7 @@ Usage::
         FileSearchTool,
         DirectoryListTool,
         FileExtractTool,
+        WebSearchTool,
     )
 
     agent = Agent(
@@ -22,6 +25,7 @@ Usage::
             FileSearchTool(workspace_root="./data"),
             DirectoryListTool(workspace_root="./data"),
             FileExtractTool(workspace_root="./data"),
+            WebSearchTool(),
         ],
         config=AgentConfig(execution_mode=ExecutionMode.STANDARD),
     )
@@ -35,6 +39,7 @@ from nucleusiq.tools.builtin.file_extract import (
 from nucleusiq.tools.builtin.file_read import FileReadTool
 from nucleusiq.tools.builtin.file_search import FileSearchTool
 from nucleusiq.tools.builtin.file_write import FileWriteTool
+from nucleusiq.tools.builtin.web_search import WebSearchTool
 from nucleusiq.tools.builtin.workspace import (
     WorkspaceSecurityError,
     resolve_safe_path,
@@ -46,6 +51,7 @@ __all__ = [
     "FileReadTool",
     "FileSearchTool",
     "FileWriteTool",
+    "WebSearchTool",
     "WorkspaceSecurityError",
     "register_extract_format",
     "resolve_safe_path",

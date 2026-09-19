@@ -6,6 +6,7 @@ Extracted from ``Agent._build_messages()`` and ``Agent._format_plan()``.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -14,6 +15,13 @@ from nucleusiq.agents.attachments import AttachmentProcessor, ContentPart
 from nucleusiq.agents.chat_models import ChatMessage
 from nucleusiq.agents.plan import Plan
 from nucleusiq.agents.task import Task
+
+#: Fallback cap for the rendered ``Task.context`` block when no agent budget
+#: is available (``BaseExecutionMode.build_messages`` passes a window-derived
+#: value).  ~2K tokens.
+DEFAULT_TASK_CONTEXT_CHARS = 8_000
+#: Resources listed explicitly in the prompt; the rest is summarised as a count.
+MAX_RENDERED_RESOURCES = 60
 
 
 class MessageBuilder:
@@ -27,6 +35,7 @@ class MessageBuilder:
         prompt: Any = None,
         logger: logging.Logger | None = None,
         attachment_processor: Callable[..., list[dict[str, Any]]] | None = None,
+        max_context_chars: int = DEFAULT_TASK_CONTEXT_CHARS,
     ) -> list[ChatMessage]:
         """
         Build messages for an LLM call.
@@ -40,7 +49,9 @@ class MessageBuilder:
         1. System message — from ``prompt.system`` (when set)
         2. User preamble — from ``prompt.user`` (when set)
         3. Plan context — execution plan (when multi-step)
-        4. User request — from ``task.objective``
+        4. Task context — ``task.context`` / ``task.resources`` rendered
+           as one bounded block (when present)
+        5. User request — from ``task.objective``
            (multimodal content array when the Task has attachments)
 
         Args:
@@ -51,6 +62,7 @@ class MessageBuilder:
             logger: Optional logger instance.
             attachment_processor: Optional callable that converts a list
                 of Attachment objects into content-part dicts.
+            max_context_chars: Cap for the rendered task-context block.
 
         Returns:
             List of ChatMessage objects.
@@ -87,6 +99,12 @@ class MessageBuilder:
                     )
                 )
 
+        context_block = MessageBuilder.render_task_context(
+            task, max_chars=max_context_chars
+        )
+        if context_block:
+            messages.append(ChatMessage(role="user", content=context_block))
+
         attachments = (
             task.attachments if isinstance(task, Task) and task.attachments else None
         )
@@ -104,6 +122,80 @@ class MessageBuilder:
             )
 
         return messages
+
+    # ------------------------------------------------------------------ #
+    # Task context / resources                                             #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def render_task_context(
+        task: Task | dict[str, Any],
+        *,
+        max_chars: int = DEFAULT_TASK_CONTEXT_CHARS,
+        max_resources: int = MAX_RENDERED_RESOURCES,
+    ) -> str:
+        """Render ``task.context`` and ``task.resources`` as one bounded block.
+
+        Returns ``""`` when the task carries neither, so callers that never
+        set them see an unchanged message list.  ``context["resources"]``
+        is treated as the resources fallback (not repeated as a key).
+        Values are rendered compactly (JSON for non-strings) and the whole
+        block is truncated to ``max_chars`` with an explicit marker — the
+        model is told the block is partial rather than silently misled.
+        """
+        if isinstance(task, Task):
+            resources = task.effective_resources()
+            context = task.context_without_resources()
+        else:
+            probe = Task(
+                id=str(task.get("id", "tmp")),
+                objective=str(task.get("objective", "")),
+                context=task.get("context")
+                if isinstance(task.get("context"), dict)
+                else None,
+                resources=task.get("resources")
+                if isinstance(task.get("resources"), list)
+                else None,
+            )
+            resources = probe.effective_resources()
+            context = probe.context_without_resources()
+
+        if not resources and not context:
+            return ""
+
+        lines: list[str] = []
+        if context:
+            lines.append("## Task Context")
+            for key, value in context.items():
+                if isinstance(value, str):
+                    rendered = value.strip()
+                else:
+                    try:
+                        rendered = json.dumps(value, ensure_ascii=False, default=str)
+                    except Exception:
+                        rendered = str(value)
+                if "\n" in rendered:
+                    lines.append(f"- {key}:\n{rendered}")
+                else:
+                    lines.append(f"- {key}: {rendered}")
+        if resources:
+            shown = resources[: max(0, int(max_resources))]
+            lines.append("")
+            lines.append(f"## Resources ({len(resources)})")
+            lines.append(
+                "Every item below must be covered by the final answer; name any "
+                "you could not process."
+            )
+            lines.extend(f"- {item}" for item in shown)
+            if len(resources) > len(shown):
+                lines.append(f"- … and {len(resources) - len(shown)} more")
+
+        block = "\n".join(lines).strip()
+        cap = max(0, int(max_chars))
+        if cap and len(block) > cap:
+            marker = "\n[... task context truncated]"
+            block = block[: max(0, cap - len(marker))].rstrip() + marker
+        return block
 
     # ------------------------------------------------------------------ #
     # Multimodal helpers                                                   #
