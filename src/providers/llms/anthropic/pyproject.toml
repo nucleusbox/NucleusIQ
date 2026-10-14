@@ -25,7 +25,7 @@ classifiers = [
 
 dependencies = [
     "nucleusiq>=0.7.12",
-    "anthropic>=0.40,<1",
+    "anthropic>=0.40,<2",
     # Declared because these are imported at module scope in shipped code —
     # httpx in `_shared/retry.py` to classify transport errors, pydantic for
     # the params and response models. Both currently arrive transitively (via
