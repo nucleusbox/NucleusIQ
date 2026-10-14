@@ -31,7 +31,7 @@ dependencies = [
     # not been exercised against this adapter's Responses API paths, and every
     # test here is mocked, so a green suite would prove nothing about it.
     # Raising this belongs in its own change, verified against the live API.
-    "openai>=1.0,<3.0",
+    "openai>=1.0,<4.0",
     "tiktoken>=0.5",
     # Declared because `_shared/retry.py` imports httpx at module scope to
     # classify transport errors. It used to arrive transitively via the openai
